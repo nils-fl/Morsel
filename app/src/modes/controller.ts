@@ -39,6 +39,7 @@ const heldPads = new Set<number>();
 export function initController() {
   launchkey.on((e) => {
     const s = get();
+    if (!s.audioReady && ((e.type === "pad" && e.on) || (e.type === "button" && e.down && e.button !== "shift"))) showTemp("NO AUDIO", "CLICK THE PAGE");
     switch (e.type) {
       case "connection":
         set({ connected: e.connected, status: e.connected ? "Launchkey connected" : "Launchkey disconnected" });

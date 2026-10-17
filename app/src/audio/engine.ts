@@ -19,7 +19,9 @@ class Engine {
     this.voices.master.connect(this.masterTap);
     this.clickOut = this.ctx.createGain();
     this.clickOut.connect(this.ctx.destination);
-    // Browsers start audio suspended until a user gesture.
+    // Browsers start audio suspended until a user gesture. MIDI input doesn't count as one.
+    this.ctx.onstatechange = () => set({ audioReady: this.ctx.state === "running" });
+    set({ audioReady: this.ctx.state === "running" });
     const resume = () => this.ctx.state !== "running" && this.ctx.resume();
     window.addEventListener("pointerdown", resume);
     window.addEventListener("keydown", resume);

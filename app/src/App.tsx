@@ -36,6 +36,7 @@ export default function App() {
   }, []);
   return (
     <div className="app">
+      <AudioBanner />
       <TopBar onGuide={() => setGuide(true)} />
       {guide && <GuideOverlay onClose={() => setGuide(false)} />}
       <PadGrid />
@@ -54,6 +55,13 @@ export default function App() {
       </main>
     </div>
   );
+}
+
+/** The browser only starts audio after a click or key press on the page; the window listeners in the engine resume it. */
+function AudioBanner() {
+  const ready = useApp((s) => s.audioReady);
+  if (ready) return null;
+  return <button className="audio-banner">Audio is paused by the browser. Click anywhere to start it.</button>;
 }
 
 function TopBar({ onGuide }: { onGuide: () => void }) {

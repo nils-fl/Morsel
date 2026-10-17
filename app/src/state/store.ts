@@ -148,6 +148,8 @@ export interface AppState {
   status: string;
   sampling: "idle" | "waiting" | "recording";
   sampleSource: "input" | "master";
+  /** False while the browser keeps audio suspended (no click or key press on the page yet). */
+  audioReady: boolean;
   undo: Project[];
 }
 
@@ -174,6 +176,7 @@ export const store = createStore<AppState>(() => ({
   status: "",
   sampling: "idle",
   sampleSource: "input",
+  audioReady: false,
   undo: [],
 }));
 

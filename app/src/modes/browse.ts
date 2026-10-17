@@ -13,8 +13,16 @@ const cursor = new Cursor();
 let kits: string[] = [];
 let previewTimer = 0;
 
+// The screen redraws every 33 ms and asks for the list several times per frame; only rebuild
+// (filter + sort the whole library) when the folder, the library or the kit list changes.
+let cache: { path: string; samples: object; kits: string[]; list: Entry[] } | null = null;
+
 function entries(): Entry[] {
-  return listDir(cursor.path, Object.values(get().samples), kits);
+  const samples = get().samples;
+  if (!cache || cache.path !== cursor.path || cache.samples !== samples || cache.kits !== kits) {
+    cache = { path: cursor.path, samples, kits, list: listDir(cursor.path, Object.values(samples), kits) };
+  }
+  return cache.list;
 }
 
 function current(): Entry | undefined {

@@ -4,10 +4,26 @@ import "./index.css";
 import App from "./App";
 import { boot } from "./boot";
 
-boot().then(() => {
-  createRoot(document.getElementById("root")!).render(
-    <StrictMode>
-      <App />
-    </StrictMode>,
-  );
-});
+const root = document.getElementById("root")!;
+
+boot().then(
+  () => {
+    createRoot(root).render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
+  },
+  (err: unknown) => {
+    // Usually IndexedDB being unavailable (private window, blocked site data, full disk).
+    console.error("LaunchKit failed to start", err);
+    const box = document.createElement("div");
+    box.className = "boot-error";
+    const title = document.createElement("strong");
+    title.textContent = "LaunchKit couldn't start";
+    const msg = document.createElement("p");
+    msg.textContent = `${err instanceof Error ? err.message : String(err)}. LaunchKit stores samples and projects in the browser's storage (IndexedDB). Private windows or blocked site data can prevent that. Use a normal Chrome window and reload.`;
+    box.append(title, msg);
+    root.replaceChildren(box);
+  },
+);

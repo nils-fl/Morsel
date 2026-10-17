@@ -40,6 +40,8 @@ class Sequencer {
   private songIndex = 0;
   private songRepeat = 0;
   private skip = new Set<string>();
+  /** Recorded notes that sounded live just before the loop end but were quantised to the next pass. */
+  private skipNextPass = new Set<string>();
   private anchors: Anchor[] = [];
   private openKeys = new Map<number, { id: string; tick: number; pattern: number }>();
   /** Pads held for note repeat (pad -> velocity). */
@@ -57,6 +59,7 @@ class Sequencer {
     this.nextTime = engine.now + 0.05;
     this.anchors = [];
     this.skip.clear();
+    this.skipNextPass.clear();
     set({ playing: true, countIn: !!opts.countIn, currentPattern: this.pattern, queuedPattern: null });
     this.pump();
     this.ticker(TIMER_MS);
@@ -111,9 +114,12 @@ class Sequencer {
           }
         }
         if (this.repeatOn && this.repeatPads.size && tick % s.repeatRate === 0) {
+          const recording = s.recording && !s.countIn;
           for (const [pad, vel] of this.repeatPads) {
+            // Held across the loop while recording: the note from the last pass is already there and has just played.
+            if (recording && evs?.some((e) => e.track === pad)) continue;
             engine.voices.pad(pad, vel, t + swingOffsetTicks(tick, p.swing) * spt, s.repeatRate * spt);
-            if (s.recording && !s.countIn) addEvent(this.pattern, { tick, track: pad, note: 60, vel, len: s.repeatRate });
+            if (recording) addEvent(this.pattern, { tick, track: pad, note: 60, vel, len: s.repeatRate });
           }
         }
       }
@@ -129,7 +135,8 @@ class Sequencer {
 
   private wrap() {
     this.nextTick = 0;
-    this.skip.clear();
+    this.skip = this.skipNextPass;
+    this.skipNextPass = new Set();
     const s = get();
     let next = this.pattern;
     if (s.songMode && s.project.song.length) {
@@ -156,33 +163,36 @@ class Sequencer {
 
   // ---------- live recording ----------
 
-  private recordTick(): { tick: number; pattern: number } | null {
+  /** Where a live hit is recorded. `wrapped`: quantised forward past the loop end, onto the next pass. */
+  private recordTick(): { tick: number; pattern: number; len: number; wrapped: boolean } | null {
     const s = get();
     if (!s.recording || s.countIn) return null;
     const pos = this.tickAt();
     if (!pos || pos.tick < 0) return null;
     const len = patternLength(s.project.patterns[pos.pattern]);
     const tick = quantizeTick(pos.tick, s.quantize, len);
-    return { tick, pattern: pos.pattern };
+    return { tick, pattern: pos.pattern, len, wrapped: tick < pos.tick - len / 2 };
   }
 
-  private skipIfAhead(ev: NoteEvent, pattern: number) {
-    // The note already sounded live; don't play it again later in this pass.
-    if (pattern === this.pattern && ev.tick >= this.nextTick) this.skip.add(ev.id);
+  private skipIfAhead(ev: NoteEvent, r: { pattern: number; len: number; wrapped: boolean }) {
+    // The note already sounded live; don't play it again when the scheduler reaches it.
+    if (r.pattern !== this.pattern) return;
+    if (r.wrapped && this.nextTick > r.len / 2) this.skipNextPass.add(ev.id); // scheduler hasn't wrapped yet
+    else if (ev.tick >= this.nextTick) this.skip.add(ev.id);
   }
 
   recordPad(pad: number, vel: number) {
     const r = this.recordTick();
     if (!r) return;
     const ev = addEvent(r.pattern, { tick: r.tick, track: pad, note: 60, vel, len: get().quantize || 24 });
-    this.skipIfAhead(ev, r.pattern);
+    this.skipIfAhead(ev, r);
   }
 
   recordKeyOn(note: number, vel: number) {
     const r = this.recordTick();
     if (!r) return;
     const ev = addEvent(r.pattern, { tick: r.tick, track: KEYS_TRACK, note, vel, len: 24 });
-    this.skipIfAhead(ev, r.pattern);
+    this.skipIfAhead(ev, r);
     const pos = this.tickAt();
     this.openKeys.set(note, { id: ev.id, tick: pos ? pos.tick : r.tick, pattern: r.pattern });
   }
