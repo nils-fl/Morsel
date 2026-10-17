@@ -4,8 +4,7 @@ import { engine } from "../audio/engine";
 import { updateKeys, useApp } from "../state/store";
 import type { SynthParams, Wave, Zone } from "../state/types";
 import { Field, Section, Slider } from "./controls";
-import { noteName } from "./SeqGrid";
-import { rootFromName } from "./rootFromName";
+import { noteName, rootFromName } from "./notes";
 
 const WAVES: Wave[] = ["sawtooth", "square", "triangle", "sine"];
 const pct = (v: number) => `${Math.round(v * 100)}%`;

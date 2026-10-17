@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { PAGES } from "../params";
 import { useApp } from "../state/store";
-import { paletteCss } from "./controls";
+import { paletteCss } from "./palette";
 
 type ControlId = "strips" | "screen" | "shift" | "settings" | "play" | "record" | "octave" | "arpScale" | "padUp" | "padDown" | "encoders" | "pads" | "encUp" | "encDown" | "scene" | "func" | "keys";
 

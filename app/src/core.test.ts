@@ -3,7 +3,7 @@ import { detectOnsets, equalSlices } from "./audio/chop";
 import { DAW_NOTES, DRUM_NOTES, displayTextSysex, noteForPad, padFromNote, padLedMessage, relativeDelta } from "./midi/protocol";
 import { padForStep, stepForPad } from "./modes/stepMap";
 import { quantizeTick, STEP_TICKS, swingOffsetTicks } from "./seq/timing";
-import { rootFromName } from "./ui/rootFromName";
+import { rootFromName } from "./ui/notes";
 
 describe("protocol", () => {
   it("maps drum pads MPC-style (pad 1 = bottom-left = note 36)", () => {

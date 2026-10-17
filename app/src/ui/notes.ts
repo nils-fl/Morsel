@@ -1,3 +1,6 @@
+const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+export const noteName = (n: number) => `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`;
+
 /** Root note from a filename like "Piano_C#4.wav", "Rhodes-Db3", or "Strings 060". C4 = 60. */
 export function rootFromName(name: string): number | null {
   const base = name.replace(/\.[^.]+$/, "");

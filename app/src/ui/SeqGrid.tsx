@@ -2,10 +2,8 @@ import { useEffect, useState } from "react";
 import { sequencer } from "../seq/sequencer";
 import { STEP_TICKS } from "../seq/timing";
 import { KEYS_TRACK, clearTrack, set, toggleArray, toggleStep, updatePattern, useApp } from "../state/store";
-import { paletteCss } from "./controls";
-
-const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-export const noteName = (n: number) => `${NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`;
+import { noteName } from "./notes";
+import { paletteCss } from "./palette";
 
 function usePlayheadStep() {
   const [step, setStep] = useState(-1);

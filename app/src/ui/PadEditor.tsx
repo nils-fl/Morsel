@@ -6,7 +6,8 @@ import { engine } from "../audio/engine";
 import { listKits, loadKit, saveKit } from "../state/persist";
 import { importKit } from "../state/projectFile";
 import { get, set, updatePad, updateProject, useApp } from "../state/store";
-import { Field, PALETTE_CHOICES, Section, Slider, paletteCss } from "./controls";
+import { Field, Section, Slider } from "./controls";
+import { PALETTE_CHOICES, paletteCss } from "./palette";
 import { Waveform } from "./Waveform";
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
@@ -99,12 +100,14 @@ function SamplingPanel() {
   const sampling = useApp((s) => s.sampling);
   const source = useApp((s) => s.sampleSource);
   const pad = useApp((s) => s.selectedPad);
-  const [level, setLevel] = useState(0);
+  const [polled, setLevel] = useState(0);
   useEffect(() => {
-    if (sampling === "idle") return setLevel(0);
+    if (sampling === "idle") return;
     const id = setInterval(() => setLevel(samplingLevel()), 50);
     return () => clearInterval(id);
   }, [sampling]);
+  // Idle: show an empty meter instead of the last polled level.
+  const level = sampling === "idle" ? 0 : polled;
 
   return (
     <Section title="Sample">
