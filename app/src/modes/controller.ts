@@ -2,7 +2,7 @@
 import { keyOff, keyOn, playPad, releasePad, toggleSampling, togglePlay, toggleRecord } from "../actions";
 import { engine } from "../audio/engine";
 import { launchkey } from "../midi/launchkey";
-import { CC, COLOR, type LedMode } from "../midi/protocol";
+import { CC, COLOR, type LedMode, type PadLayout } from "../midi/protocol";
 import { PAGES, turnEncoder } from "../params";
 import { makeTicker, sequencer } from "../seq/sequencer";
 import { PPQN, STEP_TICKS } from "../seq/timing";
@@ -19,13 +19,17 @@ const MODES: HwMode[] = ["play", "step", "mixer", "pattern"];
 const MODE_NAMES: Record<HwMode, string> = { play: "Play", step: "Step", mixer: "Mixer", pattern: "Pattern", browse: "Browse" };
 
 
+/** Play mode uses the drum layout (velocity, pressure); every other mode lights the pads in DAW layout. */
+const layoutFor = (mode: HwMode): PadLayout => (mode === "play" ? "drum" : "daw");
+let lastLayoutFix = 0;
+
 export function setHwMode(mode: HwMode) {
   const prev = get().hwMode;
   if (prev === mode) return;
   if (prev === "browse") exitBrowse();
   if (mode === "browse") enterBrowse();
   set({ hwMode: mode, prevHwMode: prev === "browse" ? get().prevHwMode : prev });
-  launchkey.setLayout(mode === "play" ? "drum" : "daw");
+  launchkey.setLayout(layoutFor(mode));
   showTemp("Mode", MODE_NAMES[mode]);
 }
 
@@ -39,10 +43,21 @@ export function initController() {
       case "connection":
         set({ connected: e.connected, status: e.connected ? "Launchkey connected" : "Launchkey disconnected" });
         if (e.connected) {
-          launchkey.setLayout(s.hwMode === "play" ? "drum" : "daw");
+          launchkey.setLayout(layoutFor(s.hwMode));
           lastStationary = "";
         }
         break;
+      case "layout": {
+        // The device reports its layout after connecting (often "daw" right after the handshake) and when
+        // switched from the hardware. Put back the one the current mode needs, at most once a second so a
+        // device that keeps refusing can't cause a loop.
+        const want = layoutFor(s.hwMode);
+        if (e.layout !== want && performance.now() - lastLayoutFix > 1000) {
+          lastLayoutFix = performance.now();
+          launchkey.setLayout(want);
+        }
+        break;
+      }
       case "pad":
         if (e.on) heldPads.add(e.pad);
         else heldPads.delete(e.pad);

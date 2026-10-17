@@ -70,6 +70,58 @@ export const defaultProject = (): Project => ({
   levels: Array(TRACK_COUNT).fill(1),
 });
 
+/** Bumped when the saved project shape changes; files from a newer version are refused. */
+export const PROJECT_VERSION = 1;
+
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const num = (v: unknown, lo: number, hi: number, fallback: number) => (typeof v === "number" && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : fallback);
+/** Exactly `length` entries: saved values where they have the right type, defaults for the rest. */
+const fixedArray = <T>(v: unknown, length: number, fallback: T, ok: (x: unknown) => boolean): T[] =>
+  Array.from({ length }, (_, i) => (Array.isArray(v) && ok(v[i]) ? (v[i] as T) : fallback));
+
+function normalizePattern(raw: unknown, seen: Set<string>): Pattern {
+  if (!isObj(raw)) return emptyPattern();
+  const bars = num(Math.round(Number(raw.bars)), 1, 4, 1);
+  const events = (Array.isArray(raw.events) ? raw.events : []).flatMap((e): NoteEvent[] => {
+    if (!isObj(e) || typeof e.tick !== "number" || e.tick < 0 || e.tick >= bars * BAR_TICKS) return [];
+    if (typeof e.track !== "number" || e.track < 0 || e.track >= TRACK_COUNT) return [];
+    // Old "Double" copies shared ids with their originals; give any repeat a fresh one.
+    let id = typeof e.id === "string" ? e.id : newId();
+    if (seen.has(id)) id = newId();
+    seen.add(id);
+    return [{ id, tick: e.tick, track: e.track, note: num(e.note, 0, 127, 60), vel: num(e.vel, 1, 127, 100), len: num(e.len, 1, Number.MAX_SAFE_INTEGER, 1) }];
+  });
+  return { bars, events };
+}
+
+/** Rebuild a saved or imported project on top of the defaults, so fields added later (or damaged ones) can't break playback. */
+export function normalizeProject(raw: unknown): Project {
+  const d = defaultProject();
+  if (!isObj(raw)) return d;
+  const keys = isObj(raw.keys) ? raw.keys : {};
+  const seen = new Set<string>();
+  return {
+    name: typeof raw.name === "string" ? raw.name : d.name,
+    bpm: num(raw.bpm, 40, 240, d.bpm),
+    swing: num(raw.swing, 50, 75, d.swing),
+    pads: normalizePads(Array.isArray(raw.pads) ? raw.pads.map((p) => (isObj(p) ? p : {})) : []),
+    keys: {
+      ...d.keys,
+      ...keys,
+      sourcePad: num(keys.sourcePad, 0, PAD_COUNT - 1, d.keys.sourcePad),
+      zones: Array.isArray(keys.zones) ? keys.zones.filter((z) => isObj(z) && typeof z.sampleId === "string" && typeof z.root === "number") : [],
+      synth: { ...d.keys.synth, ...(isObj(keys.synth) ? keys.synth : {}) },
+    } as KeysInstrument,
+    patterns: Array.from({ length: PATTERN_COUNT }, (_, i) => normalizePattern(Array.isArray(raw.patterns) ? raw.patterns[i] : undefined, seen)),
+    song: Array.isArray(raw.song)
+      ? raw.song.flatMap((st) => (isObj(st) && typeof st.pattern === "number" && st.pattern >= 0 && st.pattern < PATTERN_COUNT ? [{ pattern: st.pattern, repeats: num(st.repeats, 1, 64, 1) }] : []))
+      : d.song,
+    mutes: fixedArray(raw.mutes, TRACK_COUNT, false, (x) => typeof x === "boolean"),
+    solos: fixedArray(raw.solos, TRACK_COUNT, false, (x) => typeof x === "boolean"),
+    levels: fixedArray(raw.levels, TRACK_COUNT, 1, (x) => typeof x === "number" && x >= 0 && x <= 1),
+  };
+}
+
 export interface AppState {
   project: Project;
   samples: Record<string, SampleInfo>;

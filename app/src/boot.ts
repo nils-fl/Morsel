@@ -3,7 +3,7 @@ import { renderFactoryKit } from "./audio/kit";
 import { launchkey } from "./midi/launchkey";
 import { initController } from "./modes/controller";
 import { loadProject, saveProject } from "./state/persist";
-import { defaultPad, defaultProject, get, normalizePads, set, store } from "./state/store";
+import { defaultPad, defaultProject, get, normalizeProject, set, store } from "./state/store";
 
 export async function boot() {
   engine.init();
@@ -11,7 +11,7 @@ export async function boot() {
 
   const saved = await loadProject();
   if (saved) {
-    set({ project: { ...defaultProject(), ...saved, pads: normalizePads(saved.pads ?? []) } });
+    set({ project: normalizeProject(saved) });
   } else {
     const kit = await renderFactoryKit();
     const pads = await Promise.all(kit.map(async ({ name, buffer }, i) => ({ ...defaultPad(i), name, sampleId: await engine.addBuffer(name, buffer, "Factory") })));

@@ -1,13 +1,13 @@
 // Single-file project export: project JSON plus all referenced samples (16-bit PCM, base64).
 import type { engine as Engine } from "../audio/engine";
 import { engine } from "../audio/engine";
-import { defaultProject, get, normalizePads, set, updateProject } from "./store";
+import { PROJECT_VERSION, get, normalizePads, normalizeProject, set, updateProject } from "./store";
 import { sequencer } from "../seq/sequencer";
 import { listKits, saveKit } from "./persist";
 import type { Pad, Project } from "./types";
 
 interface FileSample { name: string; sampleRate: number; channels: string[] }
-interface ProjectFile { format: "launchkit"; version: 1; project: Project; samples: Record<string, FileSample> }
+interface ProjectFile { format: "launchkit"; version: number; project: Project; samples: Record<string, FileSample> }
 
 function usedSampleIds(p: Project) {
   const ids = new Set<string>();
@@ -45,7 +45,7 @@ export async function exportProject(): Promise<Blob> {
       channels: Array.from({ length: buf.numberOfChannels }, (_, c) => toB64(buf.getChannelData(c))),
     };
   }
-  const file: ProjectFile = { format: "launchkit", version: 1, project: s.project, samples };
+  const file: ProjectFile = { format: "launchkit", version: PROJECT_VERSION, project: s.project, samples };
   return new Blob([JSON.stringify(file)], { type: "application/json" });
 }
 
@@ -119,6 +119,7 @@ async function freeKitName(name: string) {
 export async function importKit(f: File, eng: typeof Engine) {
   const file = await readJson(f);
   if (file.format !== "launchkit-kit") throw new Error("Not a LaunchKit kit");
+  if (typeof file.version === "number" && file.version > PROJECT_VERSION) throw new Error("Made by a newer LaunchKit");
   if (!Array.isArray(file.pads)) throw new Error("Kit has no pads");
   const decoded = decodeSamples(file.samples);
   const folder = typeof file.folder === "string" ? file.folder : undefined;
@@ -136,11 +137,11 @@ export async function importProject(f: File, eng: typeof Engine) {
   const file = await readJson(f);
   if (file.format !== "launchkit") throw new Error("Not a LaunchKit project");
   if (!isObj(file.project)) throw new Error("File has no project");
+  if (typeof file.version === "number" && file.version > PROJECT_VERSION) throw new Error("Made by a newer LaunchKit");
   const decoded = decodeSamples(file.samples);
-  const p = { ...defaultProject(), ...(file.project as Partial<Project>) };
-  if (!Array.isArray(p.pads) || !Array.isArray(p.patterns) || !isObj(p.keys) || !Array.isArray(p.keys.zones)) throw new Error("Project is damaged");
+  const p = normalizeProject(file.project);
   const idMap = await addSamples(eng, decoded);
-  p.pads = normalizePads(p.pads).map((pad) => ({ ...pad, sampleId: pad.sampleId ? idMap.get(pad.sampleId) ?? null : null }));
+  p.pads = p.pads.map((pad) => ({ ...pad, sampleId: pad.sampleId ? idMap.get(pad.sampleId) ?? null : null }));
   p.keys = { ...p.keys, zones: p.keys.zones.flatMap((z) => (idMap.has(z.sampleId) ? [{ ...z, sampleId: idMap.get(z.sampleId)! }] : [])) };
   if (get().playing) sequencer.stop();
   set({ project: p, undo: [], status: `Imported ${p.name}` });
