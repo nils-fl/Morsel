@@ -1,0 +1,8 @@
+.DS_Store
+.venv/
+__pycache__/
+node_modules/
+dist/
+
+# Kits embed third-party samples
+kits/*.launchkit-kit.json

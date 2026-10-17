@@ -1,0 +1,108 @@
+import { useEffect, useState } from "react";
+import { togglePlay, toggleRecord } from "./actions";
+import { currentFrame, setHwMode } from "./modes/controller";
+import { ScreenPreview } from "./ui/ScreenPreview";
+import { sequencer } from "./seq/sequencer";
+import { QUANTIZE_OPTIONS } from "./seq/timing";
+import { set, undo, updateProject, useApp } from "./state/store";
+import type { HwMode } from "./state/types";
+import { EncoderStrip } from "./ui/EncoderStrip";
+import { Guide, GuideOverlay } from "./ui/Guide";
+import { KeysPanel } from "./ui/KeysPanel";
+import { Lab } from "./ui/Lab";
+import { PadEditor } from "./ui/PadEditor";
+import { PadGrid } from "./ui/PadGrid";
+import { SeqGrid } from "./ui/SeqGrid";
+import { SongPanel } from "./ui/SongPanel";
+
+const TABS = ["Pads", "Sequencer", "Keys", "Song", "Help", "Lab"] as const;
+type Tab = (typeof TABS)[number];
+// Each page has its own colour, like the page LEDs on an Elektron box.
+const TAB_COLOR: Record<Tab, string> = {
+  Pads: "var(--amber)", Sequencer: "var(--cyan)", Keys: "var(--violet)", Song: "var(--lime)", Help: "var(--white)", Lab: "var(--magenta)",
+};
+
+export default function App() {
+  const [tab, setTab] = useState<Tab>("Pads");
+  const [guide, setGuide] = useState(false);
+  useEffect(() => { document.documentElement.style.setProperty("--page", TAB_COLOR[tab]); }, [tab]);
+  useEffect(() => {
+    // "?" opens the guide, unless you're typing in a field.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "?" && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement)) setGuide(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  return (
+    <div className="app">
+      <TopBar onGuide={() => setGuide(true)} />
+      {guide && <GuideOverlay onClose={() => setGuide(false)} />}
+      <PadGrid />
+      <nav className="tabs">
+        {TABS.map((t) => (
+          <button key={t} className={t === tab ? "on" : ""} style={{ "--tab": TAB_COLOR[t] } as React.CSSProperties} onClick={() => setTab(t)}>{t}</button>
+        ))}
+      </nav>
+      <main>
+        {tab === "Pads" && <PadEditor />}
+        {tab === "Sequencer" && <SeqGrid />}
+        {tab === "Keys" && <KeysPanel />}
+        {tab === "Song" && <SongPanel />}
+        {tab === "Help" && <Guide />}
+        {tab === "Lab" && <Lab />}
+      </main>
+    </div>
+  );
+}
+
+function TopBar({ onGuide }: { onGuide: () => void }) {
+  const s = useApp((s) => s);
+  const p = s.project;
+  return (
+    <header className="topbar">
+      <div className="brand">
+        <strong>LaunchKit</strong>
+        <span className={`dot ${s.connected ? "ok" : ""}`} title={s.connected ? "Launchkey connected" : "Launchkey not found"} />
+        <button className="guide-btn" onClick={onGuide} title="Controls, modes and shortcuts (?)">? Guide</button>
+      </div>
+      <div className="screen-slot"><ScreenPreview source={currentFrame} /></div>
+      <div className="transport">
+        <button className={s.playing ? "on" : ""} onClick={togglePlay}>{s.playing ? "■ Stop" : "▶ Play"}</button>
+        <button className={`rec ${s.recording ? "on" : ""}`} onClick={toggleRecord}>{s.countIn ? "Count-in…" : "● Rec"}</button>
+        <button className={s.metronome ? "on" : ""} onClick={() => set({ metronome: !s.metronome })}>Click</button>
+        <label className="field inline">
+          <span>BPM</span>
+          <input type="number" min={40} max={240} step={0.1} value={p.bpm} onChange={(e) => updateProject((pr) => ({ ...pr, bpm: Math.max(40, Math.min(240, Number(e.target.value))) }), false)} />
+        </label>
+        <label className="field inline">
+          <span>Swing</span>
+          <input type="number" min={50} max={75} value={p.swing} onChange={(e) => updateProject((pr) => ({ ...pr, swing: Math.max(50, Math.min(75, Number(e.target.value))) }), false)} />
+        </label>
+        <label className="field inline">
+          <span>Quantize</span>
+          <select value={s.quantize} onChange={(e) => set({ quantize: Number(e.target.value) })}>
+            {QUANTIZE_OPTIONS.map((q) => <option key={q.label} value={q.ticks}>{q.label}</option>)}
+          </select>
+        </label>
+        <button onClick={undo} disabled={!s.undo.length}>Undo</button>
+      </div>
+      <div className="patterns">
+        {p.patterns.map((pat, i) => (
+          <button
+            key={i}
+            className={`pat ${i === s.currentPattern ? "on" : ""} ${i === s.queuedPattern ? "queued" : ""} ${pat.events.length ? "used" : ""}`}
+            onClick={() => sequencer.selectPattern(i)}
+          >{i + 1}</button>
+        ))}
+      </div>
+      <div className="hw">
+        {(["play", "step", "mixer", "pattern", "browse"] as HwMode[]).map((m) => (
+          <button key={m} className={s.hwMode === m ? "on" : ""} onClick={() => setHwMode(m)}>{m}</button>
+        ))}
+        <EncoderStrip />
+      </div>
+      <div className="status"><b>MSG</b><span>{s.status || "—"}</span></div>
+    </header>
+  );
+}
