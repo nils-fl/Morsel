@@ -14,9 +14,9 @@
 | Shift + Pad up | CC 102 (`B0 66 7F` / `00`) on ch1, **instead of** CC 106 | The device's own "< Track" function. LaunchKit uses it to toggle Browse. Shift + Pad down (presumably "Track >") not measured yet. |
 | Button LEDs | `B3 <cc> <brightness>` (CC on ch4) lights the encoder page arrows (CC 51/52), Play and Record | Confirmed by eye. The buttons *send* on ch1, but their LEDs listen on ch4. |
 | Bitmap rate | ~12 frames/s, paced by the ack | Each 1216-byte frame is sent only after the previous one is acked. |
+| Pad layout after connect | The device reports `daw` (CC 29 on ch7) right after the handshake, even though the handshake asked for `drum` | The controller now sends the layout the current mode needs again (at most once a second). Confirmed 2026-10-17: Play mode plays with velocity straight after connecting. |
 
 ## Still to check by hand (Lab tab)
 - Button CCs in DAW mode: Function (105), Scene (104).
 - Does temporary text (`showTemporary`) appear on top of the bitmap, and does the bitmap come back after the 1 s timeout?
 - Bit order on the real screen: Lab → Screen bitmap → Border and Font. Check that the border touches all 4 edges and the text isn't mirrored.
-- Pad layout: right after connecting, the device was reported in `daw` layout even though the app asks for `drum`.
