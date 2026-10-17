@@ -2,13 +2,12 @@
 import type { engine as Engine } from "../audio/engine";
 import { engine } from "../audio/engine";
 import { defaultProject, get, normalizePads, set, updateProject } from "./store";
-import { saveKit } from "./persist";
+import { sequencer } from "../seq/sequencer";
+import { listKits, saveKit } from "./persist";
 import type { Pad, Project } from "./types";
 
 interface FileSample { name: string; sampleRate: number; channels: string[] }
 interface ProjectFile { format: "launchkit"; version: 1; project: Project; samples: Record<string, FileSample> }
-/** A kit on its own: 16 pads plus their samples (same sample encoding as a project). */
-interface KitFile { format: "launchkit-kit"; version: 1; name: string; folder?: string; pads: Partial<Pad>[]; samples: Record<string, FileSample> }
 
 function usedSampleIds(p: Project) {
   const ids = new Set<string>();
@@ -50,35 +49,99 @@ export async function exportProject(): Promise<Blob> {
   return new Blob([JSON.stringify(file)], { type: "application/json" });
 }
 
-async function addSamples(eng: typeof Engine, samples: Record<string, FileSample>, folder?: string) {
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** Decode and check every sample before anything touches the library, so a bad file changes nothing. */
+function decodeSamples(samples: unknown): Map<string, { name: string; buffer: AudioBuffer }> {
+  if (!isObj(samples)) throw new Error("Missing samples");
+  const out = new Map<string, { name: string; buffer: AudioBuffer }>();
+  for (const [id, s] of Object.entries(samples)) {
+    if (!isObj(s) || !Array.isArray(s.channels) || !s.channels.length || s.channels.length > 32) throw new Error(`Sample ${id}: no audio channels`);
+    const rate = s.sampleRate;
+    if (typeof rate !== "number" || !(rate >= 3000 && rate <= 768000)) throw new Error(`Sample ${id}: bad sample rate`);
+    let chans: Float32Array<ArrayBuffer>[];
+    try {
+      chans = s.channels.map((c) => fromB64(String(c)));
+    } catch {
+      throw new Error(`Sample ${id}: corrupt audio data`);
+    }
+    if (!chans[0].length || chans.some((c) => c.length !== chans[0].length)) throw new Error(`Sample ${id}: corrupt audio data`);
+    const buffer = new AudioBuffer({ length: chans[0].length, numberOfChannels: chans.length, sampleRate: rate });
+    chans.forEach((d, c) => buffer.copyToChannel(d, c));
+    out.set(id, { name: typeof s.name === "string" ? s.name : id, buffer });
+  }
+  return out;
+}
+
+function sameAudio(a: AudioBuffer, b: AudioBuffer) {
+  if (a.length !== b.length || a.sampleRate !== b.sampleRate || a.numberOfChannels !== b.numberOfChannels) return false;
+  for (let c = 0; c < a.numberOfChannels; c++) {
+    const x = a.getChannelData(c), y = b.getChannelData(c);
+    for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false;
+  }
+  return true;
+}
+
+/** Add decoded samples to the library, reusing an identical sample (same name, folder and audio) when there is one. */
+async function addSamples(eng: typeof Engine, decoded: Map<string, { name: string; buffer: AudioBuffer }>, folder?: string) {
   const idMap = new Map<string, string>();
-  for (const [oldId, s] of Object.entries(samples)) {
-    const chans = s.channels.map(fromB64);
-    const buf = new AudioBuffer({ length: chans[0].length, numberOfChannels: chans.length, sampleRate: s.sampleRate });
-    chans.forEach((d, c) => buf.copyToChannel(d, c));
-    idMap.set(oldId, await eng.addBuffer(s.name, buf, folder));
+  const library = Object.values(get().samples);
+  for (const [oldId, { name, buffer }] of decoded) {
+    const existing = library.find((s) => {
+      const b = eng.buffer(s.id);
+      return s.name === name && s.folder === folder && !!b && sameAudio(b, buffer);
+    });
+    idMap.set(oldId, existing ? existing.id : await eng.addBuffer(name, buffer, folder));
   }
   return idMap;
 }
 
+async function readJson(f: File): Promise<Record<string, unknown>> {
+  let data: unknown;
+  try {
+    data = JSON.parse(await f.text());
+  } catch {
+    throw new Error("Not a JSON file");
+  }
+  if (!isObj(data)) throw new Error("Not a LaunchKit file");
+  return data;
+}
+
+/** First free kit name: "Name", then "Name (2)", "Name (3)", ... */
+async function freeKitName(name: string) {
+  const taken = new Set(await listKits());
+  let n = name, i = 2;
+  while (taken.has(n)) n = `${name} (${i++})`;
+  return n;
+}
+
 /** Load a kit file onto the pads, add its samples to the library and save it under its name. Returns the name. */
 export async function importKit(f: File, eng: typeof Engine) {
-  const file = JSON.parse(await f.text()) as KitFile;
+  const file = await readJson(f);
   if (file.format !== "launchkit-kit") throw new Error("Not a LaunchKit kit");
-  const idMap = await addSamples(eng, file.samples, file.folder);
-  const pads = normalizePads(file.pads).map((pad) => ({ ...pad, sampleId: pad.sampleId ? idMap.get(pad.sampleId) ?? null : null }));
-  await saveKit(file.name, pads);
+  if (!Array.isArray(file.pads)) throw new Error("Kit has no pads");
+  const decoded = decodeSamples(file.samples);
+  const folder = typeof file.folder === "string" ? file.folder : undefined;
+  const idMap = await addSamples(eng, decoded, folder);
+  const pads = normalizePads((file.pads as unknown[]).map((p) => (isObj(p) ? (p as Partial<Pad>) : {})))
+    .map((pad) => ({ ...pad, sampleId: pad.sampleId ? idMap.get(pad.sampleId) ?? null : null }));
+  const name = await freeKitName(typeof file.name === "string" && file.name.trim() ? file.name.trim() : f.name.replace(/\..*$/, ""));
+  await saveKit(name, pads);
   updateProject((p) => ({ ...p, pads }));
-  set({ status: `Loaded kit ${file.name}` });
-  return file.name;
+  set({ status: `Loaded kit ${name}` });
+  return name;
 }
 
 export async function importProject(f: File, eng: typeof Engine) {
-  const file = JSON.parse(await f.text()) as ProjectFile;
+  const file = await readJson(f);
   if (file.format !== "launchkit") throw new Error("Not a LaunchKit project");
-  const idMap = await addSamples(eng, file.samples);
-  const p = { ...defaultProject(), ...file.project };
+  if (!isObj(file.project)) throw new Error("File has no project");
+  const decoded = decodeSamples(file.samples);
+  const p = { ...defaultProject(), ...(file.project as Partial<Project>) };
+  if (!Array.isArray(p.pads) || !Array.isArray(p.patterns) || !isObj(p.keys) || !Array.isArray(p.keys.zones)) throw new Error("Project is damaged");
+  const idMap = await addSamples(eng, decoded);
   p.pads = normalizePads(p.pads).map((pad) => ({ ...pad, sampleId: pad.sampleId ? idMap.get(pad.sampleId) ?? null : null }));
   p.keys = { ...p.keys, zones: p.keys.zones.flatMap((z) => (idMap.has(z.sampleId) ? [{ ...z, sampleId: idMap.get(z.sampleId)! }] : [])) };
+  if (get().playing) sequencer.stop();
   set({ project: p, undo: [], status: `Imported ${p.name}` });
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { sequencer } from "../seq/sequencer";
 import { STEP_TICKS } from "../seq/timing";
-import { KEYS_TRACK, clearTrack, set, toggleArray, toggleStep, updatePattern, useApp } from "../state/store";
+import { KEYS_TRACK, clearTrack, newId, set, toggleArray, toggleStep, updatePattern, useApp } from "../state/store";
 import { noteName } from "./notes";
 import { paletteCss } from "./palette";
 
@@ -45,7 +45,7 @@ export function SeqGrid() {
         <button onClick={() => clearTrack(patIndex, selectedTrack)}>Clear track</button>
         <button onClick={() => updatePattern(patIndex, (p) => p.bars >= 4 ? p : ({
           bars: p.bars * 2 > 4 ? 4 : p.bars * 2,
-          events: [...p.events, ...p.events.map((e) => ({ ...e, id: e.id + "d", tick: e.tick + p.bars * 16 * STEP_TICKS }))].filter((e) => e.tick < Math.min(4, p.bars * 2) * 16 * STEP_TICKS),
+          events: [...p.events, ...p.events.map((e) => ({ ...e, id: newId(), tick: e.tick + p.bars * 16 * STEP_TICKS }))].filter((e) => e.tick < Math.min(4, p.bars * 2) * 16 * STEP_TICKS),
         }))}>Double</button>
         <span className="hint">Click a cell to toggle. Keys notes come from recording on the keyboard.</span>
       </div>

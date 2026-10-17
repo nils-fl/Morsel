@@ -76,7 +76,13 @@ export function SongPanel() {
           <button onClick={() => importInput.current?.click()}>Import project…</button>
           <input ref={importInput} type="file" accept=".json" hidden onChange={async (e) => {
             const f = e.target.files?.[0];
-            if (f) await importProject(f, engine);
+            e.target.value = "";
+            if (!f) return;
+            try {
+              await importProject(f, engine);
+            } catch (err) {
+              set({ status: `Project import failed: ${(err as Error).message}` });
+            }
           }} />
         </div>
         <p className="hint">Projects autosave in this browser. Export saves the patterns and every sample in one file.</p>

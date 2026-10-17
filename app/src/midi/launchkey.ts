@@ -78,16 +78,26 @@ export class Launchkey {
       this.dawIn = dawIn;
       this.dawOut = dawOut;
       this.dawIn!.onmidimessage = (m) => this.handle("DAW", m);
-      this.midiIn = midiIn;
-      if (this.midiIn) this.midiIn.onmidimessage = (m) => this.handle("MIDI", m);
+      this.bindMidiIn(midiIn);
       this.connected = true;
       this.handshake();
       this.emit({ type: "connection", connected: true });
+    } else if (ok) {
+      // statechange fires once per port: the keys port can show up (or go away) after the DAW ports.
+      this.bindMidiIn(midiIn);
     } else if (!ok && this.connected) {
-      this.dawIn = this.dawOut = this.midiIn = null;
+      this.bindMidiIn(null);
+      this.dawIn = this.dawOut = null;
       this.connected = false;
       this.emit({ type: "connection", connected: false });
     }
+  }
+
+  private bindMidiIn(port: MIDIInput | null) {
+    if (port === this.midiIn) return;
+    if (this.midiIn) this.midiIn.onmidimessage = null;
+    this.midiIn = port;
+    if (port) port.onmidimessage = (m) => this.handle("MIDI", m);
   }
 
   private handshake() {
