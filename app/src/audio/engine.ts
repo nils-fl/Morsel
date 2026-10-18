@@ -117,13 +117,6 @@ class Engine {
     return b;
   }
 
-  /** Persist a buffer as a library sample without holding its audio or listing it yet. */
-  private async store(name: string, buffer: AudioBuffer, folder?: string): Promise<SampleInfo> {
-    const id = newId();
-    await saveSample(id, { name, folder, sampleRate: buffer.sampleRate, channels: encode(buffer) });
-    return { id, name, folder, pcm16: true };
-  }
-
   /** Register a buffer as a sample, persist it, return its id. */
   async addBuffer(name: string, buffer: AudioBuffer, folder?: string, src?: string): Promise<string> {
     const id = newId();
@@ -131,23 +124,6 @@ class Engine {
     set({ samples: { ...get().samples, [id]: { id, name, folder, ...(src && { src }), pcm16: true } } });
     await saveSample(id, { name, folder, src, sampleRate: buffer.sampleRate, channels: encode(buffer) });
     return id;
-  }
-
-  /**
-   * Add many files to the library: one at a time, their audio not kept in memory, and the library list updated once
-   * at the end (per-file updates made big folders freeze the page). Unreadable files are skipped.
-   */
-  async importFiles(files: File[], onProgress?: (done: number, total: number) => void): Promise<SampleInfo[]> {
-    const added: SampleInfo[] = [];
-    for (const [i, f] of files.entries()) {
-      try {
-        const buffer = await this.ctx.decodeAudioData(await f.arrayBuffer());
-        added.push(await this.store(baseName(f), buffer, fileDir(f)));
-      } catch { /* not audio the browser can decode */ }
-      onProgress?.(i + 1, files.length);
-    }
-    set({ samples: { ...get().samples, ...Object.fromEntries(added.map((s) => [s.id, s])) } });
-    return added;
   }
 
   /** Drop many samples at once (one library update). Callers make sure nothing uses them. */

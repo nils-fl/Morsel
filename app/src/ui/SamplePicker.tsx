@@ -1,9 +1,10 @@
 // Sample picker: the sample's name on a fixed-width button, opening a small folder browser over the library and the
 // connected folders (the same tree Browse shows on the Launchkey). Click listens, double-click or Load uses it.
+// A folder action ("Folder → pads", "Use this folder") works on the folder that's open.
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { DISK, connectFolder, diskSupported, disconnectFolder, isDiskPath, reconnectFolder, rootPath } from "../browse/disk";
-import { entrySample, listAt, previewEntry, stopPreview } from "../browse/source";
+import { entrySample, isSampleFolder, listAt, previewEntry, stopPreview } from "../browse/source";
 import { ROOT, SAMPLES, parentOf, type Entry } from "../browse/tree";
 import { set, useApp } from "../state/store";
 import type { SampleInfo } from "../state/types";
@@ -23,11 +24,15 @@ function startPath(info: SampleInfo | undefined, connected: string[]) {
 
 const keyOf = (e: Entry) => `${e.kind}:${e.kind === "sample" ? e.id : e.kind === "kit" ? e.name : e.path}`;
 
-export function SamplePicker({ value, onPick, allowNone = false, placeholder = "—" }: {
+/** Something to do with the open folder; `only` hides Load, so the picker picks folders. */
+export interface FolderAction { label: string; title?: string; only?: boolean; run: (path: string) => Promise<void> }
+
+export function SamplePicker({ value, onPick = () => undefined, allowNone = false, placeholder = "—", folderAction }: {
   value: string | null;
-  onPick: (id: string | null) => void;
+  onPick?: (id: string | null) => void;
   allowNone?: boolean;
   placeholder?: string;
+  folderAction?: FolderAction;
 }) {
   const info = useApp((s) => (value ? s.samples[value] : undefined));
   const folders = useApp((s) => s.folders);
@@ -45,6 +50,7 @@ export function SamplePicker({ value, onPick, allowNone = false, placeholder = "
           anchor={anchor}
           start={startPath(info, folders.map((f) => f.name))}
           allowNone={allowNone}
+          folderAction={folderAction}
           onClose={() => setAnchor(null)}
           onPick={(id) => {
             setAnchor(null);
@@ -56,10 +62,11 @@ export function SamplePicker({ value, onPick, allowNone = false, placeholder = "
   );
 }
 
-function PickerPanel({ anchor, start, allowNone, onPick, onClose }: {
+function PickerPanel({ anchor, start, allowNone, folderAction, onPick, onClose }: {
   anchor: HTMLElement;
   start: string;
   allowNone: boolean;
+  folderAction?: FolderAction;
   onPick: (id: string | null) => void;
   onClose: () => void;
 }) {
@@ -194,7 +201,16 @@ function PickerPanel({ anchor, start, allowNone, onPick, onClose }: {
         )}
         {allowNone && <button onClick={() => onPick(null)}>None</button>}
         <span className="picker-spacer" />
-        <button className="primary" disabled={busy || !current || current.kind === "folder"} onClick={() => void take(current)}>{busy ? "Loading…" : "Load"}</button>
+        {folderAction && (
+          <button className={folderAction.only ? "primary" : ""} title={folderAction.title} disabled={busy || !isSampleFolder(path)} onClick={async () => {
+            setBusy(true);
+            await folderAction.run(path).finally(() => setBusy(false));
+            onClose();
+          }}>{folderAction.label}</button>
+        )}
+        {!folderAction?.only && (
+          <button className="primary" disabled={busy || !current || current.kind === "folder"} onClick={() => void take(current)}>{busy ? "Loading…" : "Load"}</button>
+        )}
       </div>
     </div>,
     document.body,

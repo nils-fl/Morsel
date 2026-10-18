@@ -346,7 +346,7 @@ export async function cropSample(id: string, start: number, end: number): Promis
 
 // ---------- loading samples and kits ----------
 
-export const isAudioFile = (f: File) => /^audio\//.test(f.type) || /\.(wav|aiff?|mp3|ogg|flac|m4a)$/i.test(f.name);
+const isAudioFile = (f: File) => /^audio\//.test(f.type) || /\.(wav|aiff?|mp3|ogg|flac|m4a)$/i.test(f.name);
 const byPath = (a: File, b: File) => (a.webkitRelativePath || a.name).localeCompare(b.webkitRelativePath || b.name, undefined, { sensitivity: "base", numeric: true });
 
 /** Load files onto consecutive pads from `firstPad`, in name order. One undo step. */
@@ -367,24 +367,6 @@ export async function loadFilesToPads(files: File[], firstPad: number) {
 export function samplesToPads(samples: { id: string; name: string }[], kit = "") {
   updateTrack(drumTrack().id, (t) => ({ ...t, pads: padsFromSamples(samples), kit }), true);
   return Math.min(samples.length, PAD_COUNT);
-}
-
-/** Copy picked files into the library (Import folder…), with progress in the status line. */
-export async function importToLibrary(files: File[]) {
-  const audio = files.filter(isAudioFile).sort(byPath);
-  const added = await engine.importFiles(audio, (done, total) => done % 20 === 0 && set({ status: `Importing… ${done}/${total}` }));
-  set({ status: audio.length ? `Imported ${added.length} samples into the library` : "No audio files in that folder" });
-  return added;
-}
-
-/** Import a picked folder into the library and make its first 16 samples (by path) the current drum track's kit. */
-export async function loadFolderToPads(files: File[]) {
-  const loaded = await importToLibrary(files);
-  if (!loaded.length) return;
-  const kit = loaded.slice(0, PAD_COUNT);
-  await engine.ensureAll(kit.map((s) => s.id));
-  const n = samplesToPads(kit, files[0].webkitRelativePath.split("/")[0] ?? "");
-  set({ status: `Imported ${loaded.length} samples · ${n} on ${drumTrack().name} pads 1–${n}` });
 }
 
 /** The factory kit's pads. Reuses its samples in the library and renders any that were deleted. */

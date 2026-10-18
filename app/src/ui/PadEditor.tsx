@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  chopSelected, confirmDeleteSample, deleteSavedKit, stepKit, renameSavedKit, importToLibrary, loadFilesToPads, loadFolderToPads, loadNamedKit, openInChop, saveCurrentKit, samplingLevel, shareTab,
+  chopSelected, confirmDeleteSample, deleteSavedKit, stepKit, renameSavedKit, samplesToPads, loadNamedKit, openInChop, saveCurrentKit, samplingLevel, shareTab,
   toggleSampling, unshareTab,
 } from "../actions";
 import { DECAY_MAX } from "../audio/dsp";
@@ -15,6 +15,7 @@ import { PALETTE_CHOICES, paletteCss } from "./palette";
 import { Waveform } from "./Waveform";
 import { SamplePicker } from "./SamplePicker";
 import { connectFolder, diskSupported } from "../browse/disk";
+import { folderLabel, folderSamples } from "../browse/source";
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 const ms = (v: number) => (v >= 1 ? `${v.toFixed(2)} s` : `${Math.round(v * 1000)} ms`);
@@ -24,9 +25,6 @@ export function PadEditor() {
   const pad = useApp((s) => drumPads(s)[s.selectedPad]);
   const trackName = useApp((s) => drumTrack(s).name);
   useApp((s) => s.bufferTick); // the waveform appears once the sample's audio has loaded
-  const fileInput = useRef<HTMLInputElement>(null);
-  const folderInput = useRef<HTMLInputElement>(null);
-  const kitFolderInput = useRef<HTMLInputElement>(null);
   const buffer = pad.sampleId ? engine.buffer(pad.sampleId) : undefined;
   // Other pads cut from the same sample, drawn as thin markers.
   const slices = useApp(drumPads)
@@ -42,20 +40,7 @@ export function PadEditor() {
         color={paletteCss(pad.color)}
         actions={
           <>
-            <button onClick={() => fileInput.current?.click()} title="Load files onto this pad and the ones after it">Load file…</button>
-            <input ref={fileInput} type="file" accept="audio/*" multiple hidden onChange={(e) => e.target.files && loadFilesToPads([...e.target.files], i)} />
-            <button onClick={() => kitFolderInput.current?.click()} title="Import a folder and put its first 16 samples (by name) on pads 1–16 as a kit">Folder → pads…</button>
-            <input ref={kitFolderInput} type="file" hidden multiple {...{ webkitdirectory: "" }} onChange={(e) => {
-              const files = [...(e.target.files ?? [])];
-              e.target.value = "";
-              void loadFolderToPads(files);
-            }} />
-            <button onClick={() => folderInput.current?.click()} title="Copies a folder of samples into this browser's library. For big sample packs, use Connect folder">Import folder…</button>
-            <input ref={folderInput} type="file" hidden multiple {...{ webkitdirectory: "" }} onChange={(e) => {
-              const files = [...(e.target.files ?? [])];
-              e.target.value = "";
-              void importToLibrary(files);
-            }} />
+            {!diskSupported() && <span className="hint" title="Samples come from connected folders (File System Access)">Connect folder needs Chrome or Edge</span>}
             {diskSupported() && <button onClick={() => void connectFolder()} title="Browse a folder on this computer in place (Sample ▾ or Browse on the Launchkey); a sample is copied in only when you use it">Connect folder…</button>}
             <button onClick={() => updatePad(i, { sampleId: null, name: `Pad ${i + 1}` }, true)} title="Empty this pad (the sample stays in the library)">Clear</button>
             <button disabled={!pad.sampleId} onClick={() => pad.sampleId && confirmDeleteSample(pad.sampleId)} title="Delete this pad's sample from the library and every pad using it">Delete sample</button>
@@ -68,7 +53,16 @@ export function PadEditor() {
             <input value={pad.name} maxLength={12} onChange={(e) => up({ name: e.target.value })} />
           </Field>
           <Field label="Sample">
-            <SamplePicker value={pad.sampleId} onPick={(id) => up({ sampleId: id, start: 0, end: 1 })} />
+            <SamplePicker value={pad.sampleId} onPick={(id) => up({ sampleId: id, start: 0, end: 1 })} folderAction={{
+              label: "Folder → pads",
+              title: "Put this folder's first 16 samples on pads 1–16 as a kit",
+              run: async (path) => {
+                const loaded = await folderSamples(path, PAD_COUNT);
+                if (!loaded.length) return set({ status: "No samples in that folder" });
+                const n = samplesToPads(loaded, folderLabel(path));
+                set({ status: `${n} samples on ${drumTrack().name} pads 1–${n}` });
+              },
+            }} />
           </Field>
           <Field label="Mode">
             <select value={pad.mode} onChange={(e) => up({ mode: e.target.value as "oneshot" | "gate" })}>

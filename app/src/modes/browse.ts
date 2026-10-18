@@ -1,12 +1,12 @@
 // MPC-style BROWSE mode on the Launchkey display: pick samples/kits for the selected pad.
-import { Cursor, KITS, SAMPLES, fitLine, fitName, jumpLetter, type Entry } from "../browse/tree";
-import { listDiskNow, isDiskPath } from "../browse/disk";
-import { entrySample, folderLabel, listAt, previewEntry, stopPreview, type Listing } from "../browse/source";
+import { Cursor, KITS, fitLine, fitName, jumpLetter, type Entry } from "../browse/tree";
+import { entrySample, folderLabel, folderSamples, isSampleFolder, listAt, previewEntry, stopPreview, type Listing } from "../browse/source";
 import { COLOR, type LedMode } from "../midi/protocol";
 import { loadNamedKit, samplesToPads } from "../actions";
 import { listKits } from "../state/persist";
 import { drumPads, drumTrack, get, set, updatePad } from "../state/store";
 import { showTemp } from "./notify";
+import { PAD_COUNT } from "../state/types";
 
 const PREVIEW_DELAY_MS = 150;
 const MAX_STEP = 3; // clamp fast encoder turns
@@ -92,13 +92,11 @@ export async function browseEnter() {
 /** Shift + Function on a sample folder: its first 16 samples become the drum track's kit. */
 export async function browseFolderToPads() {
   const e = current();
-  if (e?.kind !== "folder" || !(isDiskPath(e.path) || e.path.startsWith(SAMPLES + "/"))) return showTemp("Browse", "Pick a folder");
-  const list = isDiskPath(e.path) ? await listDiskNow(e.path) : listAt(e.path, kits).entries;
-  const items = list.filter((x) => x.kind === "sample" || x.kind === "file").slice(0, 16);
-  if (!items.length) return showTemp(fitName(e.name), "No samples");
+  if (e?.kind !== "folder" || !isSampleFolder(e.path)) return showTemp("Browse", "Pick a folder");
   showTemp("Loading", fitName(e.name));
-  const loaded = await Promise.all(items.map((x) => entrySample(x).then((id) => ({ id, name: x.name }), () => null)));
-  const n = samplesToPads(loaded.filter((x) => x !== null), e.name);
+  const loaded = await folderSamples(e.path, PAD_COUNT);
+  if (!loaded.length) return showTemp(fitName(e.name), "No samples");
+  const n = samplesToPads(loaded, e.name);
   showTemp(`FOLDER > PADS 1-${n}`, fitName(drumTrack().name));
 }
 

@@ -1,9 +1,10 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { allPresets, applyPreset, deleteUserPreset, keyOff, keyOn, saveUserPreset } from "../actions";
 import { FACTORY_PRESETS } from "../audio/synthPresets";
 import { hz, presetLabel } from "../params";
 import { engine } from "../audio/engine";
-import { keysTrack, updateKeys, useApp } from "../state/store";
+import { get, keysTrack, set, updateKeys, useApp } from "../state/store";
+import { folderLabel, folderSamples } from "../browse/source";
 import type { KeysLfo, KeysSample, SynthParams, Wave, Zone } from "../state/types";
 import { Field, Section, Slider } from "./controls";
 import { SamplePicker } from "./SamplePicker";
@@ -17,8 +18,6 @@ export function KeysPanel() {
   const keys = useApp((s) => keysTrack(s).keys!);
   const trackName = useApp((s) => keysTrack(s).name);
   const drumTracks = useApp((s) => s.project.tracks).filter((t) => t.kind === "drum");
-  const dirInput = useRef<HTMLInputElement>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
   const synth = keys.synth;
   const upSynth = (patch: Partial<SynthParams>) => updateKeys({ synth: { ...synth, ...patch } });
   const upSample = (patch: Partial<KeysSample>) => updateKeys({ sample: { ...keys.sample, ...patch } });
@@ -30,16 +29,12 @@ export function KeysPanel() {
     upSample({ sampleId, root: rootFromName(f.name) ?? keys.sample.root });
   }
 
-  async function loadMulti(files: File[]) {
-    const zones: Zone[] = [];
-    for (const f of files.filter((f) => /\.(wav|aiff?|mp3|ogg|flac|m4a)$/i.test(f.name))) {
-      const root = rootFromName(f.name);
-      if (root === null) continue;
-      zones.push({ sampleId: await engine.addFile(f), root });
-    }
-    zones.sort((a, b) => a.root - b.root);
-    const folder = files[0]?.webkitRelativePath.split("/")[0] ?? "Multisample";
-    updateKeys({ type: "multi", zones, multiName: folder });
+  /** A folder of note-named samples as the multisample; only those files are copied into the library. */
+  async function loadMulti(path: string) {
+    const named = await folderSamples(path, Infinity, (name) => rootFromName(name) !== null);
+    if (!named.length) return set({ status: "No samples named with a note in that folder" });
+    const zones: Zone[] = named.map((s) => ({ sampleId: s.id, root: rootFromName(s.name)! })).sort((a, b) => a.root - b.root);
+    updateKeys({ type: "multi", zones, multiName: folderLabel(path) });
   }
 
   return (
@@ -82,26 +77,21 @@ export function KeysPanel() {
       )}
 
       {keys.type === "sample" && (
-        <Section title="Sample on keys" actions={
-          <>
-            <button onClick={() => fileInput.current?.click()}>Load file…</button>
-            <input ref={fileInput} type="file" accept="audio/*" hidden onChange={(e) => {
-              const f = e.target.files?.[0];
-              e.target.value = "";
-              if (f) void loadSample(f);
-            }} />
-          </>
-        }>
+        <Section title="Sample on keys">
           <p className="hint" onDragOver={(e) => e.preventDefault()} onDrop={(e) => {
             e.preventDefault();
             const f = [...e.dataTransfer.files][0];
             if (f) void loadSample(f);
           }}>
-            One sound played across the keys and pads, at its own pitch on the root note. Load or drop a file here, or pick one from the library.
+            One sound played across the keys and pads, at its own pitch on the root note. Pick it below, or drop a file here.
           </p>
           <div className="row wrap">
             <Field label="Sample">
-              <SamplePicker value={keys.sample.sampleId} allowNone onPick={(id) => upSample({ sampleId: id })} />
+              <SamplePicker value={keys.sample.sampleId} allowNone onPick={(id) => {
+                // A note in the name ("Bass_C2") becomes the root, as when dropping a file.
+                const root = id ? rootFromName(get().samples[id]?.name ?? "") : null;
+                upSample({ sampleId: id, root: root ?? keys.sample.root });
+              }} />
             </Field>
             <Field label="Root note">
               <select value={keys.sample.root} onChange={(e) => upSample({ root: Number(e.target.value) })} title="The key that plays the sample at its original pitch">
@@ -137,8 +127,9 @@ export function KeysPanel() {
       )}
 
       {keys.type === "multi" && (
-        <Section title={`Multisample${keys.multiName ? ` · ${keys.multiName}` : ""}`} actions={<button onClick={() => dirInput.current?.click()}>Load folder…</button>}>
-          <input ref={dirInput} type="file" hidden multiple {...{ webkitdirectory: "" }} onChange={(e) => e.target.files && loadMulti([...e.target.files])} />
+        <Section title={`Multisample${keys.multiName ? ` · ${keys.multiName}` : ""}`} actions={
+          <SamplePicker value={null} placeholder={keys.multiName || "Pick a folder…"} folderAction={{ label: "Use this folder", only: true, run: loadMulti }} />
+        }>
           <p className="hint">Pick a folder of samples named with their note (e.g. <code>Piano_C4.wav</code>, <code>Rhodes A#2.wav</code>, or a MIDI number like <code>060</code>). Each key uses the nearest sample.</p>
           <div className="row wrap">
             {keys.zones.map((z) => <span className="chip" key={z.sampleId}>{noteName(z.root)}</span>)}

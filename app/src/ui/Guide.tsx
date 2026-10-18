@@ -225,8 +225,8 @@ export function Guide() {
             <li>Everything follows the selected track: Shift + Pad ⌃ / ⌄ steps through them, and the Track tab, the on-screen pads, the encoder pages and the Launchkey screen show only that track.</li>
             <li>Close Ableton Live first: Morsel puts the Launchkey in DAW mode and takes over its pads, encoders, buttons and screen.</li>
             <li>Everything autosaves in this browser. Song tab → Export project to keep a copy with all samples.</li>
-            <li>Drop audio files on an on-screen pad to load them. Folder → pads makes a folder the kit; Import folder copies a folder into the browser's library.</li>
-            <li>For big sample packs use Connect folder (Chrome / Edge): the folder is browsed in place, from Sample ▾ or Browse on the Launchkey, and a sample is copied in only when you use it. After a browser restart, click Reconnect next to it in Sample ▾.</li>
+            <li>Samples come from connected folders (Connect folder, Chrome / Edge): browsed in place from Sample ▾ or Browse on the Launchkey, and a sample is copied into the browser only when you use it. Folder → pads in Sample ▾ makes the open folder the kit. After a browser restart, click Reconnect next to the folder in Sample ▾.</li>
+            <li>Dropping an audio file on an on-screen pad loads just that file.</li>
             <li>New drum tracks start with the Factory kit. The kit bar (Track tab), the Kit encoder page or Browse → Kits loads a kit; the Kits panel saves, renames, exports, imports (several at once) and deletes them.</li>
             <li>Keys tracks: Synth, Sample (one sound with a root note), Pad sample or Multisample, plus a vibrato and a filter LFO (encoder page LFO).</li>
             <li>Record → chop → drum rack: Shift + Record, play, Shift + Record, then Func. The take opens in Chop with its hits marked; adjust with pads, encoders and ›.</li>

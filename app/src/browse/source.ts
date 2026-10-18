@@ -1,8 +1,8 @@
 // What Browse (Launchkey) and the on-screen sample picker list: the library tree, saved kits and connected folders.
 import { engine } from "../audio/engine";
 import { get } from "../state/store";
-import { DISK, fileSample, isDiskPath, listDisk, previewFile, rootPath, stopFilePreview } from "./disk";
-import { KITS, ROOT, listDir, type Entry } from "./tree";
+import { DISK, fileSample, isDiskPath, listDisk, listDiskNow, previewFile, rootPath, stopFilePreview } from "./disk";
+import { KITS, ROOT, SAMPLES, listDir, type Entry } from "./tree";
 
 export interface Listing { entries: Entry[]; note?: string }
 
@@ -25,6 +25,20 @@ export async function entrySample(e: Entry): Promise<string> {
   if (e.kind !== "sample") throw new Error("Not a sample");
   if (!(await engine.ensure(e.id))) throw new Error("Can't load it");
   return e.id;
+}
+
+/** Folders whose samples can go on the pads or the keys: library and connected folders, not the root or Kits. */
+export const isSampleFolder = (path: string) => isDiskPath(path) || path.startsWith(SAMPLES + "/");
+
+/**
+ * The samples in a folder (not its subfolders) that `keep` accepts by name, loaded into the library; up to `limit`.
+ * Unreadable ones are skipped.
+ */
+export async function folderSamples(path: string, limit = Infinity, keep = (_name: string) => true): Promise<{ id: string; name: string }[]> {
+  const list = isDiskPath(path) ? await listDiskNow(path) : listAt(path, null).entries;
+  const items = list.filter((x) => (x.kind === "sample" || x.kind === "file") && keep(x.name)).slice(0, limit);
+  const loaded = await Promise.all(items.map((x) => entrySample(x).then((id) => ({ id, name: x.name }), () => null)));
+  return loaded.filter((x) => x !== null);
 }
 
 export function previewEntry(e: Entry | undefined) {
