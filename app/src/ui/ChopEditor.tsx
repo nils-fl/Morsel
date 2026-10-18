@@ -10,6 +10,7 @@ import { canAddTrack, drumPads, drumTrack, get, set, useApp } from "../state/sto
 import { PAD_COUNT, type ChopSession } from "../state/types";
 import { Field, Section } from "./controls";
 import { SamplePicker } from "./SamplePicker";
+import { ask } from "../state/confirm";
 import { paletteCss } from "./palette";
 import { drawPeaks, drawWaveBg } from "./wave";
 
@@ -271,16 +272,24 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
   const auto = (mode: "equal" | "transient") => autoChop(mode);
   const fit = Math.min(slices.length, PAD_COUNT - firstPad);
   const overwrites = (from: number, n: number) => pads.slice(from, from + n).filter((p) => p.sampleId).length;
-  const newRack = () => {
+  const newRack = async () => {
     const full = !canAddTrack(get().project);
     const n = Math.min(slices.length, PAD_COUNT);
     const used = overwrites(0, n);
-    if (full && used && !window.confirm(`There are already 8 tracks, so the slices go to ${drumTrack().name}, replacing ${used} pad${used === 1 ? "" : "s"} with samples. Continue? (Undo brings them back.)`)) return;
+    if (full && used && !(await ask({
+      title: "No room for a new track",
+      message: `There are already 8 tracks, so the slices go to ${drumTrack().name}, replacing ${used} pad${used === 1 ? "" : "s"} with samples. Undo brings them back.`,
+      ok: "Replace pads",
+    }))) return;
     void sendChopToNewTrack();
   };
-  const send = () => {
+  const send = async () => {
     const used = overwrites(firstPad, fit);
-    if (used && !window.confirm(`Replace ${used} pad${used === 1 ? "" : "s"} with samples on ${drumTrack().name}? (Undo brings them back.)`)) return;
+    if (used && !(await ask({
+      title: "Replace pads",
+      message: `Replace ${used} pad${used === 1 ? "" : "s"} with samples on ${drumTrack().name}? Undo brings them back.`,
+      ok: "Replace",
+    }))) return;
     const n = slicesToPads(sampleId, markers, firstPad, name);
     const dropped = slices.length - n;
     set({ status: `Sent ${n} slice${n === 1 ? "" : "s"} to pads ${firstPad + 1}–${firstPad + n}${dropped ? ` (${dropped} didn't fit)` : ""}` });

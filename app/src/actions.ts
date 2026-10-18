@@ -9,6 +9,7 @@ import { sequencer } from "./seq/sequencer";
 import { addTrack, defaultPad, drumPads, drumTrack, get, keysTrack, set, updateKeys, updateProject, updateTrack, usedSampleIds } from "./state/store";
 import { deleteKit, deleteSynthPreset, listKits, loadKit, renameKit, saveKit, saveSynthPreset } from "./state/persist";
 import { padsFromSamples, slicePads } from "./state/pads";
+import { ask } from "./state/confirm";
 import { FACTORY_PRESETS, type SynthPreset } from "./audio/synthPresets";
 import { FACTORY_KIT, MAX_TRACKS, PAD_COUNT, type Pad, type Project, type SampleInfo, type SampleSource } from "./state/types";
 
@@ -300,11 +301,16 @@ export async function deleteSampleEverywhere(id: string) {
 }
 
 /** Ask, then delete. Says how many pads / Keys zones lose the sample. */
-export function confirmDeleteSample(id: string) {
+export async function confirmDeleteSample(id: string) {
   const name = get().samples[id]?.name ?? "this sample";
   const { pads, zones } = sampleUsers(id);
   const used = [pads && `${pads} pad${pads === 1 ? "" : "s"}`, zones && `${zones} Keys zone${zones === 1 ? "" : "s"}`].filter(Boolean).join(" and ");
-  if (!window.confirm(`Delete “${name}”?${used ? ` It is used by ${used}, which will be cleared.` : ""} This can't be undone.`)) return;
+  if (!(await ask({
+    title: "Delete sample",
+    message: `Delete “${name}” from the library?${used ? ` It is used by ${used}, which will be cleared.` : ""} This can't be undone.`,
+    ok: "Delete",
+    danger: true,
+  }))) return;
   void deleteSampleEverywhere(id);
 }
 
@@ -325,10 +331,13 @@ export async function removeUnusedSamples() {
   const all = Object.keys(get().samples);
   const unused = all.filter((id) => !used.has(id));
   if (!unused.length) return set({ status: "Every sample in the library is in use" });
-  if (!window.confirm(
-    `Remove ${unused.length} of ${all.length} samples that no track, undo step or saved kit uses?\n\n` +
-    "Exported project and kit files keep their own copies, and connected folders aren't touched. This can't be undone.",
-  )) return;
+  if (!(await ask({
+    title: "Remove unused samples",
+    message: `Remove ${unused.length} of ${all.length} samples that no track, undo step or saved kit uses?\n\n` +
+      "Exported project and kit files keep their own copies, and connected folders aren't touched. This can't be undone.",
+    ok: "Remove",
+    danger: true,
+  }))) return;
   await engine.removeSamples(unused);
   set({ status: `Removed ${unused.length} unused sample${unused.length === 1 ? "" : "s"}` });
 }
@@ -448,7 +457,7 @@ export async function saveCurrentKit(name: string) {
   name = name.trim();
   if (!name) return;
   if (name === FACTORY_KIT) return set({ status: `“${FACTORY_KIT}” is the built-in kit – pick another name` });
-  if (get().kits.includes(name) && !window.confirm(`Replace the kit “${name}”?`)) return;
+  if (get().kits.includes(name) && !(await ask({ title: "Replace kit", message: `A kit called “${name}” already exists. Replace it with these pads?`, ok: "Replace" }))) return;
   await saveKit(name, drumPads());
   await refreshKits();
   updateTrack(drumTrack().id, { kit: name });
@@ -463,7 +472,7 @@ export async function renameSavedKit(from: string, to: string) {
     set({ status: `“${FACTORY_KIT}” is the built-in kit – pick another name` });
     return false;
   }
-  if (get().kits.includes(to) && !window.confirm(`Replace the kit “${to}”?`)) return false;
+  if (get().kits.includes(to) && !(await ask({ title: "Replace kit", message: `A kit called “${to}” already exists. Replace it with “${from}”?`, ok: "Replace" }))) return false;
   if (!(await renameKit(from, to))) return false;
   await refreshKits();
   // Tracks playing the kit keep showing it under its new name.
@@ -473,7 +482,7 @@ export async function renameSavedKit(from: string, to: string) {
 }
 
 export async function deleteSavedKit(name: string) {
-  if (!window.confirm(`Delete the kit “${name}”? Its samples stay in the library.`)) return;
+  if (!(await ask({ title: "Delete kit", message: `Delete the kit “${name}”? Its samples stay in the library.`, ok: "Delete", danger: true }))) return;
   await deleteKit(name);
   await refreshKits();
   // The pads keep playing, but they are no longer "the kit X".

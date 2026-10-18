@@ -377,6 +377,16 @@ export function normalizeProject(input: unknown): Project {
 /** granted: readable. prompt: needs a click (Reconnect) after a browser restart. missing: moved or deleted. */
 export type FolderAccess = "granted" | "prompt" | "denied" | "missing";
 
+/** A question shown in the in-app dialog (state/confirm.ts, ui/ConfirmDialog.tsx). */
+export interface ConfirmRequest {
+  title: string;
+  message: string;
+  /** Label of the button that goes ahead, e.g. "Delete". */
+  ok: string;
+  /** Can't be undone: the button is red and Cancel has the focus. */
+  danger?: boolean;
+}
+
 export interface AppState {
   project: Project;
   samples: Record<string, SampleInfo>;
@@ -428,6 +438,8 @@ export interface AppState {
   chop: ChopSession | null;
   /** Names of the saved kits (the factory kit is not among them). */
   kits: string[];
+  /** The open confirmation dialog. */
+  confirm: ConfirmRequest | null;
   /** False while the browser keeps audio suspended (no click or key press on the page yet). */
   audioReady: boolean;
   undo: Project[];
@@ -468,6 +480,7 @@ export const store = createStore<AppState>(() => ({
   theme: "light",
   chop: null,
   kits: [],
+  confirm: null,
   audioReady: false,
   undo: [],
 }));

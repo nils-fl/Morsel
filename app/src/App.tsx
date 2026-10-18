@@ -11,6 +11,7 @@ import { TABS, type HwMode, type Tab } from "./state/types";
 import { ChopEditor } from "./ui/ChopEditor";
 import { EncoderStrip } from "./ui/EncoderStrip";
 import { Guide, GuideOverlay } from "./ui/Guide";
+import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { KeysPanel } from "./ui/KeysPanel";
 import { Mixer } from "./ui/Mixer";
 import { Lab } from "./ui/Lab";
@@ -50,6 +51,7 @@ export default function App() {
       <AudioBanner />
       <TopBar onGuide={() => setGuide(true)} />
       {guide && <GuideOverlay onClose={() => setGuide(false)} />}
+      <ConfirmDialog />
       <PadGrid />
       <nav className="tabs">
         {TABS.filter((t) => t !== "Chop" || showChop).map((t) => (

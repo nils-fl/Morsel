@@ -449,6 +449,16 @@ p.hint { margin: 0 0 8px; }
   .tabs { margin-bottom: 6px; }
 }
 
+/* ---------- confirmation dialog (ui/ConfirmDialog.tsx) ---------- */
+.confirm {
+  width: min(440px, 100%); padding: 18px 20px 16px; background: var(--panel); border: 1px solid var(--line-hi);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .4); animation: g-rise .18s ease-out;
+}
+.confirm h2 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .14em; color: var(--text); }
+.confirm p { margin: 0 0 18px; line-height: 1.5; color: var(--text); white-space: pre-line; }
+.confirm-buttons { display: flex; justify-content: flex-end; gap: 8px; }
+button.danger { --page: var(--rec); }
+
 /* ---------- guide ---------- */
 .guide-btn { --page: var(--white); margin-left: 4px; }
 .theme-btn { --page: var(--white); width: var(--ctl-h); padding: 0; font-size: 14px; text-transform: none; letter-spacing: 0; }
