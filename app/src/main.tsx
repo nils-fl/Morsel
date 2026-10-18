@@ -3,6 +3,10 @@ import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App";
 import { boot } from "./boot";
+import { applyTheme, savedTheme } from "./ui/theme";
+
+// Before anything renders, so a light page doesn't flash dark.
+applyTheme(savedTheme());
 
 const root = document.getElementById("root")!;
 

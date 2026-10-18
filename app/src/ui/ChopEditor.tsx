@@ -65,6 +65,7 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
   const { sampleId, markers, view, sel, firstPad } = chop;
   const name = useApp((s) => s.samples[sampleId]?.name ?? "Sample");
   const pads = useApp((s) => s.project.pads);
+  const theme = useApp((s) => s.theme); // canvas colours come from CSS variables: redraw when they change
   const [count, setCount] = useState(16);
   const [sens, setSens] = useState(0.5);
   const [playhead, setPlayhead] = useState<number | null>(null);
@@ -104,7 +105,7 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
     const fg = css.getPropertyValue("--wave-fg") || "#4cf";
     const ra = px(markers[0]), rb = px(markers[markers.length - 1]);
     drawPeaks(g, data, v0 * data.length, v1 * data.length, w, h, fg, (x) => (x >= ra && x <= rb ? 1 : 0.28));
-    g.fillStyle = "rgba(0,0,0,.3)";
+    g.fillStyle = css.getPropertyValue("--shade") || "rgba(0,0,0,.3)";
     g.fillRect(0, 0, ra, h);
     g.fillRect(rb, 0, w - rb, h);
     const white = css.getPropertyValue("--white") || "#e6e9ec";
@@ -115,7 +116,7 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
       g.fillRect(Math.round(px(m)) - (bound ? dpr : dpr / 2), 0, bound ? 2 * dpr : dpr, h);
     });
     g.globalAlpha = 1;
-  }, [data, view, markers, sel, firstPad, pads]);
+  }, [data, view, markers, sel, firstPad, pads, theme]);
 
   useEffect(() => {
     const c = overview.current;
@@ -128,12 +129,12 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
     g.fillStyle = css.getPropertyValue("--wave-bg") || "#111";
     g.fillRect(0, 0, w, h);
     drawPeaks(g, data, 0, data.length, w, h, css.getPropertyValue("--dim") || "#646c75");
-    g.fillStyle = "rgba(230,233,236,.1)";
+    g.fillStyle = css.getPropertyValue("--view-hi") || "rgba(230,233,236,.1)";
     g.fillRect(view[0] * w, 0, (view[1] - view[0]) * w, h);
     g.strokeStyle = css.getPropertyValue("--accent") || "#d9a55a";
     g.lineWidth = dpr;
     g.strokeRect(view[0] * w + dpr / 2, dpr / 2, Math.max(dpr, (view[1] - view[0]) * w - dpr), h - dpr);
-  }, [data, view]);
+  }, [data, view, theme]);
 
   // ---------- view ----------
 

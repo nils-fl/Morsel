@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { togglePlay, toggleRecord } from "./actions";
 import { currentFrame, setHwMode } from "./modes/controller";
 import { ScreenPreview } from "./ui/ScreenPreview";
+import { toggleTheme } from "./ui/theme";
 import { sequencer } from "./seq/sequencer";
 import { QUANTIZE_OPTIONS } from "./seq/timing";
 import { set, undo, updateProject, useApp } from "./state/store";
@@ -89,6 +90,9 @@ function TopBar({ onGuide }: { onGuide: () => void }) {
         <strong>LaunchKit</strong>
         <span className={`dot ${s.connected ? "ok" : ""}`} title={s.connected ? "Launchkey connected" : "Launchkey not found"} />
         <button className="guide-btn" onClick={onGuide} title="Controls, modes and shortcuts (?)">? Guide</button>
+        <button className="theme-btn" onClick={toggleTheme} title={s.theme === "light" ? "Switch to the dark theme" : "Switch to the light theme"} aria-label="Toggle light / dark theme">
+          {s.theme === "light" ? "☾" : "☀"}
+        </button>
       </div>
       <div className="screen-slot"><ScreenPreview source={currentFrame} scale={compact ? 2 : 3} /></div>
       <div className="transport">

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useApp } from "../state/store";
 import { drawPeaks, drawWaveBg } from "./wave";
 
 /** Waveform with draggable start/end handles (values 0..1). `slices` draws thin chop markers. */
@@ -13,6 +14,7 @@ export function Waveform(props: {
   const { buffer, start, end, slices, color, onChange } = props;
   const canvas = useRef<HTMLCanvasElement>(null);
   const drag = useRef<"start" | "end" | null>(null);
+  const theme = useApp((s) => s.theme); // colours come from CSS variables: redraw when they change
 
   useEffect(() => {
     const c = canvas.current;
@@ -29,7 +31,7 @@ export function Waveform(props: {
     const a = Math.min(start, end) * w;
     const b = Math.max(start, end) * w;
     drawPeaks(g, d, 0, d.length, w, h, fg, (x) => (x >= a && x <= b ? 1 : 0.28));
-    g.fillStyle = "rgba(0,0,0,.3)";
+    g.fillStyle = css.getPropertyValue("--shade") || "rgba(0,0,0,.3)";
     g.fillRect(0, 0, a, h);
     g.fillRect(b, 0, w - b, h);
     g.fillStyle = css.getPropertyValue("--white") || "#e6e9ec";
@@ -38,7 +40,7 @@ export function Waveform(props: {
     g.globalAlpha = 1;
     g.fillRect(a - dpr, 0, 2 * dpr, h);
     g.fillRect(b - dpr, 0, 2 * dpr, h);
-  }, [buffer, start, end, slices, color]);
+  }, [buffer, start, end, slices, color, theme]);
 
   const pos = (e: React.PointerEvent) => {
     const r = canvas.current!.getBoundingClientRect();

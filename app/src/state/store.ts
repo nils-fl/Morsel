@@ -174,6 +174,8 @@ export interface AppState {
   tabTarget: TabTarget;
   /** Open tab of the on-screen UI. */
   tab: Tab;
+  /** Colour theme of the on-screen UI (ui/theme.ts). */
+  theme: "dark" | "light";
   chop: ChopSession | null;
   /** False while the browser keeps audio suspended (no click or key press on the page yet). */
   audioReady: boolean;
@@ -207,6 +209,7 @@ export const store = createStore<AppState>(() => ({
   tabShared: false,
   tabTarget: "pad",
   tab: "Pads",
+  theme: "dark",
   chop: null,
   audioReady: false,
   undo: [],

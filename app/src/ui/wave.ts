@@ -24,7 +24,7 @@ export function drawPeaks(g: CanvasRenderingContext2D, data: Float32Array, from:
 export function drawWaveBg(g: CanvasRenderingContext2D, css: CSSStyleDeclaration, w: number, h: number, dpr: number) {
   g.fillStyle = css.getPropertyValue("--wave-bg") || "#111";
   g.fillRect(0, 0, w, h);
-  g.fillStyle = "rgba(255,255,255,.05)";
+  g.fillStyle = css.getPropertyValue("--grid") || "rgba(255,255,255,.05)";
   for (let x = 0; x < w; x += w / 16) g.fillRect(Math.round(x), 0, dpr, h);
   g.fillRect(0, Math.round(h / 2), w, dpr);
 }
