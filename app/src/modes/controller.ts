@@ -233,7 +233,7 @@ function onButton(button: string, down: boolean) {
       break;
     case "record":
       if (s.shift) {
-        if (s.sampleSource === "tab" && s.sampling === "idle") showTemp("Sample", "Start on screen");
+        if (s.sampleSource === "tab" && s.sampling === "idle" && !s.tabShared) showTemp("Sample", "Share tab on screen");
         toggleSampling(true);
       }
       else toggleRecord();

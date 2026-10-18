@@ -211,6 +211,8 @@ p.hint { margin: 0 0 8px; }
 
 .waveform { width: 100%; height: 150px; display: block; cursor: ew-resize; background: var(--wave-bg); border: 1px solid var(--line); }
 
+.tab-state.on { color: var(--ok); }
+
 /* Chop editor */
 .chop-tools { margin-top: 0; }
 .chop-sep { width: 1px; align-self: stretch; background: var(--line); }

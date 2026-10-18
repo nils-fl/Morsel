@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { chopSelected, loadFilesToPads, openInChop, samplingLevel, toggleSampling } from "../actions";
+import { chopSelected, loadFilesToPads, openInChop, samplingLevel, shareTab, toggleSampling, unshareTab } from "../actions";
 import { DECAY_MAX } from "../audio/dsp";
 import { hz } from "../params";
 import { engine } from "../audio/engine";
 import { listKits, loadKit, saveKit } from "../state/persist";
 import { importKit } from "../state/projectFile";
 import { get, set, updatePad, updateProject, useApp } from "../state/store";
-import type { SampleSource } from "../state/types";
+import type { SampleSource, TabTarget } from "../state/types";
 import { Field, Section, Slider } from "./controls";
 import { PALETTE_CHOICES, paletteCss } from "./palette";
 import { Waveform } from "./Waveform";
@@ -105,6 +105,8 @@ function SamplingPanel() {
   const sampling = useApp((s) => s.sampling);
   const source = useApp((s) => s.sampleSource);
   const pad = useApp((s) => s.selectedPad);
+  const tabShared = useApp((s) => s.tabShared);
+  const tabTarget = useApp((s) => s.tabTarget);
   const [polled, setLevel] = useState(0);
   useEffect(() => {
     if (sampling === "idle") return;
@@ -117,9 +119,11 @@ function SamplingPanel() {
   return (
     <Section title="Sample">
       <p className="hint">
-        {source === "tab"
-          ? "Pick the YouTube tab and tick “Share tab audio”, then press play there. Up to 2 min; the take opens in Chop."
-          : `Records onto pad ${pad + 1}. Starts when the sound crosses the threshold. Hardware: Shift + Record.`}
+        {source !== "tab"
+          ? `Records onto pad ${pad + 1}. Starts when the sound crosses the threshold. Hardware: Shift + Record.`
+          : tabShared
+            ? `Tab shared. Shift + Record (or ● Sample) arms a take; it starts when the tab plays. Up to 2 min → ${tabTarget === "pad" ? `pad ${pad + 1}` : "Chop"}.`
+            : "Share the YouTube tab once (tick “Share tab audio” in Chrome's picker). After that the Launchkey runs the takes."}
       </p>
       <div className="row">
         <select value={source} disabled={sampling !== "idle"} onChange={(e) => set({ sampleSource: e.target.value as SampleSource })}>
@@ -131,6 +135,18 @@ function SamplingPanel() {
           {sampling === "idle" ? "● Sample" : sampling === "waiting" ? "Waiting… (stop)" : "■ Stop"}
         </button>
       </div>
+      {source === "tab" && (
+        <div className="row">
+          {tabShared
+            ? <button disabled={sampling !== "idle"} onClick={unshareTab}>Stop sharing</button>
+            : <button disabled={sampling !== "idle"} onClick={() => void shareTab()}>Share tab…</button>}
+          <span className={`hint tab-state ${tabShared ? "on" : ""}`}>{tabShared ? "● Shared" : "Not shared"}</span>
+          <select value={tabTarget} onChange={(e) => set({ tabTarget: e.target.value as TabTarget })} title="Where a take lands">
+            <option value="pad">Take → selected pad</option>
+            <option value="chop">Take → Chop editor</option>
+          </select>
+        </div>
+      )}
       <div className="meter"><div style={{ width: `${Math.min(100, level * 100)}%` }} /></div>
     </Section>
   );

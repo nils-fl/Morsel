@@ -91,6 +91,8 @@ export const TABS = ["Pads", "Chop", "Sequencer", "Keys", "Song", "Help", "Lab"]
 export type Tab = (typeof TABS)[number];
 
 export type SampleSource = "input" | "master" | "tab";
+/** Where a browser-tab take lands. */
+export type TabTarget = "pad" | "chop";
 
 /** Chop editor session, shared by the Chop tab and the Launchkey (encoders, pads, screen). */
 export interface ChopSession {

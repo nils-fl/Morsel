@@ -1,6 +1,6 @@
 // Actions shared by the on-screen UI and the Launchkey controller.
 import { engine } from "./audio/engine";
-import { normalize, startRecording, type Recording } from "./audio/recorder";
+import { connectTab, disconnectTab, normalize, startRecording, tabConnected, type Recording } from "./audio/recorder";
 import { equalSlices, detectOnsets, slicesFromMarkers } from "./audio/chop";
 import { DECAY_MAX } from "./audio/dsp";
 import { newChop } from "./modes/chop";
@@ -49,30 +49,49 @@ let levelTimer = 0;
 
 const THRESHOLD: Record<SampleSource, number> = { input: 0.02, master: 0.001, tab: 0.002 };
 
-/** Start or stop sampling. Tab capture needs a click on the page, so the hardware can only stop it. */
+/** Share a browser tab (Chrome's picker; needs a click on the page). It stays shared for later takes. */
+export async function shareTab() {
+  try {
+    await connectTab(() => {
+      set({ tabShared: false, status: "Tab sharing stopped" });
+      void finishSampling();
+    });
+  } catch (err) {
+    set({ tabShared: false, status: `Tab share failed: ${(err as Error).message}` });
+    return false;
+  }
+  set({ tabShared: true, status: "Tab shared – Shift + Record on the Launchkey starts and stops takes" });
+  return true;
+}
+
+export function unshareTab() {
+  if (get().sampling !== "idle") void finishSampling();
+  disconnectTab();
+  set({ tabShared: false, status: "Tab sharing stopped" });
+}
+
+/** Start or stop sampling. Sharing a tab needs a click on the page; once shared, the hardware can run takes. */
 export async function toggleSampling(fromHardware = false) {
   const s = get();
   if (s.sampling !== "idle") return finishSampling();
   if (starting) return;
-  if (s.sampleSource === "tab" && fromHardware) {
-    set({ status: "Start tab capture with the Sample button on screen" });
-    return;
+  const tab = s.sampleSource === "tab";
+  if (tab && !tabConnected()) {
+    if (fromHardware) return set({ status: "Share the tab on screen first (Sample → Share tab…)" });
+    // The click that got us here opens the picker, then the take starts right away.
+    if (!(await shareTab())) return;
   }
   starting = true;
   try {
-    rec = await startRecording(s.sampleSource, {
-      threshold: THRESHOLD[s.sampleSource],
-      // Long enough to grab a whole phrase off a video; chop it down afterwards.
-      maxSeconds: s.sampleSource === "tab" ? 120 : 30,
-      onEnded: () => void finishSampling(),
-    });
+    // Tab takes can be long enough to grab a whole phrase off a video; chop it down afterwards.
+    rec = await startRecording(s.sampleSource, { threshold: THRESHOLD[s.sampleSource], maxSeconds: tab ? 120 : 30 });
   } catch (err) {
     set({ status: `Audio input failed: ${(err as Error).message}` });
     return;
   } finally {
     starting = false;
   }
-  set({ sampling: "waiting", status: s.sampleSource === "tab" ? "Waiting for sound… press play in the shared tab" : "Waiting for sound…" });
+  set({ sampling: "waiting", status: tab ? "Waiting for sound… press play in the shared tab" : "Waiting for sound…" });
   levelTimer = window.setInterval(() => {
     if (rec?.armed() && get().sampling === "waiting") set({ sampling: "recording", status: "Recording…" });
   }, 50);
@@ -83,19 +102,18 @@ async function finishSampling() {
   if (!r) return;
   clearInterval(levelTimer);
   rec = null;
-  const source = get().sampleSource;
+  const { sampleSource: source, tabTarget } = get();
   set({ sampling: "idle" });
   const buf = await r.stop();
   if (!buf) return set({ status: "Nothing recorded" });
-  if (source === "tab") {
-    // Long takes go to the chop editor instead of straight onto a pad.
-    const id = await engine.addBuffer(`Tab ${new Date().toLocaleTimeString()}`, normalize(buf));
+  const tab = source === "tab";
+  const id = await engine.addBuffer(`${tab ? "Tab" : "Rec"} ${new Date().toLocaleTimeString()}`, normalize(buf));
+  if (tab && tabTarget === "chop") {
     set({ chop: newChop(id), tab: "Chop", status: `Captured ${buf.duration.toFixed(1)} s – chop it up` });
     return;
   }
   const pad = get().selectedPad;
-  const id = await engine.addBuffer(`Rec ${new Date().toLocaleTimeString()}`, normalize(buf));
-  updatePad(pad, { sampleId: id, name: "Rec", start: 0, end: 1, decay: 2, pitch: 0, reverse: false }, true);
+  updatePad(pad, { sampleId: id, name: tab ? "Tab" : "Rec", start: 0, end: 1, decay: 2, pitch: 0, reverse: false }, true);
   set({ status: `Sampled ${buf.duration.toFixed(1)} s to pad ${pad + 1}` });
 }
 

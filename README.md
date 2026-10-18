@@ -15,7 +15,7 @@ A browser-based groovebox for the **Novation Launchkey Mini MK4 25**. LaunchKit 
 - **Song mode**: chain patterns into a song, then bounce the song or one pattern to WAV.
 - **Browse**: browse imported sample folders from the hardware, with auto-preview.
 - **Sampling**: record the audio input onto a pad (Shift + Record), or resample the master out.
-- **Tab capture**: pick source *Browser tab*, share a YouTube (or any) tab with "Share tab audio" ticked, press play there. Takes up to 2 minutes open in the Chop editor.
+- **Tab capture**: pick source *Browser tab* and click *Share tab…* once (tick "Share tab audio" in Chrome's picker). The share stays open, so Shift + Record on the Launchkey arms a take, recording starts when the tab plays, and Shift + Record stops it. Takes (up to 2 minutes) go to the selected pad or into the Chop editor.
 - **Chop editor** (Chop tab): zoomable waveform of a whole sample. Click to add slice markers, drag to move, double-click to remove; auto-place by transients or equal parts; Space plays the region and **M** drops a marker at the playhead (tap-chop); 1–9 audition slices. Markers snap to zero crossings. Send the slices to consecutive pads, or crop the region into a new sample. While the Chop tab is open the Launchkey works the chop too: pads play slices 1–16 (and select that slice's marker), encoder 1 scrolls, 2 zooms, 3 picks a marker, 4 moves it (Shift = fine, single samples), and the screen shows the zoomed waveform with markers.
 - **Screen**: the Launchkey screen shows waveforms, the step grid, the browser and encoder popups, rendered as a bitmap.
 - **Persistence**: everything autosaves in the browser's IndexedDB. Projects and kits export as single JSON files with the samples embedded.

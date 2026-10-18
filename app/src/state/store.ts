@@ -2,7 +2,7 @@ import { createStore } from "zustand/vanilla";
 import { useStore } from "zustand";
 import { COLOR } from "../midi/protocol";
 import { BAR_TICKS } from "../seq/timing";
-import type { ChopSession, HwMode, KeysInstrument, NoteEvent, Pad, Pattern, Project, SampleInfo, SampleSource, Tab } from "./types";
+import type { ChopSession, HwMode, KeysInstrument, NoteEvent, Pad, Pattern, Project, SampleInfo, SampleSource, Tab, TabTarget } from "./types";
 import { KEYS_TRACK, PAD_COUNT, PATTERN_COUNT, TRACK_COUNT } from "./types";
 
 export const PAD_COLORS = [
@@ -148,6 +148,9 @@ export interface AppState {
   status: string;
   sampling: "idle" | "waiting" | "recording";
   sampleSource: SampleSource;
+  /** A browser tab is shared and ready for takes. */
+  tabShared: boolean;
+  tabTarget: TabTarget;
   /** Open tab of the on-screen UI. */
   tab: Tab;
   chop: ChopSession | null;
@@ -179,6 +182,8 @@ export const store = createStore<AppState>(() => ({
   status: "",
   sampling: "idle",
   sampleSource: "input",
+  tabShared: false,
+  tabTarget: "pad",
   tab: "Pads",
   chop: null,
   audioReady: false,

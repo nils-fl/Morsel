@@ -27,12 +27,50 @@ export interface Recording {
   armed(): boolean;
 }
 
-export async function startRecording(source: RecordSource, opts: { threshold?: number; maxSeconds?: number; deviceId?: string; onEnded?: () => void } = {}): Promise<Recording> {
+// ---------- tab share ----------
+// Shared once (needs a click: Chrome's picker), then kept open so takes can start and stop from the Launchkey.
+
+let tabStream: MediaStream | null = null;
+
+export const tabConnected = () => !!tabStream?.getAudioTracks().some((t) => t.readyState === "live");
+
+/** Open Chrome's share picker for a tab with audio. `onEnded` fires when the share stops ("Stop sharing"). */
+export async function connectTab(onEnded: () => void) {
+  disconnectTab();
+  const stream = await navigator.mediaDevices.getDisplayMedia({
+    // Video is required by the API; keep it tiny but alive, since stopping it can end the whole share.
+    video: { frameRate: 1, width: 320, height: 180 },
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false },
+    selfBrowserSurface: "exclude",
+    systemAudio: "include",
+  } as DisplayMediaStreamOptions);
+  if (!stream.getAudioTracks().length) {
+    stream.getTracks().forEach((t) => t.stop());
+    throw new Error("No audio shared – tick 'Share tab audio' in the picker");
+  }
+  tabStream = stream;
+  const ended = () => {
+    if (tabStream !== stream) return;
+    tabStream = null;
+    stream.getTracks().forEach((t) => t.stop());
+    onEnded();
+  };
+  stream.getTracks().forEach((t) => t.addEventListener("ended", ended, { once: true }));
+}
+
+export function disconnectTab() {
+  const s = tabStream;
+  tabStream = null;
+  s?.getTracks().forEach((t) => t.stop());
+}
+
+export async function startRecording(source: RecordSource, opts: { threshold?: number; maxSeconds?: number; deviceId?: string } = {}): Promise<Recording> {
   await ensureWorklet();
   const ctx = engine.ctx;
   const threshold = opts.threshold ?? 0.02;
   const maxFrames = (opts.maxSeconds ?? 30) * ctx.sampleRate;
 
+  // Only streams opened for this take are stopped with it; the tab share stays open.
   let stream: MediaStream | null = null;
   let src: AudioNode;
   if (source === "input") {
@@ -41,23 +79,8 @@ export async function startRecording(source: RecordSource, opts: { threshold?: n
     });
     src = ctx.createMediaStreamSource(stream);
   } else if (source === "tab") {
-    // Chrome's share picker: pick a tab and tick "Share tab audio". Video is required by the API; keep it tiny
-    // but alive, since stopping it can end the whole share. All tracks stop in stop().
-    stream = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: 1, width: 320, height: 180 },
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false },
-      selfBrowserSurface: "exclude",
-      systemAudio: "include",
-    } as DisplayMediaStreamOptions);
-    const track = stream.getAudioTracks()[0];
-    if (!track) {
-      stream.getTracks().forEach((t) => t.stop());
-      throw new Error("No audio shared – tick 'Share tab audio' in the picker");
-    }
-    // "Stop sharing" in Chrome ends the take (the caller ignores repeat calls).
-    const onEnded = opts.onEnded;
-    if (onEnded) stream.getTracks().forEach((t) => t.addEventListener("ended", onEnded, { once: true }));
-    src = ctx.createMediaStreamSource(stream);
+    if (!tabStream || !tabConnected()) throw new Error("No tab shared");
+    src = ctx.createMediaStreamSource(tabStream);
   } else {
     src = engine.voices.master;
   }
