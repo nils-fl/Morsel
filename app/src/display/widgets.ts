@@ -1,4 +1,4 @@
-import { duckGainAt } from "../audio/duck";
+import { duckGainAt, type DuckEnvelope } from "../audio/duck";
 import { Frame, H, W, fitText, textWidth } from "./frame";
 
 export const ROW_H = 9;
@@ -170,11 +170,7 @@ export function filterPanel(f: Frame, x: number, y: number, w: number, h: number
   }
 }
 
-export interface DuckCurve {
-  depth: number; // 0..1
-  attack: number; // seconds
-  release: number; // seconds
-}
+export type DuckCurve = DuckEnvelope;
 
 const DUCK_WINDOW_S = 1;
 

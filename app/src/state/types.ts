@@ -95,6 +95,7 @@ export interface DuckSettings {
   target: number; // track 0..16 (16 = Keys), or DUCK_ALL for every track but the source
   depth: number; // 0..1
   attack: number; // seconds, 0..0.05
+  hold: number; // seconds at full depth before recovering, 0..0.5
   release: number; // seconds, 0.02..1
 }
 

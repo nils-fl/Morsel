@@ -191,6 +191,7 @@ function SidechainPanel() {
       </div>
       <Slider label="Depth" value={duck.depth} min={0} max={1} format={pct} onChange={(v) => setDuck({ depth: v })} />
       <Slider label="Attack" value={duck.attack} min={0} max={0.05} step={0.001} format={ms} onChange={(v) => setDuck({ attack: v })} />
+      <Slider label="Hold" value={duck.hold} min={0} max={0.5} step={0.01} format={ms} onChange={(v) => setDuck({ hold: v })} />
       <Slider label="Release" value={duck.release} min={0.02} max={1} step={0.01} format={ms} onChange={(v) => setDuck({ release: v })} />
       <div className="meter duck-meter" title="Gain reduction on the target"><div style={{ width: `${Math.round((1 - (duck.on ? level : 1)) * 100)}%` }} /></div>
     </Section>

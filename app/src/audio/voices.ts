@@ -88,15 +88,15 @@ export class Voices {
     const effective = { ...pad, cutoff: Math.min(1, pad.cutoff + press * (1 - pad.cutoff)), hpCutoff: Math.max(0, pad.hpCutoff * (1 - press)) };
     const v = buildSampleVoice(this.ctx, this.buses[i], buf, effective, vel, when);
     this.track(this.padVoices, i, v);
-    if (p.duck.on && p.duck.source === i) this.duck(i, vel, when);
+    if (p.duck.on && p.duck.source === i) this.duck(i, when);
     if (pad.mode === "gate" && lenSec !== undefined) v.stop(when + lenSec);
     return v;
   }
 
-  /** Dip the duck target(s); harder hits duck a little deeper. */
-  private duck(source: number, vel: number, when: number) {
+  /** Dip the duck target(s). Same depth for every hit, like a ducker keyed from the trigger. */
+  private duck(source: number, when: number) {
     const d = this.getProject().duck;
-    const points = duckRamp(Math.max(when, this.ctx.currentTime), d.depth * (0.6 + 0.4 * (vel / 127)), d.attack, d.release);
+    const points = duckRamp(Math.max(when, this.ctx.currentTime), d);
     this.duckGains.forEach((g, t) => {
       if (d.target === DUCK_ALL ? t !== source : t === d.target) applyDuck(g.gain, points);
     });

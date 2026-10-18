@@ -70,7 +70,8 @@ export const defaultProject = (): Project => ({
   mutes: Array(TRACK_COUNT).fill(false),
   solos: Array(TRACK_COUNT).fill(false),
   levels: Array(TRACK_COUNT).fill(1),
-  duck: { on: false, source: 0, target: DUCK_ALL, depth: 0.7, attack: 0.005, release: 0.2 },
+  // Defaults that audibly pump: a quarter-note-ish dip at most tempos.
+  duck: { on: false, source: 0, target: DUCK_ALL, depth: 0.85, attack: 0.005, hold: 0.06, release: 0.3 },
 });
 
 /** Bumped when the saved project shape changes; files from a newer version are refused. */
@@ -105,6 +106,7 @@ function normalizeDuck(raw: unknown, d: DuckSettings): DuckSettings {
     target: Math.round(num(raw.target, DUCK_ALL, TRACK_COUNT - 1, d.target)),
     depth: num(raw.depth, 0, 1, d.depth),
     attack: num(raw.attack, 0, 0.05, d.attack),
+    hold: num(raw.hold, 0, 0.5, d.hold),
     release: num(raw.release, 0.02, 1, d.release),
   };
 }

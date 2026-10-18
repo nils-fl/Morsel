@@ -31,8 +31,10 @@ describe("normalizeProject", () => {
   it("gives old projects the default ducker and clamps saved duck settings", () => {
     expect(normalizeProject({ name: "Old" }).duck).toEqual(defaultProject().duck);
     expect(normalizeProject({ duck: "junk" }).duck).toEqual(defaultProject().duck);
-    const d = normalizeProject({ duck: { on: true, source: 40, target: 7, depth: 3, attack: -1, release: 0.5 } }).duck;
-    expect(d).toEqual({ on: true, source: 15, target: 7, depth: 1, attack: 0, release: 0.5 });
+    const d = normalizeProject({ duck: { on: true, source: 40, target: 7, depth: 3, attack: -1, hold: 9, release: 0.5 } }).duck;
+    expect(d).toEqual({ on: true, source: 15, target: 7, depth: 1, attack: 0, hold: 0.5, release: 0.5 });
+    // Saved before Hold existed: keeps its own settings, gets the default hold.
+    expect(normalizeProject({ duck: { on: true, depth: 0.5 } }).duck.hold).toBe(defaultProject().duck.hold);
     expect(normalizeProject({ duck: { target: -1 } }).duck.target).toBe(-1); // all others
   });
 

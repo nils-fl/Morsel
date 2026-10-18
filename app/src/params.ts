@@ -123,10 +123,10 @@ const duckNow = () => get().project.duck;
 export const setDuck = (patch: Partial<DuckSettings>) => updateProject((p) => ({ ...p, duck: { ...p.duck, ...patch } }), false);
 export const duckVisual = (): Visual => {
   const d = duckNow();
-  return { kind: "duck", depth: d.depth, attack: d.attack, release: d.release };
+  return { kind: "duck", depth: d.depth, attack: d.attack, hold: d.hold, release: d.release };
 };
 
-function duckParam(name: string, key: "depth" | "attack" | "release", lo: number, hi: number, step: number, fmt: (v: number) => string): Param {
+function duckParam(name: string, key: "depth" | "attack" | "hold" | "release", lo: number, hi: number, step: number, fmt: (v: number) => string): Param {
   const cur = () => duckNow()[key];
   return {
     name,
@@ -271,6 +271,7 @@ export const PAGES: Page[] = [
       },
       duckParam("Depth", "depth", 0, 1, 0.02, pct),
       duckParam("Attack", "attack", 0, 0.05, 0.001, ms),
+      duckParam("Hold", "hold", 0, 0.5, 0.01, ms),
       duckParam("Release", "release", 0.02, 1, 0.01, ms),
     ],
   },

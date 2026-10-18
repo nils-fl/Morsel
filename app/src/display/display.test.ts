@@ -118,7 +118,7 @@ describe("boot animation", () => {
 });
 
 describe("duck screen", () => {
-  const view = { on: true, source: "P1 Kick", target: "P9 Bass", depth: 0.8, attack: 0.005, release: 0.2, level: 1, summary: "P1>P9 80%" };
+  const view = { on: true, source: "P1 Kick", target: "P9 Bass", depth: 0.8, attack: 0.005, hold: 0.06, release: 0.2, level: 1, summary: "P1>P9 80%" };
   it("shows more gain reduction when the target is ducked", () => {
     expect(lit(duckScreen({ ...view, level: 0.2 }))).toBeGreaterThan(lit(duckScreen(view)));
   });
