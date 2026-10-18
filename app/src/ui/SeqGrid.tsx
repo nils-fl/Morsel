@@ -3,6 +3,7 @@ import { sequencer } from "../seq/sequencer";
 import { STEP_TICKS } from "../seq/timing";
 import { KEYS_TRACK, clearTrack, copyPattern, newId, set, toggleArray, toggleStep, updatePattern, useApp } from "../state/store";
 import { noteName } from "./notes";
+import { Section } from "./controls";
 import { mute, paletteCss } from "./palette";
 
 function usePlayheadStep() {
@@ -35,13 +36,10 @@ export function SeqGrid() {
   const tracks = [...Array(16).keys(), KEYS_TRACK];
   return (
     <div className="seq">
-      <div className="row">
-        <label className="field">
-          <span>Length</span>
-          <select value={pat.bars} onChange={(e) => updatePattern(patIndex, (p) => ({ ...p, bars: Number(e.target.value), events: p.events.filter((ev) => ev.tick < Number(e.target.value) * 16 * STEP_TICKS) }))}>
+      <Section title={`Pattern ${patIndex + 1}`} actions={<>
+          <select value={pat.bars} title="Pattern length" onChange={(e) => updatePattern(patIndex, (p) => ({ ...p, bars: Number(e.target.value), events: p.events.filter((ev) => ev.tick < Number(e.target.value) * 16 * STEP_TICKS) }))}>
             {[1, 2, 3, 4].map((b) => <option key={b} value={b}>{b} bar{b > 1 ? "s" : ""}</option>)}
           </select>
-        </label>
         <button onClick={() => updatePattern(patIndex, (p) => ({ ...p, events: [] }))}>Clear pattern</button>
         <button onClick={() => clearTrack(patIndex, selectedTrack)}>Clear track</button>
         <button onClick={() => updatePattern(patIndex, (p) => p.bars >= 4 ? p : ({
@@ -56,8 +54,8 @@ export function SeqGrid() {
           <option value="" disabled>Copy to…</option>
           {patterns.map((p, i) => i !== patIndex && <option key={i} value={i}>Pattern {i + 1}{p.events.length ? " (overwrite)" : ""}</option>)}
         </select>
-        <span className="hint">Click a cell to toggle. Keys notes come from recording on the keyboard.</span>
-      </div>
+      </>}>
+      <p className="hint">Click a cell to toggle a step. Keys notes come from recording on the keyboard.</p>
       <div className="seq-grid" style={{ "--steps": steps } as React.CSSProperties}>
         {tracks.map((t) => {
           const isKeys = t === KEYS_TRACK;
@@ -91,6 +89,7 @@ export function SeqGrid() {
           );
         })}
       </div>
+      </Section>
     </div>
   );
 }

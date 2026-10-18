@@ -203,7 +203,7 @@ function ChopPanel() {
   const pad = useApp((s) => s.selectedPad);
   return (
     <Section title="Chop">
-      <p className="hint">Slices the selected pad's region across pads {pad + 1}–{Math.min(16, pad + count)}.</p>
+      <p className="hint">Slices the pad's region across pads {pad + 1}–{Math.min(16, pad + count)}.</p>
       <div className="row">
         <select value={count} onChange={(e) => setCount(Number(e.target.value))}>
           {[2, 4, 8, 16].map((n) => <option key={n} value={n}>{n} slices</option>)}
