@@ -6,7 +6,7 @@ import { CC, COLOR, type LedMode, type PadLayout } from "../midi/protocol";
 import { DUCK_PAGE, PAGES, setDuck, trackLabel, turnEncoder } from "../params";
 import { makeTicker, sequencer } from "../seq/sequencer";
 import { PPQN, STEP_TICKS } from "../seq/timing";
-import { type AppState, clearTrack, get, patternLength, set, toggleArray, toggleStep, undo, updateProject, KEYS_TRACK } from "../state/store";
+import { type AppState, clearTrack, get, patternLength, set, toggleArray, toggleStep, undo, updateProject, KEYS_TRACK, PAD_COLORS } from "../state/store";
 import type { HwMode } from "../state/types";
 import { stepForPad } from "./stepMap";
 import { activeOverlay, showTemp } from "./notify";
@@ -15,6 +15,7 @@ import { browseCan, browseDisplay, browseEncoder, browseEnter, browseLeds, brows
 import { H, W, type Frame } from "../display/frame";
 import { browserScreen, chopScreen, duckScreen, padScreen, stepScreen } from "../display/screens";
 import { HEADER_H, computePeaks, duckPanel, filterPanel, overlayBar, type Peaks } from "../display/widgets";
+import { BOOT_BURP_MS, BOOT_EAT_MS, bootFrame } from "../display/bootAnim";
 
 const MODES: HwMode[] = ["play", "step", "mixer", "pattern"];
 const MODE_NAMES: Record<HwMode, string> = { play: "Play", step: "Step", mixer: "Mixer", pattern: "Pattern", browse: "Browse", chop: "Chop" };
@@ -48,9 +49,28 @@ export function exitChopHw() {
 
 const heldPads = new Set<number>();
 
+// Start-up animation: plays when the page loads and whenever the Launchkey connects; any input skips it.
+let bootStart = -Infinity;
+const bootElapsed = () => performance.now() - bootStart;
+
+/** Pads during the animation: a colour sweep following the blob, a white flash on the burp, then a rainbow chase. */
+function bootLeds(ms: number) {
+  return Array.from({ length: 16 }, (_, i) => {
+    const col = i % 8;
+    if (ms < BOOT_EAT_MS) {
+      const at = Math.floor((ms / BOOT_EAT_MS) * 8);
+      return { color: col === at ? COLOR.white : col < at ? PAD_COLORS[i] : COLOR.off };
+    }
+    if (ms < BOOT_BURP_MS) return { color: Math.floor(ms / 100) % 2 ? COLOR.white : COLOR.off };
+    return { color: PAD_COLORS[(i + Math.floor(ms / 80)) % 16] };
+  });
+}
+
 export function initController() {
+  bootStart = performance.now();
   launchkey.on((e) => {
     const s = get();
+    if (e.type === "pad" || e.type === "key" || e.type === "button" || e.type === "encoder") bootStart = -Infinity;
     if (!s.audioReady && ((e.type === "pad" && e.on) || (e.type === "button" && e.down && e.button !== "shift"))) showTemp("NO AUDIO", "CLICK THE PAGE");
     switch (e.type) {
       case "connection":
@@ -58,6 +78,7 @@ export function initController() {
         if (e.connected) {
           launchkey.setLayout(layoutFor(s.hwMode));
           lastStationary = "";
+          bootStart = performance.now();
         }
         break;
       case "layout": {
@@ -371,15 +392,17 @@ function screenFor(s: AppState): Frame | null {
 
 function renderLoop() {
   const s = get();
-  frame = screenFor(s);
-  const msg = activeOverlay();
+  const bootMs = bootElapsed();
+  const boot = bootFrame(bootMs);
+  frame = boot ?? screenFor(s);
+  const msg = boot ? null : activeOverlay();
   if (frame && msg) {
     if (msg.visual?.kind === "filter") filterPanel(frame, 0, HEADER_H, W, H - HEADER_H - 10, msg.visual);
     if (msg.visual?.kind === "duck") duckPanel(frame, 0, HEADER_H, W, H - HEADER_H - 10, msg.visual);
     overlayBar(frame, msg.name, msg.value);
   }
   if (!launchkey.connected || ledsPaused) return;
-  launchkey.setPads(s.hwMode === "browse" ? browseLeds() : s.hwMode === "chop" ? chopPadLeds(heldPads) : padLeds(s));
+  launchkey.setPads(boot ? bootLeds(bootMs) : s.hwMode === "browse" ? browseLeds() : s.hwMode === "chop" ? chopPadLeds(heldPads) : padLeds(s));
   const ep = encPageLeds(s);
   launchkey.setButtonLed(CC.encPageUp, ep.up);
   launchkey.setButtonLed(CC.encPageDown, ep.down);

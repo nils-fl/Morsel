@@ -3,6 +3,7 @@ import { bitmapSysex, isBitmapAck, SYSEX_HEADER } from "../midi/protocol";
 import { font5x7 } from "./fonts";
 import { Frame, PACKED_SIZE, fitText } from "./frame";
 import { browserScreen, chopScreen, duckScreen } from "./screens";
+import { BOOT_BURP_MS, BOOT_EAT_MS, BOOT_MS, bootFrame } from "./bootAnim";
 import { filterPanel, highpassDb, lowpassDb, scrollTop } from "./widgets";
 
 describe("Frame.pack", () => {
@@ -104,6 +105,17 @@ describe("chop screen", () => {
 });
 
 const lit = (f: { px: Uint8Array }) => f.px.reduce((n, v) => n + v, 0);
+
+describe("boot animation", () => {
+  it("plays for its length, then hands back to the normal screen", () => {
+    for (const ms of [0, BOOT_EAT_MS / 2, BOOT_EAT_MS + 100, BOOT_BURP_MS + 600]) expect(lit(bootFrame(ms)!)).toBeGreaterThan(50);
+    expect(bootFrame(BOOT_MS)).toBeNull();
+    expect(bootFrame(-1)).toBeNull();
+  });
+  it("eats the waveform: less of it is left as the blob moves right", () => {
+    expect(lit(bootFrame(BOOT_EAT_MS * 0.9)!)).toBeLessThan(lit(bootFrame(BOOT_EAT_MS * 0.1)!));
+  });
+});
 
 describe("duck screen", () => {
   const view = { on: true, source: "P1 Kick", target: "P9 Bass", depth: 0.8, attack: 0.005, release: 0.2, level: 1, summary: "P1>P9 80%" };
