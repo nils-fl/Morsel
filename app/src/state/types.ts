@@ -83,7 +83,20 @@ export interface Project {
   mutes: boolean[];
   solos: boolean[];
   levels: number[]; // per track 0..1
+  duck: DuckSettings;
 }
+
+/** Sidechain ducker: hits on `source` dip the `target` track. */
+export interface DuckSettings {
+  on: boolean;
+  source: number; // pad 0..15
+  target: number; // track 0..16 (16 = Keys), or DUCK_ALL for every track but the source
+  depth: number; // 0..1
+  attack: number; // seconds, 0..0.05
+  release: number; // seconds, 0.02..1
+}
+
+export const DUCK_ALL = -1;
 
 export type HwMode = "play" | "step" | "mixer" | "pattern" | "browse" | "chop";
 

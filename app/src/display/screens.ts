@@ -1,6 +1,6 @@
 // Full-screen layouts. Plain data in, Frame out: no store, MIDI or DOM.
 import { Frame, H, W } from "./frame";
-import { HEADER_H, ROW_H, footer, header, list, stepRow, waveform, type ListItem, type Peaks } from "./widgets";
+import { HEADER_H, ROW_H, duckPanel, footer, header, list, stepRow, waveform, type DuckCurve, type ListItem, type Peaks } from "./widgets";
 
 export interface BrowserView {
   folder: string;
@@ -90,5 +90,27 @@ export function chopScreen(v: ChopScreenView): Frame {
     for (let j = y; j < y + h; j++) f.set(x, j, (j >> 1) % 2);
   }
   footer(f, "CHOP", `${v.zoom < 10 ? v.zoom.toFixed(1) : Math.round(v.zoom)}x ${v.sel !== null ? `M${v.sel + 1} ` : ""}${v.at}`);
+  return f;
+}
+
+export interface DuckView extends DuckCurve {
+  on: boolean;
+  source: string; // e.g. "P1 Kick"
+  target: string; // e.g. "P9 Bass", "All"
+  level: number; // current ducker gain of the target, 0..1
+  summary: string;
+}
+
+export function duckScreen(v: DuckView): Frame {
+  const f = new Frame();
+  header(f, "SIDECHAIN", v.on ? "ON" : "OFF");
+  f.textFit(2, HEADER_H + 2, `${v.source} > ${v.target}`, W - 4);
+  const y = HEADER_H + 11, h = H - 9 - y - 2;
+  duckPanel(f, 0, y, W - 10, h, v);
+  // Live gain reduction: the bar grows down from the top as the target ducks.
+  f.rect(W - 8, y, 8, h);
+  f.fillRect(W - 6, y + 2, 4, Math.round((h - 4) * Math.max(0, Math.min(1, 1 - v.level))));
+  if (!v.on) for (let j = y + 1; j < y + h - 1; j++) for (let i = 1; i < W - 11; i++) if ((i + j) % 2 === 0) f.set(i, j, 0);
+  footer(f, "DUCK", v.summary);
   return f;
 }

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { bitmapSysex, isBitmapAck, SYSEX_HEADER } from "../midi/protocol";
 import { font5x7 } from "./fonts";
 import { Frame, PACKED_SIZE, fitText } from "./frame";
-import { browserScreen, chopScreen } from "./screens";
+import { browserScreen, chopScreen, duckScreen } from "./screens";
 import { filterPanel, highpassDb, lowpassDb, scrollTop } from "./widgets";
 
 describe("Frame.pack", () => {
@@ -100,5 +100,14 @@ describe("chop screen", () => {
     expect(col(x).every(Boolean)).toBe(true); // selected: solid
     const dotted = col(Math.round(0.25 * 127));
     expect(dotted.some(Boolean) && !dotted.every(Boolean)).toBe(true); // others: dotted
+  });
+});
+
+const lit = (f: { px: Uint8Array }) => f.px.reduce((n, v) => n + v, 0);
+
+describe("duck screen", () => {
+  const view = { on: true, source: "P1 Kick", target: "P9 Bass", depth: 0.8, attack: 0.005, release: 0.2, level: 1, summary: "P1>P9 80%" };
+  it("shows more gain reduction when the target is ducked", () => {
+    expect(lit(duckScreen({ ...view, level: 0.2 }))).toBeGreaterThan(lit(duckScreen(view)));
   });
 });

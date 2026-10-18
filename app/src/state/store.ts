@@ -2,8 +2,8 @@ import { createStore } from "zustand/vanilla";
 import { useStore } from "zustand";
 import { COLOR } from "../midi/protocol";
 import { BAR_TICKS } from "../seq/timing";
-import type { ChopSession, HwMode, KeysInstrument, NoteEvent, Pad, Pattern, Project, SampleInfo, SampleSource, Tab, TabTarget } from "./types";
-import { KEYS_TRACK, PAD_COUNT, PATTERN_COUNT, TRACK_COUNT } from "./types";
+import type { ChopSession, DuckSettings, HwMode, KeysInstrument, NoteEvent, Pad, Pattern, Project, SampleInfo, SampleSource, Tab, TabTarget } from "./types";
+import { DUCK_ALL, KEYS_TRACK, PAD_COUNT, PATTERN_COUNT, TRACK_COUNT } from "./types";
 
 export const PAD_COLORS = [
   COLOR.red, COLOR.orange, COLOR.yellow, COLOR.lime, COLOR.green, COLOR.mint, COLOR.cyan, COLOR.sky,
@@ -68,6 +68,7 @@ export const defaultProject = (): Project => ({
   mutes: Array(TRACK_COUNT).fill(false),
   solos: Array(TRACK_COUNT).fill(false),
   levels: Array(TRACK_COUNT).fill(1),
+  duck: { on: false, source: 0, target: DUCK_ALL, depth: 0.7, attack: 0.005, release: 0.2 },
 });
 
 /** Bumped when the saved project shape changes; files from a newer version are refused. */
@@ -92,6 +93,18 @@ function normalizePattern(raw: unknown, seen: Set<string>): Pattern {
     return [{ id, tick: e.tick, track: e.track, note: num(e.note, 0, 127, 60), vel: num(e.vel, 1, 127, 100), len: num(e.len, 1, Number.MAX_SAFE_INTEGER, 1) }];
   });
   return { bars, events };
+}
+
+function normalizeDuck(raw: unknown, d: DuckSettings): DuckSettings {
+  if (!isObj(raw)) return d;
+  return {
+    on: typeof raw.on === "boolean" ? raw.on : d.on,
+    source: Math.round(num(raw.source, 0, PAD_COUNT - 1, d.source)),
+    target: Math.round(num(raw.target, DUCK_ALL, TRACK_COUNT - 1, d.target)),
+    depth: num(raw.depth, 0, 1, d.depth),
+    attack: num(raw.attack, 0, 0.05, d.attack),
+    release: num(raw.release, 0.02, 1, d.release),
+  };
 }
 
 /** Rebuild a saved or imported project on top of the defaults, so fields added later (or damaged ones) can't break playback. */
@@ -119,6 +132,7 @@ export function normalizeProject(raw: unknown): Project {
     mutes: fixedArray(raw.mutes, TRACK_COUNT, false, (x) => typeof x === "boolean"),
     solos: fixedArray(raw.solos, TRACK_COUNT, false, (x) => typeof x === "boolean"),
     levels: fixedArray(raw.levels, TRACK_COUNT, 1, (x) => typeof x === "number" && x >= 0 && x <= 1),
+    duck: normalizeDuck(raw.duck, d.duck),
   };
 }
 

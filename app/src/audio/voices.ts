@@ -2,13 +2,16 @@
 // Used by the live engine and by the offline renderer.
 import { trackAudible } from "../state/store";
 import type { Project } from "../state/types";
-import { KEYS_TRACK, TRACK_COUNT } from "../state/types";
+import { DUCK_ALL, KEYS_TRACK, TRACK_COUNT } from "../state/types";
+import { applyDuck, duckRamp } from "./duck";
 import { buildSampleVoice, buildSynthVoice, reverseBuffer, type Voice } from "./dsp";
 
 export type BufferLookup = (id: string) => AudioBuffer | undefined;
 
 export class Voices {
   readonly buses: GainNode[];
+  /** Per track, after the bus: the sidechain ducker's gain (the bus gain belongs to mute/solo/level). */
+  readonly duckGains: GainNode[];
   readonly master: GainNode;
   private padVoices = new Map<number, Voice[]>();
   private keyVoices = new Map<number, Voice>();
@@ -30,9 +33,14 @@ export class Voices {
     comp.attack.value = 0.003;
     comp.release.value = 0.15;
     this.master.connect(comp).connect(out);
-    this.buses = Array.from({ length: TRACK_COUNT }, () => {
+    this.duckGains = Array.from({ length: TRACK_COUNT }, () => {
       const g = ctx.createGain();
       g.connect(this.master);
+      return g;
+    });
+    this.buses = this.duckGains.map((duck) => {
+      const g = ctx.createGain();
+      g.connect(duck);
       return g;
     });
     this.updateMix();
@@ -80,8 +88,24 @@ export class Voices {
     const effective = { ...pad, cutoff: Math.min(1, pad.cutoff + press * (1 - pad.cutoff)), hpCutoff: Math.max(0, pad.hpCutoff * (1 - press)) };
     const v = buildSampleVoice(this.ctx, this.buses[i], buf, effective, vel, when);
     this.track(this.padVoices, i, v);
+    if (p.duck.on && p.duck.source === i) this.duck(i, vel, when);
     if (pad.mode === "gate" && lenSec !== undefined) v.stop(when + lenSec);
     return v;
+  }
+
+  /** Dip the duck target(s); harder hits duck a little deeper. */
+  private duck(source: number, vel: number, when: number) {
+    const d = this.getProject().duck;
+    const points = duckRamp(Math.max(when, this.ctx.currentTime), d.depth * (0.6 + 0.4 * (vel / 127)), d.attack, d.release);
+    this.duckGains.forEach((g, t) => {
+      if (d.target === DUCK_ALL ? t !== source : t === d.target) applyDuck(g.gain, points);
+    });
+  }
+
+  /** Current ducker gain of a track (1 = not ducked), or of the deepest-ducked track for DUCK_ALL. */
+  duckLevel(target: number): number {
+    if (target !== DUCK_ALL) return this.duckGains[target]?.gain.value ?? 1;
+    return Math.min(...this.duckGains.map((g) => g.gain.value));
   }
 
   releasePad(i: number, when: number) {

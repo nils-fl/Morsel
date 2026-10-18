@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { chopSelected, confirmDeleteSample, loadFilesToPads, openInChop, samplingLevel, shareTab, toggleSampling, unshareTab } from "../actions";
 import { DECAY_MAX } from "../audio/dsp";
-import { hz } from "../params";
+import { DUCK_PAGE, DUCK_TARGETS, hz, setDuck, trackLabel } from "../params";
 import { engine } from "../audio/engine";
 import { listKits, loadKit, saveKit } from "../state/persist";
 import { importKit } from "../state/projectFile";
 import { get, set, updatePad, updateProject, useApp } from "../state/store";
-import type { SampleSource, TabTarget } from "../state/types";
+import { DUCK_ALL, PAD_COUNT, type SampleSource, type TabTarget } from "../state/types";
 import { Field, Section, Slider } from "./controls";
 import { PALETTE_CHOICES, paletteCss } from "./palette";
 import { Waveform } from "./Waveform";
@@ -95,6 +95,7 @@ export function PadEditor() {
       </Section>
       <div className="row wrap">
         <SamplingPanel />
+        <SidechainPanel />
         <ChopPanel />
         <KitPanel />
       </div>
@@ -149,6 +150,49 @@ function SamplingPanel() {
         </div>
       )}
       <div className="meter"><div style={{ width: `${Math.min(100, level * 100)}%` }} /></div>
+    </Section>
+  );
+}
+
+function SidechainPanel() {
+  const duck = useApp((s) => s.project.duck);
+  useApp((s) => s.project.pads); // pad names in the labels
+  const onDuckPage = useApp((s) => s.encPage === DUCK_PAGE);
+  const [level, setLevel] = useState(1);
+  useEffect(() => {
+    if (!duck.on) return;
+    let raf = 0;
+    const tick = () => {
+      setLevel(engine.voices.duckLevel(duck.target));
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [duck.on, duck.target]);
+
+  return (
+    <Section title="Sidechain" actions={
+      <button className={duck.on ? "on" : ""} onClick={() => setDuck({ on: !duck.on })}>{duck.on ? "On" : "Off"}</button>
+    }>
+      <p className="hint" title="Launchkey: on the Duck encoder page, hitting a pad makes it the input">
+        Input hits dip the target. Launchkey: <b>Duck</b> page{onDuckPage ? " (open)" : ""}, hit a pad = input.
+      </p>
+      <div className="row wrap">
+        <Field label="Input">
+          <select value={duck.source} onChange={(e) => setDuck({ source: Number(e.target.value) })}>
+            {Array.from({ length: PAD_COUNT }, (_, i) => <option key={i} value={i}>{trackLabel(i)}</option>)}
+          </select>
+        </Field>
+        <Field label="Target">
+          <select value={duck.target} onChange={(e) => setDuck({ target: Number(e.target.value) })}>
+            {DUCK_TARGETS.map((t) => <option key={t} value={t}>{t === DUCK_ALL ? "All others" : trackLabel(t)}</option>)}
+          </select>
+        </Field>
+      </div>
+      <Slider label="Depth" value={duck.depth} min={0} max={1} format={pct} onChange={(v) => setDuck({ depth: v })} />
+      <Slider label="Attack" value={duck.attack} min={0} max={0.05} step={0.001} format={ms} onChange={(v) => setDuck({ attack: v })} />
+      <Slider label="Release" value={duck.release} min={0.02} max={1} step={0.01} format={ms} onChange={(v) => setDuck({ release: v })} />
+      <div className="meter duck-meter" title="Gain reduction on the target"><div style={{ width: `${Math.round((1 - (duck.on ? level : 1)) * 100)}%` }} /></div>
     </Section>
   );
 }

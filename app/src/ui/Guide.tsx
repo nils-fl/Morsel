@@ -36,6 +36,7 @@ const SHORTCUTS: [string, string][] = [
   ["Shift + Scene", "Clear selected track"],
   ["Shift + Pad ⌃", "Browse on / off"],
   ["Shift + Encoder", "Fine steps"],
+  ["Pad on Duck page", "Make it the sidechain input"],
   ["Hold Scene + pads", "Note repeat (Play)"],
   ["Hold Scene + pad", "Add pattern to song (Pattern)"],
   ["Double-tap pad", "Solo (Mixer)"],

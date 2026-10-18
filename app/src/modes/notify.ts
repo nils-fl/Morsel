@@ -3,14 +3,14 @@
 import { launchkey } from "../midi/launchkey";
 import { get } from "../state/store";
 import type { HwMode } from "../state/types";
-import type { FilterCurve } from "../display/widgets";
+import type { DuckCurve, FilterCurve } from "../display/widgets";
 
 const OVERLAY_MS = 1000;
 
 export const hasScreen = (m: HwMode) => m === "browse" || m === "play" || m === "step" || m === "chop";
 
 /** Extra graphics drawn with a message (bitmap screens only). */
-export type Visual = { kind: "filter" } & FilterCurve;
+export type Visual = ({ kind: "filter" } & FilterCurve) | ({ kind: "duck" } & DuckCurve);
 
 let overlay: { name: string; value: string; visual?: Visual; until: number } | null = null;
 

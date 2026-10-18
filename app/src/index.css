@@ -201,6 +201,8 @@ p.hint { margin: 0 0 8px; }
 .waveform { width: 100%; height: 150px; display: block; cursor: ew-resize; background: var(--wave-bg); border: 1px solid var(--line); }
 
 .tab-state.on { color: var(--ok); }
+.duck-meter { margin-top: 6px; }
+.duck-meter div { background: var(--amber); transition: none; }
 
 /* Chop editor */
 .chop-tools { margin-top: 0; }

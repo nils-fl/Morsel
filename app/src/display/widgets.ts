@@ -1,3 +1,4 @@
+import { duckGainAt } from "../audio/duck";
 import { Frame, H, W, fitText, textWidth } from "./frame";
 
 export const ROW_H = 9;
@@ -164,6 +165,34 @@ export function filterPanel(f: Frame, x: number, y: number, w: number, h: number
     if (curve.lpHz !== null) db += lowpassDb(hz, curve.lpHz, curve.qDb);
     if (curve.hpHz !== null) db += highpassDb(hz, curve.hpHz, curve.qDb);
     const cy = yFor(db);
+    f.vline(ix + c, prev < 0 ? cy : Math.min(prev, cy), prev < 0 ? cy : Math.max(prev, cy));
+    prev = cy;
+  }
+}
+
+export interface DuckCurve {
+  depth: number; // 0..1
+  attack: number; // seconds
+  release: number; // seconds
+}
+
+const DUCK_WINDOW_S = 1;
+
+/** Gain envelope of the ducker (time across, gain up), with a dotted line at the floor. */
+export function duckPanel(f: Frame, x: number, y: number, w: number, h: number, curve: DuckCurve) {
+  f.fillRect(x, y, w, h, 0);
+  f.rect(x, y, w, h);
+  const ix = x + 2, iw = w - 4, iy = y + 2, ih = h - 4;
+  const yFor = (g: number) => iy + Math.round((1 - Math.max(0, Math.min(1, g))) * (ih - 1));
+  const floorY = yFor(1 - curve.depth);
+  for (let i = ix; i < ix + iw; i += 3) f.set(i, floorY);
+  // A short flat lead-in marks the hit.
+  const lead = Math.round(iw * 0.08);
+  f.vline(ix + lead, iy + ih - 3, iy + ih - 1);
+  let prev = -1;
+  for (let c = 0; c < iw; c++) {
+    const t = ((c - lead) / (iw - lead)) * DUCK_WINDOW_S;
+    const cy = yFor(duckGainAt(t, curve));
     f.vline(ix + c, prev < 0 ? cy : Math.min(prev, cy), prev < 0 ? cy : Math.max(prev, cy));
     prev = cy;
   }

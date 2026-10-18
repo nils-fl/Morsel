@@ -4,7 +4,7 @@ import type { Visual } from "./modes/notify";
 import { engine } from "./audio/engine";
 import { QUANTIZE_OPTIONS, REPEAT_OPTIONS } from "./seq/timing";
 import { get, set, updateKeys, updatePad, updateProject } from "./state/store";
-import type { Pad, SynthParams } from "./state/types";
+import { DUCK_ALL, KEYS_TRACK, PAD_COUNT, type DuckSettings, type Pad, type SynthParams } from "./state/types";
 
 export interface Param {
   name: string;
@@ -86,6 +86,37 @@ export interface Page {
 const panText = (v: number) => (Math.abs(v) < 0.01 ? "C" : v < 0 ? `L${Math.round(-v * 100)}` : `R${Math.round(v * 100)}`);
 const padNow = () => get().project.pads[get().selectedPad];
 
+// ---------- sidechain ducker ----------
+
+/** "P1 Kick", "Keys" or "All" for a duck source / target. */
+export function trackLabel(t: number) {
+  if (t === DUCK_ALL) return "All";
+  if (t === KEYS_TRACK) return "Keys";
+  return `P${t + 1} ${get().project.pads[t]?.name ?? ""}`.trim();
+}
+
+/** Targets in encoder order: all others, pads 1-16, Keys. */
+export const DUCK_TARGETS = [DUCK_ALL, ...Array.from({ length: PAD_COUNT }, (_, i) => i), KEYS_TRACK];
+
+const duckNow = () => get().project.duck;
+export const setDuck = (patch: Partial<DuckSettings>) => updateProject((p) => ({ ...p, duck: { ...p.duck, ...patch } }), false);
+export const duckVisual = (): Visual => {
+  const d = duckNow();
+  return { kind: "duck", depth: d.depth, attack: d.attack, release: d.release };
+};
+
+function duckParam(name: string, key: "depth" | "attack" | "release", lo: number, hi: number, step: number, fmt: (v: number) => string): Param {
+  const cur = () => duckNow()[key];
+  return {
+    name,
+    value: cur,
+    range: [lo, hi],
+    nudge: (d, fine) => setDuck({ [key]: clamp(cur() + d * step * (fine ? 0.1 : 1), lo, hi) }),
+    format: () => fmt(cur()),
+    visual: duckVisual,
+  };
+}
+
 export const PAGES: Page[] = [
   {
     name: "Pad",
@@ -151,7 +182,43 @@ export const PAGES: Page[] = [
       },
     ],
   },
+  {
+    name: "Duck",
+    tag: "DUCK",
+    summary: () => {
+      const d = duckNow();
+      return d.on ? `P${d.source + 1}>${d.target === DUCK_ALL ? "All" : d.target === KEYS_TRACK ? "Keys" : `P${d.target + 1}`} ${pct(d.depth)}` : "Off";
+    },
+    params: [
+      {
+        name: "Duck",
+        value: () => (duckNow().on ? 1 : 0),
+        range: [0, 1],
+        nudge: (d) => setDuck({ on: d > 0 }),
+        format: () => (duckNow().on ? "On" : "Off"),
+      },
+      {
+        name: "Input",
+        value: () => duckNow().source,
+        range: [0, PAD_COUNT - 1],
+        nudge: (d) => setDuck({ source: clamp(duckNow().source + Math.sign(d), 0, PAD_COUNT - 1) }),
+        format: () => trackLabel(duckNow().source),
+      },
+      {
+        name: "Target",
+        value: () => DUCK_TARGETS.indexOf(duckNow().target),
+        range: [0, DUCK_TARGETS.length - 1],
+        nudge: (d) => setDuck({ target: DUCK_TARGETS[clamp(DUCK_TARGETS.indexOf(duckNow().target) + Math.sign(d), 0, DUCK_TARGETS.length - 1)] }),
+        format: () => trackLabel(duckNow().target),
+      },
+      duckParam("Depth", "depth", 0, 1, 0.02, pct),
+      duckParam("Attack", "attack", 0, 0.05, 0.001, ms),
+      duckParam("Release", "release", 0.02, 1, 0.01, ms),
+    ],
+  },
 ];
+export const DUCK_PAGE = PAGES.findIndex((p) => p.tag === "DUCK");
+
 
 /** Apply an encoder move and refresh the mixer (levels may change). */
 export function turnEncoder(page: number, index: number, delta: number, fine: boolean) {

@@ -3,7 +3,7 @@ import { keyOff, keyOn, playPad, releasePad, toggleSampling, togglePlay, toggleR
 import { engine } from "../audio/engine";
 import { launchkey } from "../midi/launchkey";
 import { CC, COLOR, type LedMode, type PadLayout } from "../midi/protocol";
-import { PAGES, turnEncoder } from "../params";
+import { DUCK_PAGE, PAGES, setDuck, trackLabel, turnEncoder } from "../params";
 import { makeTicker, sequencer } from "../seq/sequencer";
 import { PPQN, STEP_TICKS } from "../seq/timing";
 import { type AppState, clearTrack, get, patternLength, set, toggleArray, toggleStep, undo, updateProject, KEYS_TRACK } from "../state/store";
@@ -13,8 +13,8 @@ import { activeOverlay, showTemp } from "./notify";
 import { chopEncoder, chopPad, chopPadLeds, chopView } from "./chop";
 import { browseCan, browseDisplay, browseEncoder, browseEnter, browseLeds, browsePad, browseUp, browseView, enterBrowse, exitBrowse } from "./browse";
 import { H, W, type Frame } from "../display/frame";
-import { browserScreen, chopScreen, padScreen, stepScreen } from "../display/screens";
-import { HEADER_H, computePeaks, filterPanel, overlayBar, type Peaks } from "../display/widgets";
+import { browserScreen, chopScreen, duckScreen, padScreen, stepScreen } from "../display/screens";
+import { HEADER_H, computePeaks, duckPanel, filterPanel, overlayBar, type Peaks } from "../display/widgets";
 
 const MODES: HwMode[] = ["play", "step", "mixer", "pattern"];
 const MODE_NAMES: Record<HwMode, string> = { play: "Play", step: "Step", mixer: "Mixer", pattern: "Pattern", browse: "Browse", chop: "Chop" };
@@ -157,6 +157,11 @@ function onPad(pad: number, vel: number, on: boolean) {
       chopPad(pad, vel);
       break;
     case "play":
+      // On the Duck page the pad you hit becomes the sidechain input.
+      if (s.encPage === DUCK_PAGE && s.project.duck.source !== pad) {
+        setDuck({ source: pad });
+        showTemp("Duck input", trackLabel(pad));
+      }
       if (sequencer.repeatOn && s.playing) {
         sequencer.repeatPads.set(pad, vel);
         set({ selectedPad: pad, selectedTrack: pad });
@@ -332,6 +337,13 @@ function screenFor(s: AppState): Frame | null {
       return browserScreen({ folder: v.folder, index: v.index, items: v.items, targetPad: s.selectedPad });
     }
     case "play": {
+      if (s.encPage === DUCK_PAGE) {
+        const d = p.duck;
+        return duckScreen({
+          ...d, source: trackLabel(d.source), target: trackLabel(d.target),
+          level: engine.voices.duckLevel(d.target), summary: PAGES[DUCK_PAGE].summary(),
+        });
+      }
       const pad = p.pads[s.selectedPad];
       return padScreen({
         pad: s.selectedPad, name: pad.name, peaks: peaksFor(pad.sampleId), start: pad.start, end: pad.end,
@@ -363,6 +375,7 @@ function renderLoop() {
   const msg = activeOverlay();
   if (frame && msg) {
     if (msg.visual?.kind === "filter") filterPanel(frame, 0, HEADER_H, W, H - HEADER_H - 10, msg.visual);
+    if (msg.visual?.kind === "duck") duckPanel(frame, 0, HEADER_H, W, H - HEADER_H - 10, msg.visual);
     overlayBar(frame, msg.name, msg.value);
   }
   if (!launchkey.connected || ledsPaused) return;
