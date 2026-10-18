@@ -18,6 +18,8 @@ export class Voices {
   private strips = new Map<string, TrackStrip>();
   private padVoices = new Map<string, Voice[]>();
   private keyVoices = new Map<string, Voice>();
+  /** Sequenced keys notes (given a length up front), so Stop can cut them too. */
+  private seqKeyVoices = new Map<string, Voice[]>();
   private reversed = new WeakMap<AudioBuffer, AudioBuffer>();
   /** Aftertouch of the Launchkey pads (they play the drum track). */
   pressure: number[] = Array(PAD_COUNT).fill(0);
@@ -153,17 +155,25 @@ export class Voices {
     const out = this.strip(t).input;
     let v: Voice | null = null;
     if (k.type === "synth") {
-      v = buildSynthVoice(this.ctx, out, { ...k.synth, volume: k.synth.volume * k.volume / 0.7 }, note, vel, when);
+      v = buildSynthVoice(this.ctx, out, { ...k.synth, volume: k.synth.volume * k.volume / 0.7 }, note, vel, when, k.lfo);
     } else if (k.type === "chromatic") {
       const pad = trackById(p, k.sourceTrack)?.pads[k.sourcePad];
       const buf = pad && this.sampleFor(pad.sampleId, pad.reverse);
-      if (pad && buf) v = buildSampleVoice(this.ctx, out, buf, { ...pad, volume: pad.volume * k.volume / 0.7 }, vel, when, note - 60, true);
+      if (pad && buf) v = buildSampleVoice(this.ctx, out, buf, { ...pad, volume: pad.volume * k.volume / 0.7 }, vel, when, note - 60, true, k.lfo);
+    } else if (k.type === "sample") {
+      const s = k.sample;
+      const buf = s.sampleId ? this.buffer(s.sampleId) : undefined;
+      const voice = { ...ZONE_VOICE, attack: s.attack, decay: s.release, cutoff: s.cutoff, resonance: s.resonance, volume: k.volume };
+      if (buf) v = buildSampleVoice(this.ctx, out, buf, voice, vel, when, note - s.root, true, k.lfo);
     } else if (k.zones.length) {
       const zone = k.zones.reduce((best, z) => (Math.abs(z.root - note) < Math.abs(best.root - note) ? z : best));
       const buf = this.buffer(zone.sampleId);
-      if (buf) v = buildSampleVoice(this.ctx, out, buf, { ...ZONE_VOICE, volume: k.volume }, vel, when, note - zone.root, true);
+      if (buf) v = buildSampleVoice(this.ctx, out, buf, { ...ZONE_VOICE, volume: k.volume }, vel, when, note - zone.root, true, k.lfo);
     }
-    if (v && lenSec !== undefined) v.stop(when + lenSec);
+    if (v && lenSec !== undefined) {
+      v.stop(when + lenSec);
+      this.track(this.seqKeyVoices, trackId, v);
+    }
     return v;
   }
 
@@ -184,6 +194,7 @@ export class Voices {
     this.keyVoices.forEach((v) => v.stop(when, true));
     this.keyVoices.clear();
     this.padVoices.forEach((l) => l.forEach((v) => v.stop(when, true)));
+    this.seqKeyVoices.forEach((l) => l.forEach((v) => v.stop(when, true)));
   }
 }
 

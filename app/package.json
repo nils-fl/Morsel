@@ -3,13 +3,17 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=20.11"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",
-    "boot-gif": "node scripts/boot-gif.mjs"
+    "boot-gif": "node scripts/boot-gif.mjs",
+    "kits": "node scripts/make-kits.mjs"
   },
   "dependencies": {
     "idb-keyval": "^6.3.0",

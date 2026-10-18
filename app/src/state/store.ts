@@ -3,7 +3,7 @@ import type { SynthPreset } from "../audio/synthPresets";
 import { useStore } from "zustand";
 import { COLOR } from "../midi/protocol";
 import { BAR_TICKS } from "../seq/timing";
-import type { ChopSession, Clip, DuckSettings, DuckTarget, HwMode, KeysInstrument, NoteEvent, Pad, Pattern, Project, Returns, SampleInfo, SampleSource, SampleTarget, Tab, Track, TrackFx, TrackKind, Zone } from "./types";
+import type { ChopSession, Clip, DuckSettings, DuckTarget, HwMode, KeysInstrument, KeysLfo, KeysSample, NoteEvent, Pad, Pattern, Project, Returns, SampleInfo, SampleSource, SampleTarget, SynthParams, Tab, Track, TrackFx, TrackKind, Wave, Zone } from "./types";
 import { DUCK_ALL, MAX_TRACKS, PAD_COUNT, PATTERN_COUNT } from "./types";
 
 export const PAD_COLORS = [
@@ -30,9 +30,53 @@ export const defaultPad = (i: number): Pad => ({
   reverse: false,
 });
 
-/** Fill in fields added after a project/kit was saved. */
-export const normalizePads = (pads: Partial<Pad>[]): Pad[] =>
-  Array.from({ length: PAD_COUNT }, (_, i) => ({ ...defaultPad(i), ...pads[i] }));
+/** Fill in fields added after a project/kit was saved, and drop values of the wrong type or out of range (a NaN in an AudioParam throws inside the scheduler). */
+export const normalizePads = (pads: unknown[]): Pad[] =>
+  Array.from({ length: PAD_COUNT }, (_, i) => normalizePad(pads[i], defaultPad(i)));
+
+function normalizePad(raw: unknown, d: Pad): Pad {
+  const p = isObj(raw) ? raw : {};
+  return {
+    name: typeof p.name === "string" && p.name.trim() ? p.name.slice(0, 24) : d.name,
+    sampleId: typeof p.sampleId === "string" ? p.sampleId : null,
+    color: Math.round(num(p.color, 0, 127, d.color)),
+    start: num(p.start, 0, 1, d.start),
+    end: num(p.end, 0, 1, d.end),
+    pitch: num(p.pitch, -24, 24, d.pitch),
+    attack: num(p.attack, 0, 1, d.attack),
+    decay: num(p.decay, 0.02, 2, d.decay),
+    cutoff: num(p.cutoff, 0, 1, d.cutoff),
+    hpCutoff: num(p.hpCutoff, 0, 1, d.hpCutoff),
+    resonance: num(p.resonance, 0, 1, d.resonance),
+    pan: num(p.pan, -1, 1, d.pan),
+    volume: num(p.volume, 0, 1, d.volume),
+    mode: p.mode === "gate" ? "gate" : "oneshot",
+    choke: Math.round(num(p.choke, 0, 4, d.choke)),
+    reverse: bool(p.reverse, d.reverse),
+  };
+}
+
+const WAVES: Wave[] = ["sawtooth", "square", "sine", "triangle"];
+const wave = (v: unknown, d: Wave): Wave => (WAVES.includes(v as Wave) ? (v as Wave) : d);
+
+/** A saved synth (keys track or preset) on top of the defaults, every number checked. */
+export function normalizeSynth(raw: unknown, d: SynthParams = defaultKeys().synth): SynthParams {
+  const s = isObj(raw) ? raw : {};
+  return {
+    wave: wave(s.wave, d.wave),
+    wave2: wave(s.wave2, d.wave2),
+    detune: num(s.detune, -2400, 2400, d.detune),
+    osc2Level: num(s.osc2Level, 0, 1, d.osc2Level),
+    cutoff: num(s.cutoff, 0, 1, d.cutoff),
+    resonance: num(s.resonance, 0, 1, d.resonance),
+    envAmount: num(s.envAmount, 0, 1, d.envAmount),
+    attack: num(s.attack, 0.001, 2, d.attack),
+    decay: num(s.decay, 0.01, 5, d.decay),
+    sustain: num(s.sustain, 0, 1, d.sustain),
+    release: num(s.release, 0.01, 3, d.release),
+    volume: num(s.volume, 0, 1, d.volume),
+  };
+}
 
 export const defaultKeys = (): KeysInstrument => ({
   type: "synth",
@@ -56,6 +100,8 @@ export const defaultKeys = (): KeysInstrument => ({
     release: 0.25,
     volume: 0.6,
   },
+  sample: { sampleId: null, root: 60, attack: 0.005, release: 0.3, cutoff: 1, resonance: 0 },
+  lfo: { vibRate: 5, vibDepth: 0, filterRate: 2, filterDepth: 0 },
 });
 
 export const defaultFx = (): TrackFx => ({ filter: "off", cutoff: 1, resonance: 0, eqLow: 0, eqMid: 0, eqHigh: 0, drive: 0, comp: 0 });
@@ -70,6 +116,7 @@ export function defaultTrack(kind: TrackKind, id: string, index = 0, name?: stri
     color: TRACK_COLORS[index % TRACK_COLORS.length],
     kind,
     pads: kind === "drum" ? Array.from({ length: PAD_COUNT }, (_, i) => defaultPad(i)) : [],
+    kit: "",
     keys: kind === "keys" ? defaultKeys() : null,
     padMutes: Array(PAD_COUNT).fill(false),
     padSolos: Array(PAD_COUNT).fill(false),
@@ -106,8 +153,8 @@ export const defaultProject = (): Project => ({
   returns: defaultReturns(),
 });
 
-/** Bumped when the saved project shape changes; files from a newer version are refused. */
-export const PROJECT_VERSION = 2;
+/** Bumped when the saved project shape changes (3: keys sample source, LFO, kit names); files from a newer version are refused, older ones get defaults. */
+export const PROJECT_VERSION = 3;
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const num = (v: unknown, lo: number, hi: number, fallback: number) => (typeof v === "number" && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : fallback);
@@ -151,16 +198,40 @@ function normalizeKeys(raw: unknown, drumIds: string[]): KeysInstrument {
   const d = defaultKeys();
   const keys = isObj(raw) ? raw : {};
   return {
-    ...d,
-    ...keys,
-    type: keys.type === "chromatic" || keys.type === "multi" ? keys.type : "synth",
+    type: keys.type === "chromatic" || keys.type === "multi" || keys.type === "sample" ? keys.type : "synth",
     sourceTrack: typeof keys.sourceTrack === "string" && drumIds.includes(keys.sourceTrack) ? keys.sourceTrack : drumIds[0] ?? "",
     sourcePad: Math.round(num(keys.sourcePad, 0, PAD_COUNT - 1, d.sourcePad)),
     preset: typeof keys.preset === "string" ? keys.preset : d.preset,
     multiName: typeof keys.multiName === "string" ? keys.multiName : d.multiName,
     volume: num(keys.volume, 0, 1, d.volume),
-    zones: Array.isArray(keys.zones) ? keys.zones.filter((z): z is Zone => isObj(z) && typeof z.sampleId === "string" && typeof z.root === "number") : [],
-    synth: { ...d.synth, ...(isObj(keys.synth) ? keys.synth : {}) },
+    zones: Array.isArray(keys.zones)
+      ? keys.zones.flatMap((z): Zone[] => (isObj(z) && typeof z.sampleId === "string" && typeof z.root === "number" && Number.isFinite(z.root) ? [{ sampleId: z.sampleId, root: Math.round(Math.max(0, Math.min(127, z.root))) }] : []))
+      : [],
+    synth: normalizeSynth(keys.synth, d.synth),
+    sample: normalizeKeysSample(keys.sample, d.sample),
+    lfo: normalizeLfo(keys.lfo, d.lfo),
+  };
+}
+
+function normalizeKeysSample(raw: unknown, d: KeysSample): KeysSample {
+  const s = isObj(raw) ? raw : {};
+  return {
+    sampleId: typeof s.sampleId === "string" ? s.sampleId : null,
+    root: Math.round(num(s.root, 0, 127, d.root)),
+    attack: num(s.attack, 0, 2, d.attack),
+    release: num(s.release, 0.01, 2, d.release),
+    cutoff: num(s.cutoff, 0, 1, d.cutoff),
+    resonance: num(s.resonance, 0, 1, d.resonance),
+  };
+}
+
+function normalizeLfo(raw: unknown, d: KeysLfo): KeysLfo {
+  const l = isObj(raw) ? raw : {};
+  return {
+    vibRate: num(l.vibRate, 0.1, 20, d.vibRate),
+    vibDepth: num(l.vibDepth, 0, 1, d.vibDepth),
+    filterRate: num(l.filterRate, 0.1, 20, d.filterRate),
+    filterDepth: num(l.filterDepth, 0, 1, d.filterDepth),
   };
 }
 
@@ -190,7 +261,8 @@ function normalizeTrack(raw: Record<string, unknown>, index: number, ids: Set<st
     ...d,
     name: typeof raw.name === "string" && raw.name.trim() ? raw.name.slice(0, 24) : d.name,
     color: typeof raw.color === "number" ? raw.color : d.color,
-    pads: kind === "drum" ? normalizePads(Array.isArray(raw.pads) ? raw.pads.map((p) => (isObj(p) ? p : {})) : []) : [],
+    pads: kind === "drum" ? normalizePads(Array.isArray(raw.pads) ? raw.pads : []) : [],
+    kit: kind === "drum" && typeof raw.kit === "string" ? raw.kit.slice(0, 40) : "",
     keys: null, // filled in once the drum track ids are known
     padMutes: fixedArray(raw.padMutes, PAD_COUNT, false, (x) => typeof x === "boolean"),
     padSolos: fixedArray(raw.padSolos, PAD_COUNT, false, (x) => typeof x === "boolean"),
@@ -432,6 +504,21 @@ export function selectTrack(id: string) {
   set({ selectedTrack: id, ...(t.kind === "drum" ? { drumTrack: id } : { keysTrack: id }) });
 }
 
+/** Point the selected / pads / keybed track ids at tracks that exist (after a reload, an undo or an import removed one). */
+export function fixSelection() {
+  const s = get();
+  const patch: Partial<AppState> = {};
+  if (!trackById(s.project, s.selectedTrack)) patch.selectedTrack = drumTrack(s).id;
+  if (drumTrack(s).id !== s.drumTrack) patch.drumTrack = drumTrack(s).id;
+  if (keysTrack(s).id !== s.keysTrack) patch.keysTrack = keysTrack(s).id;
+  if (Object.keys(patch).length) set(patch);
+}
+
+/** Back to the start of a session: pattern 1, pads on bar 1, no chop, no queued switch (a new project was loaded). */
+export function resetSession() {
+  set({ chop: null, currentPattern: 0, queuedPattern: null, stepPage: 0, songMode: false, selectedPad: 0, recording: false, encPage: 0 });
+}
+
 /** Select the next (dir = 1) or previous (dir = -1) track, wrapping around. Returns it. */
 export function stepTrack(dir: 1 | -1): Track {
   const s = get(), tracks = s.project.tracks;
@@ -466,13 +553,14 @@ export const canRemoveTrack = (p: Project, id: string) => {
 };
 
 /** Add a track (up to 8), optionally with its name and pads, and select it. One undo step. Returns its id. */
-export function addTrack(kind: TrackKind, opts: { name?: string; pads?: Pad[] } = {}): string | null {
+export function addTrack(kind: TrackKind, opts: { name?: string; pads?: Pad[]; kit?: string } = {}): string | null {
   const p = get().project;
   if (!canAddTrack(p)) return null;
   const id = newId();
   const n = p.tracks.filter((t) => t.kind === kind).length + 1;
   const t = defaultTrack(kind, id, p.tracks.length, opts.name ?? `${kind === "drum" ? "Drums" : "Keys"} ${n}`);
   if (opts.pads && kind === "drum") t.pads = normalizePads(opts.pads);
+  if (opts.kit && kind === "drum") t.kit = opts.kit;
   if (t.keys) t.keys.sourceTrack = drumTrack().id;
   updateProject((pr) => ({ ...pr, tracks: [...pr.tracks, t] }));
   selectTrack(id);
@@ -522,6 +610,17 @@ export function moveTrack(id: string, dir: -1 | 1) {
 
 export function updatePattern(index: number, fn: (pat: Pattern) => Pattern, undoable = true) {
   updateProject((p) => ({ ...p, patterns: p.patterns.map((pat, j) => (j === index ? fn(pat) : pat)) }), undoable);
+}
+
+/** Every clip of a pattern trimmed to `bars`. */
+export const trimClips = (pat: Pattern, bars: number): Pattern["clips"] =>
+  Object.fromEntries(Object.entries(pat.clips).map(([id, c]) => [id, { events: c.events.filter((e) => e.tick < bars * BAR_TICKS) }]));
+
+/** Set a pattern's length (1-4 bars, every track); notes past the new end are dropped. */
+export function setPatternBars(index: number, bars: number, undoable = true) {
+  bars = Math.max(1, Math.min(4, Math.round(bars)));
+  updatePattern(index, (p) => (p.bars === bars ? p : { bars, clips: trimClips(p, bars) }), undoable);
+  if (index === get().currentPattern && get().stepPage >= bars) set({ stepPage: bars - 1 });
 }
 
 const EMPTY_CLIP: Clip = { events: [] };

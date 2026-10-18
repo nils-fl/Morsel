@@ -24,6 +24,8 @@ export function SongPanel() {
       const name = `${s.project.name}-${useSong ? "song" : `pattern${s.currentPattern + 1}`}.wav`;
       download(encodeWav(buf), name);
       set({ status: `Exported ${name} (${buf.duration.toFixed(1)} s)` });
+    } catch (err) {
+      set({ status: `Bounce failed: ${(err as Error).message}` });
     } finally {
       setBusy(false);
     }
@@ -66,7 +68,7 @@ export function SongPanel() {
           <span className="hint">or</span>
           <button disabled={busy} onClick={() => bounce(false)}>Bounce current pattern</button>
           <span>×</span>
-          <input type="number" min={1} max={64} value={loops} onChange={(e) => setLoops(Math.max(1, Number(e.target.value)))} />
+          <input type="number" min={1} max={64} value={loops} onChange={(e) => setLoops(Math.max(1, Math.min(64, Math.round(Number(e.target.value) || 1))))} />
           <span className="hint">loops</span>
         </div>
       </Section>

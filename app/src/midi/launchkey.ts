@@ -39,8 +39,17 @@ export class Launchkey {
   private bmpLast: { packed: Uint8Array; target: number } | null = null;
   private bmpTimer = 0;
   private resendTimer = 0;
+  private textResendTimer = 0;
   connected = false;
   logRaw = false;
+  /** The two lines of the device text popup shown while Shift is held (set by the controller per mode). */
+  shiftCover: [string, string] = ["Shift", ""];
+  /**
+   * How to deal with the device's own "Plugin | Drum" overlay while Shift is held: "text" replaces it with
+   * our own text popup (shiftCover, measured to work); "cancel" only closes the device popup and redraws the
+   * bitmap, relying on the shift map drawn in the frame. Switch to "cancel" once that is measured to work.
+   */
+  static SHIFT_COVER: "text" | "cancel" = "text";
 
   async init() {
     this.access = await navigator.requestMIDIAccess({ sysex: true });
@@ -202,9 +211,10 @@ export class Launchkey {
     this.send(displayTextSysex(DISPLAY.temporary, 1, value));
     this.send(displayConfigSysex(DISPLAY.temporary, 0x7f));
     // Triggering text may drop the device's bitmap; resend it once the popup times out.
+    clearTimeout(this.textResendTimer);
     if (this.bmpLast) {
       const last = this.bmpLast;
-      setTimeout(() => {
+      this.textResendTimer = window.setTimeout(() => {
         if (this.bmpLast === last) {
           this.bmpLast = null;
           this.showBitmap(last.packed, last.target);
@@ -213,10 +223,21 @@ export class Launchkey {
     }
   }
 
-  /** Ack-paced bitmap send: one frame in flight, latest pending frame wins, identical frames skipped. */
-  showBitmap(packed: Uint8Array, target: number = DISPLAY.stationary) {
+  /**
+   * Holding Shift makes the device show its own "Plugin | Drum" (encoder and pad mode). Our own temporary
+   * text replaces it (measured 2026-10-18); on release, close it and redraw the screen.
+   */
+  private coverShiftOverlay(down: boolean) {
+    if (down && Launchkey.SHIFT_COVER === "text") return this.showTemporary(...this.shiftCover);
+    this.send(displayConfigSysex(DISPLAY.temporary, 0));
     const last = this.bmpLast;
-    if (last && last.target === target && sameBytes(last.packed, packed)) {
+    if (last) this.showBitmap(last.packed, last.target, true);
+  }
+
+  /** Ack-paced bitmap send: one frame in flight, latest pending frame wins, identical frames skipped (unless `force`). */
+  showBitmap(packed: Uint8Array, target: number = DISPLAY.stationary, force = false) {
+    const last = this.bmpLast;
+    if (!force && last && last.target === target && sameBytes(last.packed, packed)) {
       this.bmpPending = null;
       return;
     }
@@ -297,6 +318,7 @@ export class Launchkey {
             this.emit({ type: "layout", layout });
           }
         } else if (d1 === CC.shift) {
+          this.coverShiftOverlay(d2 > 0);
           this.emit({ type: "button", button: "shift", down: d2 > 0 });
         }
       } else if (ch === CH.button) {

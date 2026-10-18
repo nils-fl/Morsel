@@ -2,10 +2,11 @@
 import { DECAY_MAX, cutoffHz, padQDb, synthQDb } from "./audio/dsp";
 import type { Visual } from "./modes/notify";
 import { QUANTIZE_OPTIONS, REPEAT_OPTIONS } from "./seq/timing";
-import { drumPads, get, keysTrack, parseDuckTarget, selectedTrack, set, trackById, updateKeys, updatePad, updateProject, updateTrack } from "./state/store";
-import { DUCK_ALL, MAX_TRACKS, PAD_COUNT, type DuckSettings, type DuckTarget, type Pad, type SynthParams, type TrackFx, type TrackKind, type Wave } from "./state/types";
-import { allPresets, applyPreset } from "./actions";
+import { drumPads, get, keysTrack, setPatternBars, parseDuckTarget, selectedTrack, set, trackById, updateKeys, updatePad, updateProject, updateTrack } from "./state/store";
+import { DUCK_ALL, MAX_TRACKS, PAD_COUNT, type DuckSettings, type DuckTarget, type KeysLfo, type Pad, type SynthParams, type TrackFx, type TrackKind, type Wave } from "./state/types";
+import { allPresets, applyPreset, currentKit, kitNames, stepKit } from "./actions";
 import { presetEdited } from "./audio/synthPresets";
+import { noteName } from "./ui/notes";
 
 export interface Param {
   name: string;
@@ -33,6 +34,22 @@ function padParam(name: string, key: keyof Pad & ("start" | "end" | "pitch" | "a
   };
 }
 
+/** An LFO setting of the keys track; rates move in bigger steps the faster they get. */
+function lfoParam(name: string, key: keyof KeysLfo, lo: number, hi: number, step: number, fmt: (v: number) => string, log = false): Param {
+  const cur = () => keysNow().lfo[key];
+  return {
+    name,
+    value: cur,
+    range: [lo, hi],
+    nudge: (d, fine) => {
+      const s = step * (fine ? 0.1 : 1);
+      const next = log ? cur() * Math.pow(1 + s, d) : cur() + d * s;
+      updateKeys({ lfo: { ...keysNow().lfo, [key]: clamp(Math.round(next * 1000) / 1000, lo, hi) } });
+    },
+    format: () => fmt(cur()),
+  };
+}
+
 type SynthNumKey = { [K in keyof SynthParams]: SynthParams[K] extends number ? K : never }[keyof SynthParams];
 
 function synthParam(name: string, key: SynthNumKey, lo: number, hi: number, step: number, fmt: (v: number) => string): Param {
@@ -47,6 +64,7 @@ function synthParam(name: string, key: SynthNumKey, lo: number, hi: number, step
 }
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
+const rateHz = (v: number) => `${v < 1 ? v.toFixed(2) : v.toFixed(1)} Hz`;
 export const hz = (c: number) => {
   const f = cutoffHz(c);
   return f >= 1000 ? `${(f / 1000).toFixed(f >= 10000 ? 1 : 2)} kHz` : `${Math.round(f)} Hz`;
@@ -86,6 +104,8 @@ export interface Page {
   summary(): string;
   /** Only shown on tracks of this kind; pages without one are on every track. */
   kind?: TrackKind;
+  /** Only in Step mode, where it comes first. */
+  stepOnly?: boolean;
 }
 
 const panText = (v: number) => (Math.abs(v) < 0.01 ? "C" : v < 0 ? `L${Math.round(-v * 100)}` : `R${Math.round(v * 100)}`);
@@ -98,9 +118,10 @@ const WAVE_SHORT: Record<Wave, string> = { sawtooth: "Saw", square: "Sqr", trian
 const keysNow = () => keysTrack().keys!;
 const presetIndex = () => Math.max(0, allPresets().findIndex((p) => p.name === keysNow().preset));
 
-/** "Warm Pad", with a * once edited (or "Pad sample" / "Multisample" when Keys isn't the synth). */
+/** "Warm Pad", with a * once edited (or the sample / "Pad sample" / "Multisample" when Keys isn't the synth). */
 export function presetLabel() {
   const k = keysNow();
+  if (k.type === "sample") return keysSampleName();
   if (k.type !== "synth") return k.type === "chromatic" ? "Pad sample" : "Multisample";
   const p = allPresets().find((x) => x.name === k.preset);
   return `${k.preset}${presetEdited(k.synth, p) ? "*" : ""}`;
@@ -186,7 +207,182 @@ function fxParam(name: string, key: FxNumKey, lo: number, hi: number, step: numb
   };
 }
 
+// ---------- keys page, per sound source ----------
+
+const SYNTH_PARAMS: Param[] = [
+  {
+    name: "Preset",
+    value: presetIndex,
+    // A getter: the list grows when you save presets.
+    get range(): [number, number] {
+      return [0, Math.max(1, allPresets().length - 1)];
+    },
+    nudge: (d) => {
+      const list = allPresets();
+      applyPreset(list[clamp(presetIndex() + Math.sign(d), 0, list.length - 1)]);
+    },
+    format: presetLabel,
+  },
+  {
+    name: "Waves",
+    value: () => WAVES.indexOf(keysNow().synth.wave) * 4 + WAVES.indexOf(keysNow().synth.wave2),
+    range: [0, 15],
+    nudge: (d) => {
+      const s = keysNow().synth;
+      const i = clamp(WAVES.indexOf(s.wave) * 4 + WAVES.indexOf(s.wave2) + Math.sign(d), 0, 15);
+      updateKeys({ synth: { ...s, wave: WAVES[Math.floor(i / 4)], wave2: WAVES[i % 4] } });
+    },
+    format: () => `${WAVE_SHORT[keysNow().synth.wave]}+${WAVE_SHORT[keysNow().synth.wave2]}`,
+  },
+  synthParam("Detune", "detune", -2400, 2400, 5, cents),
+  { ...synthParam("Cutoff", "cutoff", 0, 1, 0.01, hz), visual: synthFilterVisual },
+  { ...synthParam("Reso", "resonance", 0, 1, 0.01, pct), visual: synthFilterVisual },
+  synthParam("Env", "envAmount", 0, 1, 0.01, pct),
+  synthParam("Attack", "attack", 0.001, 2, 0.01, ms),
+  synthParam("Release", "release", 0.01, 3, 0.02, ms),
+];
+
+/** Library samples in the order the Keys sample picker steps through them. */
+export const keysSampleList = () =>
+  Object.values(get().samples).sort((a, b) => `${a.folder ?? ""}/${a.name}`.localeCompare(`${b.folder ?? ""}/${b.name}`, undefined, { numeric: true }));
+const keysSampleName = () => {
+  const id = keysNow().sample.sampleId;
+  return id ? (get().samples[id]?.name ?? "Sample") : "No sample";
+};
+
+function sampleParam(name: string, key: "attack" | "release" | "cutoff" | "resonance", lo: number, hi: number, step: number, fmt: (v: number) => string): Param {
+  const cur = () => keysNow().sample[key];
+  return {
+    name,
+    value: cur,
+    range: [lo, hi],
+    nudge: (d, fine) => updateKeys({ sample: { ...keysNow().sample, [key]: clamp(cur() + d * step * (fine ? 0.1 : 1), lo, hi) } }),
+    format: () => fmt(cur()),
+  };
+}
+
+const SAMPLE_PARAMS: Param[] = [
+  {
+    name: "Sample",
+    value: () => keysSampleList().findIndex((x) => x.id === keysNow().sample.sampleId),
+    get range(): [number, number] {
+      return [0, Math.max(1, keysSampleList().length - 1)];
+    },
+    nudge: (d) => {
+      const list = keysSampleList();
+      if (!list.length) return;
+      const i = list.findIndex((x) => x.id === keysNow().sample.sampleId);
+      updateKeys({ sample: { ...keysNow().sample, sampleId: list[clamp(i + Math.sign(d), 0, list.length - 1)].id } });
+    },
+    format: keysSampleName,
+  },
+  {
+    name: "Root",
+    value: () => keysNow().sample.root,
+    range: [12, 108],
+    nudge: (d) => updateKeys({ sample: { ...keysNow().sample, root: clamp(keysNow().sample.root + Math.sign(d), 12, 108) } }),
+    format: () => noteName(keysNow().sample.root),
+  },
+  sampleParam("Attack", "attack", 0, 2, 0.01, ms),
+  sampleParam("Release", "release", 0.01, 2, 0.02, ms),
+  sampleParam("Cutoff", "cutoff", 0, 1, 0.01, (v) => (v >= 1 ? "Open" : hz(v))),
+  sampleParam("Reso", "resonance", 0, 1, 0.01, pct),
+];
+
+/** Drum pads a "Pad sample" keys track can play, in track order. */
+const sourcePads = () => get().project.tracks.filter((t) => t.kind === "drum").flatMap((t) => t.pads.map((_, pad) => ({ track: t.id, pad })));
+const sourcePadIndex = () => sourcePads().findIndex((x) => x.track === keysNow().sourceTrack && x.pad === keysNow().sourcePad);
+function sourcePadLabel() {
+  const k = keysNow();
+  const n = get().project.tracks.findIndex((t) => t.id === k.sourceTrack) + 1;
+  return `T${n}P${k.sourcePad + 1} ${trackById(get().project, k.sourceTrack)?.pads[k.sourcePad].name ?? "?"}`;
+}
+
+const CHROMATIC_PARAMS: Param[] = [
+  {
+    name: "Source pad",
+    value: sourcePadIndex,
+    get range(): [number, number] {
+      return [0, Math.max(1, sourcePads().length - 1)];
+    },
+    nudge: (d) => {
+      const list = sourcePads();
+      const next = list[clamp(sourcePadIndex() + Math.sign(d), 0, list.length - 1)];
+      if (next) updateKeys({ sourceTrack: next.track, sourcePad: next.pad });
+    },
+    format: sourcePadLabel,
+  },
+];
+
+const SWING: Param = {
+  name: "Swing",
+  value: () => get().project.swing,
+  range: [50, 75],
+  nudge: (d) => updateProject((p) => ({ ...p, swing: clamp(p.swing + d, 50, 75) }), false),
+  format: () => `${get().project.swing}%`,
+};
+const QUANTIZE = optionParam("Quantize", QUANTIZE_OPTIONS, "quantize");
+
+// ---------- step page ----------
+
+const curPattern = () => get().project.patterns[get().currentPattern];
+const barsText = (n: number) => `${n} bar${n === 1 ? "" : "s"}`;
+let lastBarsTurn = -Infinity;
+
+/** Step mode's own page: the pattern's length and the bar on the pads, plus swing and quantize. */
+const STEP_PAGE_DEF: Page = {
+  name: "Step",
+  tag: "STEP",
+  stepOnly: true,
+  summary: () => `${curPattern().bars}bar${curPattern().bars === 1 ? "" : "s"} Sw${get().project.swing} Q${QUANTIZE.format()}`,
+  params: [
+    {
+      name: "Bars",
+      value: () => curPattern().bars,
+      range: [1, 4],
+      nudge: (d) => {
+        const bars = clamp(curPattern().bars + Math.sign(d), 1, 4);
+        if (bars === curPattern().bars) return;
+        // Shrinking drops the notes past the end; turns in quick succession share one undo step.
+        const now = performance.now();
+        setPatternBars(get().currentPattern, bars, now - lastBarsTurn > 2000);
+        lastBarsTurn = now;
+      },
+      format: () => barsText(curPattern().bars),
+    },
+    {
+      name: "Bar",
+      value: () => get().stepPage + 1,
+      get range(): [number, number] {
+        return [1, Math.max(2, curPattern().bars)];
+      },
+      nudge: (d) => set({ stepPage: clamp(get().stepPage + Math.sign(d), 0, curPattern().bars - 1) }),
+      format: () => `${get().stepPage + 1}/${curPattern().bars}`,
+    },
+    SWING,
+    QUANTIZE,
+  ],
+};
+
 export const PAGES: Page[] = [
+  {
+    // Like the Keys page's presets: encoder 1 loads the previous / next kit as you turn.
+    name: "Kit",
+    tag: "KIT",
+    kind: "drum",
+    summary: () => currentKit() || "No kit",
+    params: [
+      {
+        name: "Kit",
+        value: () => kitNames().indexOf(currentKit()),
+        get range(): [number, number] {
+          return [0, Math.max(1, kitNames().length - 1)];
+        },
+        nudge: (d) => void stepKit(d),
+        format: () => currentKit() || "None",
+      },
+    ],
+  },
   {
     name: "Pad",
     tag: "PAD",
@@ -224,38 +420,40 @@ export const PAGES: Page[] = [
     name: "Keys",
     tag: "KEYS",
     kind: "keys",
-    summary: presetLabel,
+    // The encoders follow the keys track's sound source: synth, one sample, a drum pad or a multisample.
+    summary: () => {
+      const k = keysNow();
+      if (k.type === "synth") return `Synth: ${presetLabel()}`;
+      if (k.type === "sample") return `Smp: ${keysSampleName()} ${noteName(k.sample.root)}`;
+      if (k.type === "chromatic") return `Pad: ${sourcePadLabel()}`;
+      return `Multi: ${k.multiName || "none"}`;
+    },
+    get params(): Param[] {
+      const t = keysNow().type;
+      return t === "synth" ? SYNTH_PARAMS : t === "sample" ? SAMPLE_PARAMS : t === "chromatic" ? CHROMATIC_PARAMS : [];
+    },
+  },
+  {
+    name: "Keys LFO",
+    tag: "LFO",
+    kind: "keys",
+    summary: () => {
+      const l = keysNow().lfo;
+      return `Vib ${l.vibDepth ? rateHz(l.vibRate) : "off"} Flt ${l.filterDepth ? rateHz(l.filterRate) : "off"}`;
+    },
     params: [
+      lfoParam("Vib Rate", "vibRate", 0.1, 20, 0.08, rateHz, true),
+      // No "±": the screen font is ASCII only.
+      lfoParam("Vib Depth", "vibDepth", 0, 1, 0.02, (v) => (v ? `${Math.round(v * 100)} ct` : "Off")),
+      lfoParam("Filt Rate", "filterRate", 0.1, 20, 0.08, rateHz, true),
+      lfoParam("Filt Depth", "filterDepth", 0, 1, 0.02, (v) => (v ? `${(v * 2).toFixed(1)} oct` : "Off")),
       {
-        name: "Preset",
-        value: presetIndex,
-        // A getter: the list grows when you save presets.
-        get range(): [number, number] {
-          return [0, Math.max(1, allPresets().length - 1)];
-        },
-        nudge: (d) => {
-          const list = allPresets();
-          applyPreset(list[clamp(presetIndex() + Math.sign(d), 0, list.length - 1)]);
-        },
-        format: presetLabel,
+        name: "Volume",
+        value: () => keysNow().volume,
+        range: [0, 1],
+        nudge: (d, fine) => updateKeys({ volume: clamp(keysNow().volume + d * (fine ? 0.001 : 0.01), 0, 1) }),
+        format: () => pct(keysNow().volume),
       },
-      {
-        name: "Waves",
-        value: () => WAVES.indexOf(keysNow().synth.wave) * 4 + WAVES.indexOf(keysNow().synth.wave2),
-        range: [0, 15],
-        nudge: (d) => {
-          const s = keysNow().synth;
-          const i = clamp(WAVES.indexOf(s.wave) * 4 + WAVES.indexOf(s.wave2) + Math.sign(d), 0, 15);
-          updateKeys({ synth: { ...s, wave: WAVES[Math.floor(i / 4)], wave2: WAVES[i % 4] } });
-        },
-        format: () => `${WAVE_SHORT[keysNow().synth.wave]}+${WAVE_SHORT[keysNow().synth.wave2]}`,
-      },
-      synthParam("Detune", "detune", -2400, 2400, 5, cents),
-      { ...synthParam("Cutoff", "cutoff", 0, 1, 0.01, hz), visual: synthFilterVisual },
-      { ...synthParam("Reso", "resonance", 0, 1, 0.01, pct), visual: synthFilterVisual },
-      synthParam("Env", "envAmount", 0, 1, 0.01, pct),
-      synthParam("Attack", "attack", 0.001, 2, 0.01, ms),
-      synthParam("Release", "release", 0.01, 3, 0.02, ms),
     ],
   },
   {
@@ -315,24 +513,20 @@ export const PAGES: Page[] = [
         nudge: (d, fine) => updateProject((p) => ({ ...p, bpm: clamp(Math.round((p.bpm + d * (fine ? 0.1 : 1)) * 10) / 10, 40, 240) }), false),
         format: () => `${get().project.bpm} BPM`,
       },
-      {
-        name: "Swing",
-        value: () => get().project.swing,
-        range: [50, 75],
-        nudge: (d) => updateProject((p) => ({ ...p, swing: clamp(p.swing + d, 50, 75) }), false),
-        format: () => `${get().project.swing}%`,
-      },
-      optionParam("Quantize", QUANTIZE_OPTIONS, "quantize"),
+      SWING,
+      QUANTIZE,
       optionParam("Repeat", REPEAT_OPTIONS, "repeatRate"),
     ],
   },
   {
     name: "Duck",
     tag: "DUCK",
+    // The sidechain input is a drum pad, so it is set from drum tracks.
+    kind: "drum",
     summary: () => {
       const d = duckNow();
       const n = get().project.tracks.findIndex((t) => t.id === d.sourceTrack) + 1;
-      return d.on ? `T${n}P${d.sourcePad + 1}>${duckTargetShort(d.target)} ${pct(d.depth)}` : "Off";
+      return d.on ? `On T${n}P${d.sourcePad + 1}>${duckTargetShort(d.target)} ${pct(d.depth)}` : "Off";
     },
     params: [
       {
@@ -373,14 +567,16 @@ export const PAGES: Page[] = [
       duckParam("Release", "release", 0.02, 1, 0.01, ms),
     ],
   },
+  STEP_PAGE_DEF,
 ];
 export const DUCK_PAGE = PAGES.findIndex((p) => p.tag === "DUCK");
-export const KEYS_PAGE = PAGES.findIndex((p) => p.tag === "KEYS");
-export const FX_PAGE = PAGES.findIndex((p) => p.tag === "FX");
-export const MIX_PAGE = PAGES.findIndex((p) => p.tag === "MIX");
+export const STEP_PAGE = PAGES.findIndex((p) => p.tag === "STEP");
 
-/** Indexes of the encoder pages a track of this kind shows, in order. */
-export const pagesFor = (kind: TrackKind) => PAGES.flatMap((p, i) => (!p.kind || p.kind === kind ? [i] : []));
+/** Indexes of the encoder pages a track of this kind shows, in order; in Step mode the Step page comes first. */
+export function pagesFor(kind: TrackKind, step = get().hwMode === "step") {
+  const fits = PAGES.flatMap((p, i) => (!p.kind || p.kind === kind ? [i] : []));
+  return [...fits.filter((i) => step && PAGES[i].stepOnly), ...fits.filter((i) => !PAGES[i].stepOnly)];
+}
 
 /** The page `dir` steps from `page` among the selected track's pages (clamped), or `page` when there is none. */
 export function stepPage(page: number, dir: 1 | -1, kind = selectedTrack().kind): number {

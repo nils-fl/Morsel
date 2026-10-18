@@ -1,23 +1,23 @@
 // Maps Launchkey events to actions per hardware mode, and renders LEDs + display.
-import { allPresets, keyOff, keyOn, openInChop, playPad, releasePad, sendChopToNewTrack, toggleSampling, togglePlay, toggleRecord } from "../actions";
+import { allPresets, currentKit, keyOff, keyOn, kitNames, openInChop, playPad, releasePad, sendChopToNewTrack, toggleSampling, togglePlay, toggleRecord } from "../actions";
 import { engine } from "../audio/engine";
 import { launchkey } from "../midi/launchkey";
 import { CC, COLOR, type LedMode, type PadLayout } from "../midi/protocol";
-import { DUCK_PAGE, PAGES, duckSourceLabel, duckTargetLabel, fixPage, padLabel, pagesFor, presetLabel, setDuck, stepPage, turnEncoder } from "../params";
+import { DUCK_PAGE, PAGES, STEP_PAGE, duckSourceLabel, duckTargetLabel, fixPage, keysSampleList, padLabel, pagesFor, presetLabel, setDuck, stepPage, turnEncoder } from "../params";
 import { makeTicker, sequencer } from "../seq/sequencer";
-import { PPQN, STEP_TICKS } from "../seq/timing";
+import { PPQN, REPEAT_OPTIONS, STEP_TICKS } from "../seq/timing";
 import {
   type AppState, clearTrack, clipOf, copyClip, copyPattern, drumPads, drumTrack, get, patternHasNotes, patternLength, selectTrack,
   selectedTrack, set, stepTrack, store, togglePadFlag, toggleStep, toggleTrackFlag, trackAudible, undo, updateProject, PAD_COLORS,
 } from "../state/store";
-import type { HwMode, Track } from "../state/types";
+import type { HwMode, KeysInstrument, Track } from "../state/types";
 import { noteForKeysPad, stepForPad } from "./stepMap";
 import { noteName } from "../ui/notes";
-import { activeOverlay, showTemp } from "./notify";
+import { activeOverlay, releaseHold, showTemp, type Overlay } from "./notify";
 import { chopAddMarker, chopEncoder, chopPad, chopPadLeds, chopRemoveMarker, chopStop, chopTogglePlay, chopView } from "./chop";
 import { browseCan, browseDisplay, browseEncoder, browseEnter, browseFolderToPads, browseLeds, browsePad, browseUp, browseView, enterBrowse, exitBrowse } from "./browse";
 import { H, W, type Frame } from "../display/frame";
-import { browserScreen, chopScreen, duckScreen, gridScreen, keysScreen, padScreen, stepScreen } from "../display/screens";
+import { browserScreen, chopScreen, duckScreen, encoderScreen, gridScreen, keysScreen, padScreen, shiftCoverText, shiftRows, shiftScreen, stepScreen } from "../display/screens";
 import { HEADER_H, computePeaks, duckPanel, filterPanel, overlayBar, type Peaks } from "../display/widgets";
 import { BOOT_BURP_MS, BOOT_EAT_MS, bootFrame } from "../display/bootAnim";
 
@@ -33,12 +33,22 @@ const layoutFor = (mode: HwMode): PadLayout => (mode === "play" || mode === "cho
 // (performance.now() starts at the reload), and that first report must not be ignored.
 let lastLayoutFix = -Infinity;
 
+/** Encoder page to go back to when leaving Step mode (which opens its own Step page). */
+let pageBeforeStep: number | null = null;
+
 export function setHwMode(mode: HwMode) {
   const prev = get().hwMode;
   if (prev === mode) return;
   if (prev === "browse") exitBrowse();
   if (mode === "browse") enterBrowse();
   set({ hwMode: mode, prevHwMode: TEMPORARY.includes(prev) ? get().prevHwMode : prev });
+  if (mode === "step") {
+    pageBeforeStep = get().encPage;
+    set({ encPage: STEP_PAGE });
+  } else if (prev === "step") {
+    if (get().encPage === STEP_PAGE) set({ encPage: pageBeforeStep ?? 0 });
+    fixPage();
+  }
   launchkey.setLayout(layoutFor(mode));
   showTemp("Mode", MODE_NAMES[mode]);
 }
@@ -69,6 +79,40 @@ function hwOpenChop() {
 }
 
 const heldPads = new Set<number>();
+/** Pads sounding from Play mode (hit or note repeat), so a release after a mode switch still stops them. */
+const playingPads = new Map<number, string>();
+
+/** A pad let go: stop its voice and its note repeat, whatever mode we are in now. */
+function padReleased(pad: number) {
+  heldPads.delete(pad);
+  engine.voices.pressure[pad] = 0;
+  const note = keysPads.get(pad);
+  if (note) {
+    keysPads.delete(pad);
+    keyOff(note.note, note.track);
+  }
+  const track = playingPads.get(pad);
+  if (track !== undefined) {
+    playingPads.delete(pad);
+    engine.voices.releasePad(track, pad, engine.now);
+    sequencer.repeatPads.delete(`${track}:${pad}`);
+  }
+}
+
+/** Let go of everything the hands were holding (device unplugged, project replaced). */
+export function releaseAll() {
+  for (const pad of [...heldPads, ...playingPads.keys(), ...keysPads.keys()]) padReleased(pad);
+  for (const [note, track] of instrumentKeys) keyOff(note, track);
+  instrumentKeys.clear();
+  for (const [note, pad] of selectKeys) {
+    selectKeys.delete(note);
+    releasePad(pad);
+  }
+  sequencer.repeatOn = false;
+  sequencer.repeatPads.clear();
+  releaseHold();
+  if (get().shift) set({ shift: false });
+}
 
 // Start-up animation: plays when the page loads and whenever the Launchkey connects; any input skips it.
 let bootStart = -Infinity;
@@ -95,11 +139,14 @@ export function initController() {
     else if (!s.chop && prev.chop) exitChopHw();
     // Switching between a drum and a keys track: stay on an encoder page that track has.
     if (s.selectedTrack !== prev.selectedTrack || s.project.tracks !== prev.project.tracks) fixPage();
+    // The bar on the step pads must exist in the current pattern (a shorter one may have been picked).
+    const bars = s.project.patterns[s.currentPattern].bars;
+    if (s.stepPage >= bars) set({ stepPage: bars - 1 });
   });
   launchkey.on((e) => {
     const s = get();
     if (e.type === "pad" || e.type === "key" || e.type === "button" || e.type === "encoder") bootStart = -Infinity;
-    if (!s.audioReady && ((e.type === "pad" && e.on) || (e.type === "button" && e.down && e.button !== "shift"))) showTemp("NO AUDIO", "CLICK THE PAGE");
+    if (!s.audioReady && ((e.type === "pad" && e.on) || (e.type === "button" && e.down && e.button !== "shift"))) showTemp("No audio", "Click the page");
     switch (e.type) {
       case "connection":
         set({ connected: e.connected, status: e.connected ? "Launchkey connected" : "Launchkey disconnected" });
@@ -107,7 +154,7 @@ export function initController() {
           launchkey.setLayout(layoutFor(s.hwMode));
           lastStationary = "";
           bootStart = performance.now();
-        }
+        } else releaseAll();
         break;
       case "layout": {
         // The device reports its layout after connecting (often "daw" right after the handshake) and when
@@ -121,9 +168,10 @@ export function initController() {
         break;
       }
       case "pad":
-        if (e.on) heldPads.add(e.pad);
-        else heldPads.delete(e.pad);
-        onPad(e.pad, e.velocity, e.on);
+        if (e.on) {
+          heldPads.add(e.pad);
+          onPad(e.pad, e.velocity);
+        } else padReleased(e.pad);
         break;
       case "padPressure":
         engine.voices.pressure[e.pad] = e.pressure;
@@ -141,7 +189,8 @@ export function initController() {
           break;
         }
         const p = turnEncoder(s.encPage, e.index, e.delta, s.shift);
-        if (p) showTemp(p.name, p.format(), p.visual?.());
+        // The Duck screen already draws the curve, so its popup goes without the visual.
+        if (p) showTemp(p.name, p.format(), { visual: s.encPage === DUCK_PAGE ? undefined : p.visual?.(), encoder: e.index });
         break;
       }
       case "button":
@@ -162,8 +211,8 @@ let stepNote: number | null = null;
 
 /** "Kick" for the selected pad on a drum track, the track name for a keys track. */
 const trackItemName = (s: AppState, t: Track) => (t.kind === "drum" ? t.pads[s.selectedPad].name : t.name);
-/** The note the step pads write on a keys track: the last key played. */
-const keysStepNote = (t: Track) => stepNote ?? (t.keys?.type === "synth" ? 48 : 60);
+/** The note the step pads write on a keys track: the last key played, else the instrument's home note. */
+const keysStepNote = (t: Track) => stepNote ?? (t.keys?.type === "synth" ? 48 : t.keys?.type === "sample" ? t.keys.sample.root : 60);
 
 /** Step mode: key -> pad, repeating every 16 keys. At the default octave the lowest key (C3 = 48) is pad 1. */
 export const padForKey = (note: number) => ((note % 16) + 16) % 16;
@@ -216,19 +265,8 @@ function tapIsDouble(pad: number) {
 /** Pads held on a keys track: the note and track to release. */
 const keysPads = new Map<number, { note: number; track: string }>();
 
-function onPad(pad: number, vel: number, on: boolean) {
+function onPad(pad: number, vel: number) {
   const s = get();
-  if (!on) {
-    const note = keysPads.get(pad);
-    if (note) {
-      keysPads.delete(pad);
-      keyOff(note.note, note.track);
-    } else if (s.hwMode === "play") {
-      releasePad(pad);
-      sequencer.repeatPads.delete(`${drumTrack(s).id}:${pad}`);
-    }
-    return;
-  }
   const sel = selectedTrack(s);
   switch (s.hwMode) {
     case "browse":
@@ -251,6 +289,7 @@ function onPad(pad: number, vel: number, on: boolean) {
         setDuck({ sourceTrack: drums.id, sourcePad: pad });
         showTemp("Duck input", duckSourceLabel());
       }
+      playingPads.set(pad, drums.id);
       if (sequencer.repeatOn && s.playing) {
         sequencer.repeatPads.set(`${drums.id}:${pad}`, { track: drums.id, pad, vel });
         set({ selectedPad: pad, selectedTrack: drums.id });
@@ -273,7 +312,7 @@ function onPad(pad: number, vel: number, on: boolean) {
         const t = p.tracks[pad - 8];
         if (!t) break;
         selectTrack(t.id);
-        showTemp(`Track ${pad - 7}`, `${t.name} (${t.kind === "drum" ? "pads" : "keys"})`);
+        showTemp(`Track ${pad - 7}`, `${t.name} (${t.kind === "drum" ? "drums" : "keys"})`);
         break;
       }
       const t = p.tracks[pad];
@@ -288,11 +327,8 @@ function onPad(pad: number, vel: number, on: boolean) {
       break;
     }
     case "mixer": {
-      // Pads of the drum track. Tap = mute. Double-tap = solo: the second tap undoes the first tap's mute and toggles solo.
-      if (sel.kind !== "drum") {
-        showTemp("Mixer", "Drum tracks only");
-        break;
-      }
+      // Pads of the drum track (the last one picked, when a keys track is selected).
+      // Tap = mute. Double-tap = solo: the second tap undoes the first tap's mute and toggles solo.
       const t = drumTrack(s);
       const double = tapIsDouble(pad);
       if (double) {
@@ -347,11 +383,20 @@ function onButton(button: string, down: boolean) {
     if (button === "encPageUp" || button === "encPageDown") return browseEncoder(0, button === "encPageUp" ? -1 : 1, false);
   }
   if (s.hwMode === "browse" && down && button === "func" && s.shift) return browseFolderToPads();
+  // Scene let go: note repeat (and the held popup) end, in every mode.
+  if (button === "scene" && !down) {
+    sequencer.repeatOn = false;
+    sequencer.repeatPads.clear();
+    releaseHold();
+    return;
+  }
   if (s.hwMode === "chop") {
-    // Chop owns Scene (add a marker, Shift = remove), Play (audition) and Function (send to a new drum rack).
+    // Chop owns Scene (add a marker, Shift = remove), Play (audition; Shift = the sequencer), Function (send to
+    // a new drum rack) and the encoders, so the encoder page arrows do nothing here.
     if (button === "scene") return void (down && (s.shift ? chopRemoveMarker() : chopAddMarker()));
-    if (down && !s.shift && button === "play") return chopTogglePlay();
+    if (down && button === "play") return s.shift ? togglePlay() : chopTogglePlay();
     if (down && !s.shift && button === "func") return void sendChopToNewTrack();
+    if (!s.shift && (button === "encPageUp" || button === "encPageDown")) return;
   }
   // Shift + Pad up / down: previous / next track ("< Track" / "Track >" on the device). The device sends its own
   // Track CCs for them, so that is what arrives; padUp / padDown + Shift are kept as a fallback.
@@ -362,12 +407,13 @@ function onButton(button: string, down: boolean) {
     const n = get().project.tracks.indexOf(t) + 1;
     // Browse and Chop work on drum tracks; on a keys track go back to playing.
     if (t.kind !== "drum" && s.hwMode === "browse") setHwMode(s.prevHwMode);
+    if (t.kind !== "drum" && s.hwMode === "chop") exitChopHw();
     showTemp(`Track ${n}/${get().project.tracks.length}`, `${t.name} (${t.kind === "drum" ? "drums" : "keys"})`);
     return;
   }
   if (button === "scene") {
     // Hold for note repeat (Play) or song-append (Pattern); Shift+Scene clears the selected track in this pattern.
-    if (down && s.shift) {
+    if (s.shift) {
       // Step mode on a drum track clears the selected pad's notes; elsewhere the whole clip.
       const t = selectedTrack(s);
       const onePad = s.hwMode === "step" && t.kind === "drum";
@@ -375,10 +421,15 @@ function onButton(button: string, down: boolean) {
       showTemp("Cleared", onePad ? trackItemName(s, t) : t.name);
       return;
     }
-    sequencer.repeatOn = down;
+    sequencer.repeatOn = true;
     const drums = drumTrack(s).id;
-    if (down && s.hwMode === "play") for (const p of heldPads) sequencer.repeatPads.set(`${drums}:${p}`, { track: drums, pad: p, vel: 100 });
-    else if (!down) sequencer.repeatPads.clear();
+    if (s.hwMode === "play") {
+      for (const p of heldPads) {
+        playingPads.set(p, drums);
+        sequencer.repeatPads.set(`${drums}:${p}`, { track: drums, pad: p, vel: 100 });
+      }
+      showTemp("Repeat", REPEAT_OPTIONS.find((o) => o.ticks === s.repeatRate)?.label ?? "", { hold: true });
+    } else if (s.hwMode === "pattern") showTemp("Scene", "Pad = add to song", { hold: true });
     return;
   }
   if (!down) return;
@@ -391,15 +442,16 @@ function onButton(button: string, down: boolean) {
       break;
     case "record":
       if (s.shift) {
-        if (s.sampleSource === "tab" && s.sampling === "idle" && !s.tabShared) showTemp("Sample", "Share tab on screen");
+        if (s.sampleSource === "tab" && s.sampling === "idle" && !s.tabShared) showTemp("Sample", "Share a tab");
         toggleSampling(true);
       }
       else toggleRecord();
       break;
     case "func":
       if (s.shift) {
+        const left = s.undo.length - 1;
         undo();
-        showTemp("Undo", "");
+        showTemp("Undo", left < 0 ? "Nothing to undo" : `${left} left`);
       } else setHwMode(MODES[(MODES.indexOf(s.hwMode) + 1) % MODES.length]);
       break;
     case "encPageUp":
@@ -419,9 +471,10 @@ function onButton(button: string, down: boolean) {
         set({ stepPage: page });
         showTemp("Bar", `${page + 1} / ${bars}`);
       } else {
-        const i = Math.max(0, Math.min(15, s.currentPattern + dir));
+        // While playing the switch is queued, so step on from the pattern already queued.
+        const i = Math.max(0, Math.min(15, (s.queuedPattern ?? s.currentPattern) + dir));
         sequencer.selectPattern(i);
-        showTemp("Pattern", `${i + 1}`);
+        showTemp("Pattern", `${i + 1}${s.playing && i !== s.currentPattern ? " (queued)" : ""}`);
       }
       break;
     }
@@ -461,6 +514,13 @@ function peaksFor(id: string | null): Peaks | null {
   return pk;
 }
 
+/** What a sample-based keys track plays, for its screen. */
+function keysSoundName(s: AppState, k: KeysInstrument) {
+  if (k.type === "sample") return k.sample.sampleId ? (s.samples[k.sample.sampleId]?.name ?? "Sample") : "No sample loaded";
+  if (k.type === "chromatic") return `Pad ${k.sourcePad + 1}: ${s.project.tracks.find((t) => t.id === k.sourceTrack)?.pads[k.sourcePad].name ?? "?"}`;
+  return k.multiName || "Multisample";
+}
+
 /** "T2 Keys 1": the selected track's number and name, for the screen headers. */
 function trackLabel(s: AppState) {
   const t = selectedTrack(s);
@@ -468,8 +528,15 @@ function trackLabel(s: AppState) {
 }
 
 function transportState(s: AppState) {
-  return s.sampling !== "idle" ? "SAMPLING" : s.countIn ? "COUNT-IN" : s.recording ? "REC" : s.playing ? "PLAY" : "STOP";
+  return s.sampling !== "idle" ? "SAMPLE" : s.countIn ? "COUNT" : s.recording ? "REC" : s.playing ? "PLAY" : "STOP";
 }
+
+/** "P1 PLAY": the header's right side on every mode screen, so Play / Record always show. */
+export const statusText = (s: AppState) => `P${s.currentPattern + 1} ${transportState(s)}`;
+
+/** Encoder pages whose screen shows the instrument (waveform, list, curve) rather than the 8 encoders. */
+const INSTRUMENT_TAGS = ["KIT", "PAD", "PAD2", "KEYS", "DUCK"];
+const onEncoderScreen = (s: AppState) => s.hwMode === "play" && !INSTRUMENT_TAGS.includes(PAGES[s.encPage].tag);
 
 function stepsOf(s: AppState) {
   const pat = s.project.patterns[s.currentPattern];
@@ -489,9 +556,10 @@ function playheadStep(s: AppState) {
   return step >= 0 && step < 16 ? step : -1;
 }
 
-/** Graphic screen for the current mode, or null for text-only modes. */
-function screenFor(s: AppState): Frame | null {
+/** Graphic screen for the current mode, or null when there is nothing to draw yet (Chop before its buffer). */
+function screenFor(s: AppState, overlay: Overlay | null): Frame | null {
   const p = s.project;
+  const status = statusText(s);
   switch (s.hwMode) {
     case "browse": {
       const v = browseView();
@@ -499,32 +567,70 @@ function screenFor(s: AppState): Frame | null {
     }
     case "play": {
       const t = selectedTrack(s);
+      const page = PAGES[s.encPage];
+      // The instrument's own pages show the instrument (pad waveform, preset / sample list, duck curve);
+      // the shared pages (LFO, Track FX, Mix, Global) show their 8 encoders.
+      if (onEncoderScreen(s)) {
+        return encoderScreen({
+          title: trackLabel(s),
+          status,
+          tag: page.tag,
+          info: page.summary(),
+          active: overlay?.encoder,
+          cells: Array.from({ length: 8 }, (_, i) => {
+            const prm = page.params[i];
+            if (!prm) return null;
+            const [lo, hi] = prm.range ?? [0, 1];
+            return { name: prm.name, value: prm.format(), level: (prm.value() - lo) / (hi - lo || 1) };
+          }),
+        });
+      }
+      if (page.tag === "KIT") {
+        // No highlight when the pads aren't a saved kit (a chop, a folder, hand-picked samples).
+        const kits = kitNames();
+        return keysScreen({
+          track: trackLabel(s),
+          status,
+          presets: kits.map((k) => ({ label: k })),
+          index: kits.indexOf(currentKit()),
+          title: currentKit(),
+          tag: "KIT",
+          summary: page.summary(),
+        });
+      }
       if (s.encPage === DUCK_PAGE) {
         const d = p.duck;
         return duckScreen({
-          ...d, source: duckSourceLabel(), target: duckTargetLabel(d.target),
+          ...d, track: trackLabel(s), status, source: duckSourceLabel(), target: duckTargetLabel(d.target),
           level: engine.voices.duckLevel(d.target), summary: PAGES[DUCK_PAGE].summary(),
         });
       }
       if (t.kind === "keys") {
-        const presets = allPresets();
         const k = t.keys!;
+        // Encoder 1 of the Keys page scrolls this list: the synth's presets or the library's samples.
+        // The other sources show what they play.
+        const lib = k.type === "sample" ? keysSampleList() : [];
+        const presets = k.type === "synth" ? allPresets()
+          : k.type === "sample" ? lib.map((x) => ({ name: x.name, user: false }))
+          : [{ name: keysSoundName(s, k), user: false }];
+        const index = k.type === "synth" ? presets.findIndex((x) => x.name === k.preset)
+          : k.type === "sample" ? lib.findIndex((x) => x.id === k.sample.sampleId) : 0;
         return keysScreen({
           track: trackLabel(s),
-          presets: presets.map((x) => ({ label: x.name, user: x.user })),
-          index: Math.max(0, presets.findIndex((x) => x.name === k.preset)),
+          status,
+          presets: presets.length ? presets.map((x) => ({ label: x.name, user: x.user })) : [{ label: "No samples in the library" }],
+          index: Math.max(0, index),
           title: presetLabel(),
-          note: k.type === "synth" ? "SYNTH" : "SAMPLE",
-          tag: PAGES[s.encPage].tag,
-          summary: PAGES[s.encPage].summary(),
+          tag: page.tag,
+          summary: page.summary(),
         });
       }
       const pad = t.pads[s.selectedPad];
       return padScreen({
         track: trackLabel(s),
         pad: s.selectedPad, name: pad.name, peaks: peaksFor(pad.sampleId), start: pad.start, end: pad.end,
-        status: `P${s.currentPattern + 1} ${transportState(s)}`,
-        pageTag: PAGES[s.encPage].tag, pageInfo: PAGES[s.encPage].summary(),
+        status,
+        pageTag: page.tag, pageInfo: page.summary(),
       });
     }
     case "chop": {
@@ -539,19 +645,17 @@ function screenFor(s: AppState): Frame | null {
         if (i >= 8) return { label: `${i - 7}`, fill: t.id === s.selectedTrack, mark: t.kind === "keys" };
         return { label: t.solo ? "S" : t.mute ? "M" : "", fill: trackAudible(p, t.id) };
       });
-      return gridScreen({ title: trackLabel(s), mode: "TRACK", cells, tag: "TRK", info: "Top: pick  Bottom: mute" });
+      return gridScreen({ title: trackLabel(s), status, cells, tag: "TRACK", info: "Up:pick Dn:mute" });
     }
     case "mixer": {
-      const t = selectedTrack(s);
+      // The pads of the drum track (the last one picked when a keys track is selected).
+      const t = drumTrack(s);
       const cells = t.pads.map((pad, i) => ({
         label: t.padSolos[i] ? "S" : t.padMutes[i] ? "M" : `${i + 1}`,
         fill: !t.padMutes[i] && !!pad.sampleId,
         dim: !pad.sampleId,
       }));
-      return gridScreen({
-        title: trackLabel(s), mode: "MIXER", cells, tag: "MIX",
-        info: "Tap: mute  2x: solo", note: t.kind === "drum" ? undefined : "Drum tracks only",
-      });
+      return gridScreen({ title: `T${p.tracks.indexOf(t) + 1} ${t.name}`, status, cells, tag: "MIXER", info: "1x mute 2x solo" });
     }
     case "pattern": {
       // Current = solid, has notes = bar, queued = dotted.
@@ -561,18 +665,22 @@ function screenFor(s: AppState): Frame | null {
         mark: patternHasNotes(pat),
         dim: i === s.queuedPattern,
       }));
-      return gridScreen({ title: trackLabel(s), mode: "PATTERN", cells, tag: "PAT", info: `P${s.currentPattern + 1} ${transportState(s)}` });
+      return gridScreen({
+        title: trackLabel(s), status, cells, tag: "PATTERN",
+        info: s.queuedPattern !== null ? `Next: P${s.queuedPattern + 1}` : "Hold+tap copy",
+      });
     }
-    case "step":
+    case "step": {
+      const t = selectedTrack(s);
       return stepScreen({
-        pattern: s.currentPattern,
         track: trackLabel(s),
-        item: selectedTrack(s).kind === "drum" ? trackItemName(s, selectedTrack(s)) : `Note ${noteName(keysStepNote(selectedTrack(s)))}`,
+        status,
+        item: t.kind === "drum" ? trackItemName(s, t) : `Note ${noteName(keysStepNote(t))}`,
         bar: s.stepPage, bars: p.patterns[s.currentPattern].bars,
         steps: stepsOf(s), playhead: playheadStep(s),
-        status: `${p.bpm}BPM ${transportState(s)}`,
-        pageTag: PAGES[s.encPage].tag,
+        pageTag: PAGES[s.encPage].tag, pageInfo: PAGES[s.encPage].summary(),
       });
+    }
     default:
       return null;
   }
@@ -582,9 +690,16 @@ function renderLoop() {
   const s = get();
   const bootMs = bootElapsed();
   const boot = bootFrame(bootMs);
-  frame = boot ?? screenFor(s);
   const msg = boot ? null : activeOverlay();
-  if (frame && msg) {
+  // Shift held: the shift map, until an encoder is turned (fine steps), when the value matters more.
+  const shiftMap = s.shift && msg?.encoder === undefined && !boot;
+  const next = boot ?? (shiftMap ? shiftScreen({ rows: shiftRows(s.hwMode, selectedTrack(s).kind, s.sampling !== "idle") }) : screenFor(s, msg));
+  // Nothing to draw yet (Chop waiting for its buffer): keep the last frame rather than flashing device text.
+  frame = next ?? frame;
+  launchkey.shiftCover = shiftCoverText(s.hwMode);
+  // On the 8-encoder screen the turned cell is highlighted instead; a popup would cover the bottom row.
+  const suppress = msg?.encoder !== undefined && onEncoderScreen(s) && !shiftMap;
+  if (frame && msg && !suppress) {
     if (msg.visual?.kind === "filter") filterPanel(frame, 0, HEADER_H, W, H - HEADER_H - 10, msg.visual);
     if (msg.visual?.kind === "duck") duckPanel(frame, 0, HEADER_H, W, H - HEADER_H - 10, msg.visual);
     overlayBar(frame, msg.name, msg.value);
@@ -633,9 +748,13 @@ function funcSceneLeds(s: AppState) {
   return { func: LED_FULL, scene: sequencer.repeatOn ? LED_FULL : LED_DIM };
 }
 
-/** Encoder page arrows: lit when the selected track has a page that way. Browse: they step through the list. Shift: Browse / Chop. */
+/** Encoder page arrows: lit when the selected track has a page that way. Browse: they step through the list. Shift: Browse / Chop (drum tracks). Chop: unused. */
 function encPageLeds(s: AppState) {
-  if (s.shift) return { up: LED_FULL, down: LED_FULL }; // Browse / Chop
+  if (s.shift) {
+    const on = selectedTrack(s).kind === "drum" || s.hwMode === "browse" || s.hwMode === "chop" ? LED_FULL : 0;
+    return { up: on, down: on };
+  }
+  if (s.hwMode === "chop") return { up: 0, down: 0 };
   if (s.hwMode === "browse") {
     const on = browseCan().enter ? LED_FULL : 0;
     return { up: on, down: on };
@@ -714,7 +833,6 @@ function padLeds(s: AppState) {
         break;
       }
       case "mixer": {
-        if (selectedTrack(s).kind !== "drum") break;
         const t = drumTrack(s);
         color = t.padSolos[i] ? COLOR.yellow : t.padMutes[i] ? COLOR.dimRed : t.pads[i].sampleId ? COLOR.green : COLOR.dimGreen;
         break;

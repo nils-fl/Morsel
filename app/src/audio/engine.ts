@@ -7,16 +7,12 @@ import type { SampleInfo } from "../state/types";
 class Engine {
   ctx!: AudioContext;
   voices!: Voices;
-  /** Tap of the master output, for resampling. */
-  masterTap!: MediaStreamAudioDestinationNode;
   private buffers = new Map<string, AudioBuffer>();
   private clickOut!: GainNode;
 
   init() {
     this.ctx = new AudioContext({ latencyHint: "interactive" });
     this.voices = new Voices(this.ctx, this.ctx.destination, () => get().project, (id) => this.buffers.get(id), true);
-    this.masterTap = this.ctx.createMediaStreamDestination();
-    this.voices.master.connect(this.masterTap);
     this.clickOut = this.ctx.createGain();
     this.clickOut.connect(this.ctx.destination);
     // Browsers start audio suspended until a user gesture. MIDI input doesn't count as one.
@@ -37,21 +33,29 @@ class Engine {
 
   bufferLookup = (id: string) => this.buffers.get(id);
 
+  /** Decode every stored sample. One damaged entry is skipped and reported, not allowed to stop the app from starting. */
   async loadAllSamples() {
     const ids = await listSampleIds();
     const samples: Record<string, SampleInfo> = {};
+    const broken: string[] = [];
     await Promise.all(
       ids.map(async (id) => {
-        const s = await loadSample(id);
-        if (!s) return;
-        this.buffers.set(id, this.fromStored(s));
-        samples[id] = { id, name: s.name, folder: s.folder };
+        try {
+          const s = await loadSample(id);
+          if (!s) return;
+          this.buffers.set(id, this.fromStored(s));
+          samples[id] = { id, name: s.name, folder: s.folder };
+        } catch (err) {
+          console.warn(`Sample ${id} couldn't be loaded`, err);
+          broken.push(id);
+        }
       }),
     );
-    set({ samples });
+    set({ samples, ...(broken.length && { status: `${broken.length} stored sample${broken.length === 1 ? "" : "s"} couldn't be loaded and ${broken.length === 1 ? "was" : "were"} skipped` }) });
   }
 
   private fromStored(s: StoredSample) {
+    if (!Array.isArray(s.channels) || !s.channels.length || !s.channels[0]?.length) throw new Error("no audio data");
     const b = new AudioBuffer({ length: s.channels[0].length, numberOfChannels: s.channels.length, sampleRate: s.sampleRate });
     s.channels.forEach((d, c) => b.copyToChannel(new Float32Array(d), c));
     return b;

@@ -6,7 +6,9 @@ import { paletteCss } from "./palette";
 
 /** Sequences (rows) by tracks (columns). A cell is that track's clip in that sequence. */
 export function Matrix() {
-  const p = useApp((s) => s.project);
+  const tracks = useApp((s) => s.project.tracks);
+  const patterns = useApp((s) => s.project.patterns);
+  const p = { tracks, patterns };
   const current = useApp((s) => s.currentPattern);
   const queued = useApp((s) => s.queuedPattern);
   const selected = useApp((s) => s.selectedTrack);

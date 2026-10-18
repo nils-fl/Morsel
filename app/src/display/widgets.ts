@@ -4,12 +4,12 @@ import { Frame, H, W, fitText, textWidth } from "./frame";
 export const ROW_H = 9;
 export const HEADER_H = 9;
 
-/** Inverted bar: left text, right-aligned text. */
+/** Inverted bar: left text, right-aligned text. Returns the left text as drawn (cut with "~" when it didn't fit). */
 export function header(f: Frame, left: string, right = "") {
   f.fillRect(0, 0, W, HEADER_H);
   const rw = right ? textWidth(right) : 0;
   if (right) f.text(W - 2 - rw, 1, right, 0);
-  f.textFit(2, 1, left, W - 4 - (right ? rw + 6 : 0), 0);
+  return f.textFit(2, 1, left, W - 4 - (right ? rw + 6 : 0), 0);
 }
 
 /** First visible row so the cursor stays in view (cursor kept centred where possible). */
@@ -194,22 +194,31 @@ export function duckPanel(f: Frame, x: number, y: number, w: number, h: number, 
   }
 }
 
-/** Bottom line: inverted tag box (e.g. the encoder page), then text. */
+/** Bottom line: inverted tag box (e.g. the encoder page), then text. Returns the text as drawn. */
 export function footer(f: Frame, tag: string, text: string) {
   const y = H - 9;
   const tw = textWidth(tag) + 4;
   f.fillRect(0, y, tw, 9);
   f.text(2, y + 1, tag, 0);
-  f.textFit(tw + 3, y + 1, text, W - tw - 3);
+  return f.textFit(tw + 3, y + 1, text, W - tw - 3);
 }
 
-/** Inverted message bar along the bottom: name on the left, value right-aligned. */
-export function overlayBar(f: Frame, name: string, value: string) {
-  const y = H - 10;
-  f.fillRect(0, y, W, 10);
-  const vw = value ? textWidth(value) : 0;
-  if (value) f.text(W - 2 - vw, y + 2, value, 0);
-  f.textFit(2, y + 2, name, W - 4 - (value ? vw + 6 : 0), 0);
+/**
+ * Inverted message bar along the bottom: name on the left, value right-aligned. When the two don't fit
+ * one line, the bar grows to two lines (name, then value) so instructions are never cut.
+ * Returns the two strings as drawn.
+ */
+export function overlayBar(f: Frame, name: string, value: string): [string, string] {
+  if (!value || textWidth(name) + 6 + textWidth(value) <= W - 4) {
+    const y = H - 10;
+    f.fillRect(0, y, W, 10);
+    const vw = value ? textWidth(value) : 0;
+    if (value) f.text(W - 2 - vw, y + 2, value, 0);
+    return [f.textFit(2, y + 2, name, W - 4 - (value ? vw + 6 : 0), 0), value];
+  }
+  const y = H - 19;
+  f.fillRect(0, y, W, 19);
+  return [f.textFit(2, y + 2, name, W - 4, 0), f.textFit(2, y + 11, value, W - 4, 0)];
 }
 
 export { fitText };

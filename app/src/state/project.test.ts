@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DRUMS_ID, KEYS_ID, addTrack, canRemoveTrack, copyClip, copyPattern, defaultPad, defaultProject, get, migrateV1, normalizeProject, removeTrack, selectTrack, set, stepTrack, undo,
+  DRUMS_ID, KEYS_ID, addTrack, canRemoveTrack, copyClip, copyPattern, defaultPad, defaultProject, fixSelection, get, migrateV1, normalizeProject, removeTrack, resetSession, selectTrack, set, stepTrack, undo,
 } from "./store";
 import { DUCK_ALL, MAX_TRACKS, PATTERN_COUNT, type NoteEvent, type Project } from "./types";
 
@@ -232,6 +232,16 @@ describe("addTrack with pads", () => {
   });
 });
 
+describe("keys sample and LFO", () => {
+  it("fills in defaults for projects saved before they existed, and clamps junk", () => {
+    const p = normalizeProject({ tracks: [{ id: "k", kind: "keys", keys: { type: "sample", lfo: { vibDepth: 7, filterRate: "x" } } }] });
+    const k = p.tracks.find((t) => t.kind === "keys")!.keys!;
+    expect(k.type).toBe("sample");
+    expect(k.sample).toEqual(keysOf(defaultProject()).sample);
+    expect(k.lfo).toEqual({ ...keysOf(defaultProject()).lfo, vibDepth: 1 });
+  });
+});
+
 describe("stepTrack", () => {
   it("steps through the tracks, wrapping, and gives a drum track the pads and a keys track the keybed", () => {
     reset();
@@ -243,5 +253,49 @@ describe("stepTrack", () => {
     expect(get()).toMatchObject({ selectedTrack: id, drumTrack: id });
     expect(stepTrack(1).id).toBe(DRUMS_ID);
     expect(stepTrack(-1).id).toBe(id);
+  });
+});
+
+describe("kit name on drum tracks", () => {
+  it("is kept for drum tracks and dropped for keys tracks", () => {
+    const p = normalizeProject({ tracks: [{ id: "d", kind: "drum", kit: "Lo-Fi Breeze A" }, { id: "k", kind: "keys", kit: "x" }] });
+    expect(p.tracks.map((t) => t.kit)).toEqual(["Lo-Fi Breeze A", ""]);
+    expect(normalizeProject({ tracks: [{ id: "d", kind: "drum" }] }).tracks[0].kit).toBe("");
+  });
+
+  it("is set by addTrack", () => {
+    reset();
+    const id = addTrack("drum", { kit: "Factory" })!;
+    expect(get().project.tracks.find((t) => t.id === id)!.kit).toBe("Factory");
+  });
+});
+
+describe("damaged values", () => {
+  it("replaces pad and synth values of the wrong type or range with defaults (a NaN in an AudioParam throws)", () => {
+    const p = normalizeProject({
+      tracks: [
+        { id: "d", kind: "drum", pads: [{ pitch: "x", cutoff: Number.NaN, pan: 9, mode: "weird", choke: 2.4, name: "", sampleId: 5, extra: 1 }] },
+        { id: "k", kind: "keys", keys: { synth: { cutoff: "open", attack: -1, wave: "noise", junk: true }, zones: [{ sampleId: "s", root: 300 }, { sampleId: 3 }], rogue: 1 } },
+      ],
+    });
+    const pad = p.tracks[0].pads[0];
+    expect(pad).toMatchObject({ pitch: 0, cutoff: 1, pan: 1, mode: "oneshot", choke: 2, name: "Pad 1", sampleId: null });
+    expect("extra" in pad).toBe(false);
+    const k = keysOf(p);
+    const d = keysOf(defaultProject());
+    expect(k.synth).toEqual({ ...d.synth, attack: 0.001 });
+    expect(k.zones).toEqual([{ sampleId: "s", root: 127 }]);
+    expect("rogue" in k).toBe(false);
+  });
+});
+
+describe("fixSelection and resetSession", () => {
+  it("points the selection at tracks that exist", () => {
+    reset();
+    set({ selectedTrack: "gone", drumTrack: "gone", keysTrack: "gone", chop: null, currentPattern: 5, stepPage: 3, songMode: true });
+    fixSelection();
+    expect(get()).toMatchObject({ selectedTrack: DRUMS_ID, drumTrack: DRUMS_ID, keysTrack: KEYS_ID });
+    resetSession();
+    expect(get()).toMatchObject({ currentPattern: 0, stepPage: 0, songMode: false, queuedPattern: null, selectedPad: 0 });
   });
 });

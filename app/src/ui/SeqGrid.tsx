@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { sequencer } from "../seq/sequencer";
 import { STEP_TICKS } from "../seq/timing";
-import { clearTrack, clipOf, copyClip, copyPattern, newId, patternHasNotes, selectedTrack, set, togglePadFlag, toggleStep, toggleTrackFlag, updatePattern, useApp } from "../state/store";
+import { clearTrack, clipOf, copyClip, copyPattern, newId, patternHasNotes, selectedTrack, set, setPatternBars, togglePadFlag, toggleStep, toggleTrackFlag, trimClips, updatePattern, useApp } from "../state/store";
 import { PAD_COUNT, type Pattern } from "../state/types";
 import { noteName } from "./notes";
 import { Section } from "./controls";
@@ -22,10 +22,6 @@ function usePlayheadStep() {
   return step;
 }
 
-/** Every clip of a pattern trimmed to `bars`. */
-const trimClips = (pat: Pattern, bars: number): Pattern["clips"] =>
-  Object.fromEntries(Object.entries(pat.clips).map(([id, c]) => [id, { events: c.events.filter((e) => e.tick < bars * 16 * STEP_TICKS) }]));
-
 /** Double a pattern: every clip's notes repeat after the current length (up to 4 bars). */
 function doublePattern(p: Pattern): Pattern {
   if (p.bars >= 4) return p;
@@ -45,7 +41,7 @@ export function SeqGrid() {
   const steps = pat.bars * 16;
   const clip = clipOf(pat, track.id);
   const drum = track.kind === "drum";
-  const keyNote = track.keys?.type === "synth" ? 48 : 60;
+  const keyNote = track.keys?.type === "synth" ? 48 : track.keys?.type === "sample" ? track.keys.sample.root : 60;
 
   // Drum track: one row per pad. Keys track: one row with every note.
   const rows = drum
@@ -55,10 +51,7 @@ export function SeqGrid() {
   return (
     <div className="seq">
       <Section title={`Pattern ${patIndex + 1} · ${track.name}`} actions={<>
-          <select value={pat.bars} title="Pattern length (every track)" onChange={(e) => {
-            const bars = Number(e.target.value);
-            updatePattern(patIndex, (p) => ({ bars, clips: trimClips(p, bars) }));
-          }}>
+          <select value={pat.bars} title="Pattern length (every track). Launchkey: Step mode, encoder 1" onChange={(e) => setPatternBars(patIndex, Number(e.target.value))}>
             {[1, 2, 3, 4].map((b) => <option key={b} value={b}>{b} bar{b > 1 ? "s" : ""}</option>)}
           </select>
         <button onClick={() => updatePattern(patIndex, (p) => ({ ...p, clips: {} }))} title="Clear every track in this pattern">Clear pattern</button>

@@ -1,6 +1,6 @@
 // Graph builders that work on any BaseAudioContext, so live playback and
 // offline WAV rendering share exactly the same sound.
-import type { Pad, SynthParams } from "../state/types";
+import type { KeysLfo, Pad, SynthParams } from "../state/types";
 
 export interface Voice {
   /** Release (gate) or cut (choke). `fast` = 5 ms fade for chokes. */
@@ -31,6 +31,33 @@ export const synthQDb = (resonance: number) => 0.7 + resonance * 18;
 export const cutoffHz = (c: number) => 20 * Math.pow(2, Math.max(0, Math.min(1, c)) * 10);
 export const velGain = (vel: number) => Math.pow(vel / 127, 1.5);
 
+/** Vibrato depth 1 = ±100 cents; filter depth 1 = ±2 octaves. */
+export const VIB_CENTS = 100;
+export const FILTER_LFO_CENTS = 2400;
+
+/** A sine LFO from `when` into `targets` (cent params), or null when it is off. Stop it with the voice. */
+function lfo(ctx: BaseAudioContext, rate: number, cents: number, when: number, targets: AudioParam[]): OscillatorNode | null {
+  if (cents <= 0 || !targets.length) return null;
+  const o = ctx.createOscillator();
+  o.frequency.value = rate;
+  const g = ctx.createGain();
+  g.gain.value = cents;
+  o.connect(g);
+  for (const t of targets) g.connect(t);
+  o.start(when);
+  return o;
+}
+
+/** Vibrato on `pitch` params and a filter LFO on `filter` params; returns a function that stops both. */
+function noteLfos(ctx: BaseAudioContext, mod: KeysLfo | undefined, when: number, pitch: AudioParam[], filter: AudioParam[]) {
+  if (!mod) return () => {};
+  const oscs = [
+    lfo(ctx, mod.vibRate, mod.vibDepth * VIB_CENTS, when, pitch),
+    lfo(ctx, mod.filterRate, mod.filterDepth * FILTER_LFO_CENTS, when, filter),
+  ].filter((o): o is OscillatorNode => o !== null);
+  return () => oscs.forEach((o) => o.stop());
+}
+
 export function buildSampleVoice(
   ctx: BaseAudioContext,
   out: AudioNode,
@@ -40,6 +67,7 @@ export function buildSampleVoice(
   when: number,
   pitchOffset = 0,
   gate = pad.mode === "gate",
+  mod?: KeysLfo,
 ): Voice {
   const src = ctx.createBufferSource();
   src.buffer = buffer;
@@ -58,15 +86,20 @@ export function buildSampleVoice(
   const pan = ctx.createStereoPanner();
   pan.pan.value = pad.pan;
   let chain: AudioNode = src;
-  for (const [type, c, open] of [["highpass", pad.hpCutoff, pad.hpCutoff <= 0], ["lowpass", pad.cutoff, pad.cutoff >= 1]] as const) {
+  // A filter LFO needs the lowpass even when it is open (it then sweeps down from the top).
+  const filterLfo = !!mod && mod.filterDepth > 0;
+  let lowpass: BiquadFilterNode | null = null;
+  for (const [type, c, open] of [["highpass", pad.hpCutoff, pad.hpCutoff <= 0], ["lowpass", pad.cutoff, pad.cutoff >= 1 && !filterLfo]] as const) {
     if (open) continue;
     const f = ctx.createBiquadFilter();
     f.type = type;
     f.frequency.value = cutoffHz(c);
     f.Q.value = q;
+    if (type === "lowpass") lowpass = f;
     chain = chain.connect(f);
   }
   chain.connect(amp).connect(pan).connect(out);
+  const stopLfos = noteLfos(ctx, mod, when, [src.detune], lowpass ? [lowpass.detune] : []);
 
   const peak = velGain(vel) * pad.volume;
   const g = amp.gain;
@@ -84,13 +117,18 @@ export function buildSampleVoice(
   src.start(when, offset, (b - a) * buffer.duration);
   src.stop(end + 0.01);
 
-  let stopped = false;
-  const ended = new Promise<void>((res) => (src.onended = () => res()));
+  // The earliest stop wins: a sequenced note gets its length at schedule time, and a choke or Stop
+  // can still cut it earlier.
+  let stopAt = Infinity;
+  const ended = new Promise<void>((res) => (src.onended = () => {
+    stopLfos();
+    res();
+  }));
   return {
     ended,
     stop(t, fast) {
-      if (stopped) return;
-      stopped = true;
+      if (t >= stopAt) return;
+      stopAt = t;
       const rel = fast ? 0.005 : Math.max(0.01, Math.min(pad.decay, DECAY_MAX));
       holdAt(g, t);
       g.linearRampToValueAtTime(0, t + rel);
@@ -108,6 +146,7 @@ export function buildSynthVoice(
   note: number,
   vel: number,
   when: number,
+  mod?: KeysLfo,
 ): Voice {
   const freq = 440 * Math.pow(2, (note - 69) / 12);
   const o1 = ctx.createOscillator();
@@ -142,20 +181,26 @@ export function buildSynthVoice(
   g.setTargetAtTime(peak * s.sustain, when + a, Math.max(0.01, s.decay) / 3);
   o1.start(when);
   o2.start(when);
+  const stopLfos = noteLfos(ctx, mod, when, [o1.detune, o2.detune], [filter.detune]);
 
-  let stopped = false;
-  const ended = new Promise<void>((res) => (o1.onended = () => res()));
+  let stopAt = Infinity;
+  const ended = new Promise<void>((res) => (o1.onended = () => {
+    stopLfos();
+    res();
+  }));
   return {
     ended,
     stop(t, fast) {
-      if (stopped) return;
-      stopped = true;
+      if (t >= stopAt) return;
+      stopAt = t;
       const rel = fast ? 0.005 : Math.max(0.01, s.release);
       holdAt(g, t);
       g.setTargetAtTime(0, t, rel / 4);
       holdAt(f, t);
-      o1.stop(t + rel + 0.05);
-      o2.stop(t + rel + 0.05);
+      try {
+        o1.stop(t + rel + 0.05);
+        o2.stop(t + rel + 0.05);
+      } catch { /* already stopped */ }
     },
   };
 }

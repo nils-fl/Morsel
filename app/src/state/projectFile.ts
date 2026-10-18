@@ -1,8 +1,10 @@
 // Single-file project export: project JSON plus all referenced samples (16-bit PCM, base64).
 import type { engine as Engine } from "../audio/engine";
 import { engine } from "../audio/engine";
-import { PROJECT_VERSION, drumTrack, get, normalizePads, normalizeProject, set, updatePads } from "./store";
+import { PROJECT_VERSION, drumTrack, get, normalizePads, normalizeProject, resetSession, set, updateTrack } from "./store";
 import { sequencer } from "../seq/sequencer";
+import { cancelKitLoad } from "../actions";
+import { releaseAll, setHwMode } from "../modes/controller";
 import { listKits, saveKit } from "./persist";
 import { FACTORY_KIT, type Pad, type Project } from "./types";
 
@@ -14,6 +16,7 @@ function usedSampleIds(p: Project) {
   for (const t of p.tracks) {
     t.pads.forEach((pad) => pad.sampleId && ids.add(pad.sampleId));
     t.keys?.zones.forEach((z) => ids.add(z.sampleId));
+    if (t.keys?.sample.sampleId) ids.add(t.keys.sample.sampleId);
   }
   return ids;
 }
@@ -141,8 +144,8 @@ export async function importKit(f: File, eng: typeof Engine) {
     .map((pad) => ({ ...pad, sampleId: pad.sampleId ? idMap.get(pad.sampleId) ?? null : null }));
   const name = await freeKitName(typeof file.name === "string" && file.name.trim() ? file.name.trim() : f.name.replace(/\..*$/, ""));
   await saveKit(name, pads);
-  set({ kits: [...get().kits, name].sort() });
-  updatePads(() => pads);
+  set({ kits: [...get().kits, name].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true })) });
+  updateTrack(drumTrack().id, (t) => ({ ...t, pads, kit: name }), true);
   set({ status: `Loaded kit ${name} on ${drumTrack().name}` });
   return name;
 }
@@ -158,10 +161,19 @@ export async function importProject(f: File, eng: typeof Engine) {
   p.tracks = p.tracks.map((t) => ({
     ...t,
     pads: t.pads.map((pad) => ({ ...pad, sampleId: pad.sampleId ? idMap.get(pad.sampleId) ?? null : null })),
-    keys: t.keys && { ...t.keys, zones: t.keys.zones.flatMap((z) => (idMap.has(z.sampleId) ? [{ ...z, sampleId: idMap.get(z.sampleId)! }] : [])) },
+    keys: t.keys && {
+      ...t.keys,
+      zones: t.keys.zones.flatMap((z) => (idMap.has(z.sampleId) ? [{ ...z, sampleId: idMap.get(z.sampleId)! }] : [])),
+      sample: { ...t.keys.sample, sampleId: t.keys.sample.sampleId ? idMap.get(t.keys.sample.sampleId) ?? null : null },
+    },
   }));
   if (get().playing) sequencer.stop();
+  cancelKitLoad();
   const drums = p.tracks.find((t) => t.kind === "drum")!.id;
   const keys = p.tracks.find((t) => t.kind === "keys")!.id;
+  // A fresh session on the new project: pattern 1, Play mode, nothing held or queued from the old one.
+  releaseAll();
+  resetSession();
+  setHwMode("play");
   set({ project: p, undo: [], selectedTrack: drums, drumTrack: drums, keysTrack: keys, status: `Imported ${p.name}` });
 }

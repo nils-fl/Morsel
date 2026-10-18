@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { togglePlay, toggleRecord } from "./actions";
 import { currentFrame, setHwMode } from "./modes/controller";
 import { ScreenPreview } from "./ui/ScreenPreview";
@@ -91,10 +92,34 @@ function useCompact() {
   return compact;
 }
 
+/** A number field that applies its value when you leave it (or press Enter), so typing "12" doesn't clamp "1" first. */
+function NumberField({ value, min, max, step, onCommit }: { value: number; min: number; max: number; step?: number; onCommit: (v: number) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft === null) return;
+    const n = Number(draft);
+    if (draft.trim() && Number.isFinite(n)) onCommit(Math.max(min, Math.min(max, n)));
+    setDraft(null);
+  };
+  return (
+    <input
+      type="number" min={min} max={max} step={step} value={draft ?? value}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+    />
+  );
+}
+
 function TopBar({ onGuide }: { onGuide: () => void }) {
-  const s = useApp((s) => s);
+  // Only what the bar shows: the whole store would redraw it on every recorded note and knob move.
+  const s = useApp(useShallow((s) => ({
+    connected: s.connected, theme: s.theme, playing: s.playing, recording: s.recording, countIn: s.countIn, metronome: s.metronome,
+    quantize: s.quantize, undoLength: s.undo.length, currentPattern: s.currentPattern, queuedPattern: s.queuedPattern,
+    bpm: s.project.bpm, swing: s.project.swing, patterns: s.project.patterns, hwMode: s.hwMode, status: s.status,
+  })));
   const compact = useCompact();
-  const p = s.project;
+  const p = { bpm: s.bpm, swing: s.swing, patterns: s.patterns };
   return (
     <header className="topbar">
       <div className="brand">
@@ -112,11 +137,11 @@ function TopBar({ onGuide }: { onGuide: () => void }) {
         <button className={s.metronome ? "on" : ""} onClick={() => set({ metronome: !s.metronome })}>Click</button>
         <label className="field inline">
           <span>BPM</span>
-          <input type="number" min={40} max={240} step={0.1} value={p.bpm} onChange={(e) => updateProject((pr) => ({ ...pr, bpm: Math.max(40, Math.min(240, Number(e.target.value))) }), false)} />
+          <NumberField min={40} max={240} step={0.1} value={p.bpm} onCommit={(bpm) => updateProject((pr) => ({ ...pr, bpm: Math.round(bpm * 10) / 10 }), false)} />
         </label>
         <label className="field inline">
           <span>Swing</span>
-          <input type="number" min={50} max={75} value={p.swing} onChange={(e) => updateProject((pr) => ({ ...pr, swing: Math.max(50, Math.min(75, Number(e.target.value))) }), false)} />
+          <NumberField min={50} max={75} value={p.swing} onCommit={(swing) => updateProject((pr) => ({ ...pr, swing: Math.round(swing) }), false)} />
         </label>
         <label className="field inline">
           <span>Quantize</span>
@@ -124,7 +149,7 @@ function TopBar({ onGuide }: { onGuide: () => void }) {
             {QUANTIZE_OPTIONS.map((q) => <option key={q.label} value={q.ticks}>{q.label}</option>)}
           </select>
         </label>
-        <button onClick={undo} disabled={!s.undo.length}>Undo</button>
+        <button onClick={undo} disabled={!s.undoLength}>Undo</button>
       </div>
       <div className="patterns">
         {p.patterns.map((pat, i) => (

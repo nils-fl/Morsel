@@ -43,8 +43,26 @@ export interface Zone {
   root: number; // MIDI note
 }
 
+/** "sample" mode: one sample of its own, played across the keys from its root note. */
+export interface KeysSample {
+  sampleId: string | null;
+  root: number; // MIDI note that plays the sample at its own pitch
+  attack: number; // seconds
+  release: number; // seconds
+  cutoff: number; // 0..1 lowpass (1 = open)
+  resonance: number; // 0..1
+}
+
+/** Two LFOs on every note of a keys track (rates in Hz; depth 0 = off). */
+export interface KeysLfo {
+  vibRate: number; // 0.1..20
+  vibDepth: number; // 0..1 = 0..100 cents of vibrato
+  filterRate: number; // 0.1..20
+  filterDepth: number; // 0..1 = 0..±2 octaves on the filter cutoff
+}
+
 export interface KeysInstrument {
-  type: "synth" | "chromatic" | "multi";
+  type: "synth" | "chromatic" | "multi" | "sample";
   /** Drum track and pad whose sample "chromatic" plays across the keyboard. */
   sourceTrack: string;
   sourcePad: number;
@@ -53,6 +71,8 @@ export interface KeysInstrument {
   /** Name of the synth preset last loaded (the synth may have been edited since). */
   preset: string;
   synth: SynthParams;
+  sample: KeysSample;
+  lfo: KeysLfo;
   volume: number;
 }
 
@@ -77,6 +97,8 @@ export interface Track {
   kind: TrackKind;
   /** Drum tracks: the 16 pads. Keys tracks: empty. */
   pads: Pad[];
+  /** Drum tracks: name of the kit last loaded onto the pads ("" for none, e.g. a chop or a folder). */
+  kit: string;
   /** Keys tracks only. */
   keys: KeysInstrument | null;
   /** Mute / solo of the pads inside a drum rack. */

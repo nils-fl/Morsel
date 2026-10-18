@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  chopSelected, confirmDeleteSample, deleteSavedKit, isAudioFile, loadFilesToPads, loadFolderToPads, loadNamedKit, openInChop, saveCurrentKit, samplingLevel, shareTab,
+  chopSelected, confirmDeleteSample, deleteSavedKit, stepKit, renameSavedKit, isAudioFile, loadFilesToPads, loadFolderToPads, loadNamedKit, openInChop, saveCurrentKit, samplingLevel, shareTab,
   toggleSampling, unshareTab,
 } from "../actions";
 import { DECAY_MAX } from "../audio/dsp";
@@ -34,12 +34,12 @@ export function PadEditor() {
 
   return (
     <div className="pad-editor">
+      <KitBar />
       <Section
         title={`${trackName} · Pad ${i + 1} · ${pad.name}`}
         color={paletteCss(pad.color)}
         actions={
           <>
-            <KitSelect />
             <button onClick={() => fileInput.current?.click()} title="Load files onto this pad and the ones after it">Load file…</button>
             <input ref={fileInput} type="file" accept="audio/*" multiple hidden onChange={(e) => e.target.files && loadFilesToPads([...e.target.files], i)} />
             <button onClick={() => kitFolderInput.current?.click()} title="Import a folder and put its first 16 samples (by name) on pads 1–16 as a kit">Folder → pads…</button>
@@ -235,50 +235,74 @@ function ChopPanel() {
   );
 }
 
-/** Header picker: load the factory kit or a saved kit onto the pads' drum track. */
-function KitSelect() {
+/** Pick and step through kits for this drum track, like the Keys presets. Launchkey: encoder page Kit, encoder 1. */
+function KitBar() {
+  const kit = useApp((s) => drumTrack(s).kit);
   const kits = useApp((s) => s.kits);
+  const list = [FACTORY_KIT, ...kits];
+  const i = list.indexOf(kit);
   return (
-    <select value="" title="Load a kit onto this drum track (Undo brings the pads back)" onChange={(e) => e.target.value && void loadNamedKit(e.target.value)}>
-      <option value="">Kit…</option>
-      <option value={FACTORY_KIT}>{FACTORY_KIT}</option>
-      {kits.map((k) => <option key={k} value={k}>{k}</option>)}
-    </select>
+    <Section title={`Kit · ${kit || "none"}`} actions={
+      <>
+        <button onClick={() => stepKit(-1)} disabled={i === 0} aria-label="Previous kit">◀</button>
+        <select value={i >= 0 ? kit : ""} title="Load a kit onto this drum track (Undo brings the pads back)" onChange={(e) => e.target.value && void loadNamedKit(e.target.value)}>
+          {i < 0 && <option value="">{kit || "—"}</option>}
+          <option value={FACTORY_KIT}>{FACTORY_KIT}</option>
+          {kits.length > 0 && <optgroup label="Saved">{kits.map((k) => <option key={k} value={k}>{k}</option>)}</optgroup>}
+        </select>
+        <button onClick={() => stepKit(1)} disabled={i >= list.length - 1} aria-label="Next kit">▶</button>
+      </>
+    }>
+      <p className="hint">◀ ▶ load the previous / next kit. Launchkey: encoder page <b>Kit</b>, encoder 1 scrolls the kits.</p>
+    </Section>
   );
 }
 
 function KitPanel() {
   const kits = useApp((s) => s.kits);
   const [name, setName] = useState("");
+  // The saved kit last picked here: the one Rename renames.
+  const [picked, setPicked] = useState<string | null>(null);
+  const canRename = !!picked && kits.includes(picked) && !!name.trim() && name.trim() !== picked;
   const kitInput = useRef<HTMLInputElement>(null);
   return (
     <Section title="Kits" actions={
       <>
-        <button onClick={() => kitInput.current?.click()}>Import kit…</button>
+        <button onClick={() => kitInput.current?.click()} title="Import one or more .launchkit-kit.json files">Import kits…</button>
         <button disabled={!name.trim()} title="Save the pads as a kit file with their samples, to share or keep" onClick={() => {
           download(exportKit(name.trim(), drumPads()), `${name.trim()}.launchkit-kit.json`);
         }}>Export kit…</button>
       </>
     }>
-      <input ref={kitInput} type="file" accept=".json" hidden onChange={async (e) => {
-        const f = e.target.files?.[0];
+      <input ref={kitInput} type="file" accept=".json" multiple hidden onChange={async (e) => {
+        const files = [...(e.target.files ?? [])];
         e.target.value = "";
-        if (!f) return;
-        try {
-          await importKit(f, engine);
-        } catch (err) {
-          set({ status: `Kit import failed: ${(err as Error).message}` });
+        const failed: string[] = [];
+        let last = "";
+        for (const f of files) {
+          try {
+            last = await importKit(f, engine);
+          } catch (err) {
+            failed.push(`${f.name}: ${(err as Error).message}`);
+          }
+        }
+        const ok = files.length - failed.length;
+        if (files.length > 1 || failed.length) {
+          set({ status: `Imported ${ok} kit${ok === 1 ? "" : "s"}${ok ? ` (${last} is on the pads)` : ""}${failed.length ? ` · failed: ${failed.join("; ")}` : ""}` });
         }
       }} />
       <div className="row">
         <input placeholder="Kit name" value={name} onChange={(e) => setName(e.target.value)} />
         <button disabled={!name.trim()} onClick={() => void saveCurrentKit(name)}>Save</button>
+        <button disabled={!canRename} title={picked ? `Rename “${picked}” to the name typed here` : "Pick a saved kit below first"} onClick={async () => {
+          if (picked && (await renameSavedKit(picked, name))) setPicked(name.trim());
+        }}>Rename</button>
       </div>
       <div className="row wrap">
         <button onClick={() => void loadNamedKit(FACTORY_KIT)} title="The built-in synthesized kit">{FACTORY_KIT}</button>
         {kits.map((k) => (
           <span key={k} className="kit-chip">
-            <button onClick={() => { setName(k); void loadNamedKit(k); }}>{k}</button>
+            <button className={k === picked ? "on" : ""} onClick={() => { setName(k); setPicked(k); void loadNamedKit(k); }}>{k}</button>
             <button onClick={() => void deleteSavedKit(k)} aria-label={`Delete kit ${k}`} title="Delete this kit">✕</button>
           </span>
         ))}

@@ -11,7 +11,8 @@ export function TrackStrip() {
   const selected = useApp((s) => s.selectedTrack);
   const drum = useApp((s) => s.drumTrack);
   const keys = useApp((s) => s.keysTrack);
-  const p = useApp((s) => s.project);
+  const canAdd = useApp((s) => canAddTrack(s.project));
+  const canRemove = useApp((s) => canRemoveTrack(s.project, s.selectedTrack));
   const add = (kind: TrackKind) => {
     if (kind === "drum") void addDrumTrack();
     else if (!addTrack(kind)) set({ status: `Up to ${MAX_TRACKS} tracks` });
@@ -32,13 +33,13 @@ export function TrackStrip() {
         </button>
       ))}
       <span className="trk-actions">
-        <button disabled={!canAddTrack(p)} onClick={() => add("drum")} title="Add a drum rack track with the factory kit">+ Drums</button>
-        <button disabled={!canAddTrack(p)} onClick={() => add("keys")} title="Add a keys track">+ Keys</button>
+        <button disabled={!canAdd} onClick={() => add("drum")} title="Add a drum rack track with the factory kit">+ Drums</button>
+        <button disabled={!canAdd} onClick={() => add("keys")} title="Add a keys track">+ Keys</button>
         <button onClick={() => moveTrack(selected, -1)} disabled={tracks[0]?.id === selected} aria-label="Move track left">◀</button>
         <button onClick={() => moveTrack(selected, 1)} disabled={tracks[tracks.length - 1]?.id === selected} aria-label="Move track right">▶</button>
         <button
-          disabled={!canRemoveTrack(p, selected)}
-          title={canRemoveTrack(p, selected) ? "Delete the selected track and its clips (Undo brings it back)" : "The last drum track and the last keys track stay"}
+          disabled={!canRemove}
+          title={canRemove ? "Delete the selected track and its clips (Undo brings it back)" : "The last drum track and the last keys track stay"}
           onClick={() => removeTrack(selected)}
         >✕</button>
       </span>

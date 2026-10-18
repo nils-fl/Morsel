@@ -1,7 +1,7 @@
 import { scheduleNote, Voices } from "../audio/voices";
 import { engine } from "../audio/engine";
 import { clipOf, patternLength } from "../state/store";
-import type { Project } from "../state/types";
+import type { NoteEvent, Project, Track } from "../state/types";
 import { secondsPerTick, swingOffsetTicks } from "./timing";
 
 const SR = 44100;
@@ -13,18 +13,28 @@ export function arrangement(p: Project, song: boolean, pattern: number, loops = 
   return p.song.flatMap((s) => Array(Math.max(1, s.repeats)).fill(s.pattern));
 }
 
+/**
+ * Every note of the arrangement with its absolute tick, in time order. Choke groups cut the voices already
+ * scheduled and the ducker cancels later ramps, so notes must be scheduled as they sound, not as they were entered.
+ */
+export function orderedEvents(p: Project, order: number[]): { track: Track; event: NoteEvent; tick: number }[] {
+  const out: { track: Track; event: NoteEvent; tick: number }[] = [];
+  let offset = 0;
+  for (const i of order) {
+    const pat = p.patterns[i];
+    for (const track of p.tracks) for (const event of clipOf(pat, track.id).events) out.push({ track, event, tick: offset + event.tick });
+    offset += patternLength(pat);
+  }
+  return out.sort((a, b) => a.tick - b.tick);
+}
+
 export async function renderToBuffer(p: Project, order: number[]): Promise<AudioBuffer> {
   const spt = secondsPerTick(p.bpm);
   const totalTicks = order.reduce((n, i) => n + patternLength(p.patterns[i]), 0);
   const ctx = new OfflineAudioContext(2, Math.ceil((totalTicks * spt + TAIL) * SR), SR);
   const voices = new Voices(ctx, ctx.destination, () => p, engine.bufferLookup);
-  let offset = 0;
-  for (const i of order) {
-    const pat = p.patterns[i];
-    for (const t of p.tracks) {
-      for (const e of clipOf(pat, t.id).events) scheduleNote(voices, t, e, (offset + e.tick + swingOffsetTicks(e.tick, p.swing)) * spt, e.len * spt);
-    }
-    offset += patternLength(pat);
+  for (const { track, event, tick } of orderedEvents(p, order)) {
+    scheduleNote(voices, track, event, (tick + swingOffsetTicks(event.tick, p.swing)) * spt, event.len * spt);
   }
   return ctx.startRendering();
 }

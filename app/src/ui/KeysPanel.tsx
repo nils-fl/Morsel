@@ -1,10 +1,10 @@
 import { useRef, useState } from "react";
 import { allPresets, applyPreset, deleteUserPreset, keyOff, keyOn, saveUserPreset } from "../actions";
 import { FACTORY_PRESETS } from "../audio/synthPresets";
-import { presetLabel } from "../params";
+import { hz, presetLabel } from "../params";
 import { engine } from "../audio/engine";
 import { keysTrack, updateKeys, useApp } from "../state/store";
-import type { SynthParams, Wave, Zone } from "../state/types";
+import type { KeysLfo, KeysSample, SynthParams, Wave, Zone } from "../state/types";
 import { Field, Section, Slider } from "./controls";
 import { noteName, rootFromName } from "./notes";
 
@@ -17,8 +17,18 @@ export function KeysPanel() {
   const trackName = useApp((s) => keysTrack(s).name);
   const drumTracks = useApp((s) => s.project.tracks).filter((t) => t.kind === "drum");
   const dirInput = useRef<HTMLInputElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const samples = useApp((s) => s.samples);
   const synth = keys.synth;
   const upSynth = (patch: Partial<SynthParams>) => updateKeys({ synth: { ...synth, ...patch } });
+  const upSample = (patch: Partial<KeysSample>) => updateKeys({ sample: { ...keys.sample, ...patch } });
+  const upLfo = (patch: Partial<KeysLfo>) => updateKeys({ lfo: { ...keys.lfo, ...patch } });
+
+  /** One file as the keys sound; a note in its name ("Bass_C2.wav") becomes the root. */
+  async function loadSample(f: File) {
+    const sampleId = await engine.addFile(f);
+    upSample({ sampleId, root: rootFromName(f.name) ?? keys.sample.root });
+  }
 
   async function loadMulti(files: File[]) {
     const zones: Zone[] = [];
@@ -36,16 +46,16 @@ export function KeysPanel() {
     <div className="keys-panel">
       <Section title={`${trackName} · Keys instrument`}>
         <div className="row">
-          {(["synth", "chromatic", "multi"] as const).map((t) => (
+          {(["synth", "sample", "chromatic", "multi"] as const).map((t) => (
             <button key={t} className={keys.type === t ? "on" : ""} onClick={() => updateKeys({ type: t })}>
-              {t === "synth" ? "Synth" : t === "chromatic" ? "Pad sample" : "Multisample"}
+              {t === "synth" ? "Synth" : t === "sample" ? "Sample" : t === "chromatic" ? "Pad sample" : "Multisample"}
             </button>
           ))}
           <Slider label="Volume" value={keys.volume} min={0} max={1} format={pct} onChange={(v) => updateKeys({ volume: v })} />
         </div>
       </Section>
 
-      <PresetBar />
+      {keys.type === "synth" && <PresetBar />}
 
       {keys.type === "synth" && (
         <Section title="Synth">
@@ -67,6 +77,46 @@ export function KeysPanel() {
             <Slider label="Decay" value={synth.decay} min={0.01} max={2} format={ms} onChange={(v) => upSynth({ decay: v })} />
             <Slider label="Sustain" value={synth.sustain} min={0} max={1} format={pct} onChange={(v) => upSynth({ sustain: v })} />
             <Slider label="Release" value={synth.release} min={0.01} max={3} format={ms} onChange={(v) => upSynth({ release: v })} />
+          </div>
+        </Section>
+      )}
+
+      {keys.type === "sample" && (
+        <Section title="Sample on keys" actions={
+          <>
+            <button onClick={() => fileInput.current?.click()}>Load file…</button>
+            <input ref={fileInput} type="file" accept="audio/*" hidden onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) void loadSample(f);
+            }} />
+          </>
+        }>
+          <p className="hint" onDragOver={(e) => e.preventDefault()} onDrop={(e) => {
+            e.preventDefault();
+            const f = [...e.dataTransfer.files][0];
+            if (f) void loadSample(f);
+          }}>
+            One sound played across the keys and pads, at its own pitch on the root note. Load or drop a file here, or pick one from the library.
+          </p>
+          <div className="row wrap">
+            <Field label="Sample">
+              <select value={keys.sample.sampleId ?? ""} onChange={(e) => upSample({ sampleId: e.target.value || null })}>
+                <option value="">—</option>
+                {Object.values(samples).map((s) => <option key={s.id} value={s.id}>{s.folder ? `${s.folder} / ` : ""}{s.name}</option>)}
+              </select>
+            </Field>
+            <Field label="Root note">
+              <select value={keys.sample.root} onChange={(e) => upSample({ root: Number(e.target.value) })} title="The key that plays the sample at its original pitch">
+                {Array.from({ length: 97 }, (_, i) => i + 12).map((n) => <option key={n} value={n}>{noteName(n)}</option>)}
+              </select>
+            </Field>
+          </div>
+          <div className="sliders">
+            <Slider label="Attack" value={keys.sample.attack} min={0} max={2} step={0.001} format={ms} onChange={(v) => upSample({ attack: v })} />
+            <Slider label="Release" value={keys.sample.release} min={0.01} max={2} format={ms} onChange={(v) => upSample({ release: v })} />
+            <Slider label="Cutoff" value={keys.sample.cutoff} min={0} max={1} format={(v) => (v >= 1 ? "Open" : hz(v))} onChange={(v) => upSample({ cutoff: v })} />
+            <Slider label="Resonance" value={keys.sample.resonance} min={0} max={1} format={pct} onChange={(v) => upSample({ resonance: v })} />
           </div>
         </Section>
       )}
@@ -99,6 +149,19 @@ export function KeysPanel() {
           </div>
         </Section>
       )}
+
+      <Section title="LFO">
+        <p className="hint">
+          Vibrato wobbles the pitch, the filter LFO sweeps the cutoff (set Cutoff below open for a full sweep). Depth 0 = off.
+          Launchkey: encoder page <b>LFO</b>.
+        </p>
+        <div className="sliders">
+          <Slider label="Vib rate" value={keys.lfo.vibRate} min={0.1} max={20} step={0.1} format={(v) => `${v.toFixed(1)} Hz`} onChange={(v) => upLfo({ vibRate: v })} />
+          <Slider label="Vib depth" value={keys.lfo.vibDepth} min={0} max={1} step={0.01} format={(v) => (v ? `±${Math.round(v * 100)} ct` : "Off")} onChange={(v) => upLfo({ vibDepth: v })} />
+          <Slider label="Filter rate" value={keys.lfo.filterRate} min={0.1} max={20} step={0.1} format={(v) => `${v.toFixed(1)} Hz`} onChange={(v) => upLfo({ filterRate: v })} />
+          <Slider label="Filter depth" value={keys.lfo.filterDepth} min={0} max={1} step={0.01} format={(v) => (v ? `±${(v * 2).toFixed(1)} oct` : "Off")} onChange={(v) => upLfo({ filterDepth: v })} />
+        </div>
+      </Section>
 
       <Section title="Try it">
         <MiniKeyboard />

@@ -85,7 +85,7 @@ export function browseFolderToPads() {
   if (e?.kind !== "folder" || !e.path.startsWith(SAMPLES + "/")) return showTemp("Browse", "Pick a folder");
   const samples = listDir(e.path, Object.values(get().samples), kits).filter((x) => x.kind === "sample");
   if (!samples.length) return showTemp(fitName(e.name), "No samples");
-  const n = samplesToPads(samples);
+  const n = samplesToPads(samples, e.name);
   showTemp(`FOLDER > PADS 1-${n}`, fitName(drumTrack().name));
 }
 
