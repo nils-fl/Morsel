@@ -29,12 +29,13 @@ export function Waveform(props: {
     const a = Math.min(start, end) * w;
     const b = Math.max(start, end) * w;
     drawPeaks(g, d, 0, d.length, w, h, fg, (x) => (x >= a && x <= b ? 1 : 0.28));
-    g.fillStyle = "rgba(0,0,0,.45)";
+    g.fillStyle = "rgba(0,0,0,.3)";
     g.fillRect(0, 0, a, h);
     g.fillRect(b, 0, w - b, h);
-    g.fillStyle = "rgba(242,246,255,.5)";
+    g.fillStyle = css.getPropertyValue("--white") || "#e6e9ec";
+    g.globalAlpha = 0.5;
     for (const m of slices ?? []) g.fillRect(Math.round(m * w), 0, dpr, h);
-    g.fillStyle = "#f2f6ff";
+    g.globalAlpha = 1;
     g.fillRect(a - dpr, 0, 2 * dpr, h);
     g.fillRect(b - dpr, 0, 2 * dpr, h);
   }, [buffer, start, end, slices, color]);

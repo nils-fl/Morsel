@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { PAGES } from "../params";
 import { useApp } from "../state/store";
-import { paletteCss } from "./palette";
+import { mute, paletteCss } from "./palette";
 
 type ControlId = "strips" | "screen" | "shift" | "settings" | "play" | "record" | "octave" | "arpScale" | "padUp" | "padDown" | "encoders" | "pads" | "encUp" | "encDown" | "scene" | "func" | "keys";
 
@@ -41,7 +41,7 @@ const SHORTCUTS: [string, string][] = [
   ["Double-tap pad", "Solo (Mixer)"],
 ];
 
-const OFF = "#15181c", DIM = "#3a3f46", WHITE = "#f2f6ff", GREEN = "#2fe05a", BLUE = "#3b5bff", RED = "#6b1a1a", YELLOW = "#ffe83b", CYAN = "#3be7ff";
+const OFF = "#2a2f35", DIM = "#4a525a", WHITE = "#e6e9ec", GREEN = mute("#2fe05a"), BLUE = mute("#3b5bff"), RED = mute("#6b1a1a"), YELLOW = mute("#ffe83b"), CYAN = mute("#3be7ff");
 type Led = { c: string; blink?: boolean };
 
 // Example LED states per mode, pad index 0-15 (0-7 = bottom row).
@@ -50,7 +50,7 @@ const stepLeds = (): Led[] => Array.from({ length: 16 }, (_, i) => {
   if (step === 6) return { c: WHITE };
   return { c: [0, 4, 8, 10, 12].includes(step) ? CYAN : step % 4 === 0 ? DIM : OFF };
 });
-const mixerLeds = (): Led[] => Array.from({ length: 16 }, (_, i) => ({ c: i === 2 ? RED : i === 4 ? YELLOW : i < 12 ? GREEN : "#1a5c2a" }));
+const mixerLeds = (): Led[] => Array.from({ length: 16 }, (_, i) => ({ c: i === 2 ? RED : i === 4 ? YELLOW : i < 12 ? GREEN : mute("#1a5c2a") }));
 const patternLeds = (): Led[] => Array.from({ length: 16 }, (_, i) => (i === 0 ? { c: GREEN } : i === 2 ? { c: GREEN, blink: true } : { c: i < 4 ? BLUE : OFF }));
 
 function MiniPads({ leds }: { leds: Led[] }) {
@@ -83,7 +83,7 @@ export function Guide() {
   });
 
   const playLeds: Led[] = pads.map((p, i) => ({ c: p.sampleId ? paletteCss(p.color) : OFF, blink: i === selected }));
-  const browseLeds: Led[] = pads.map((p, i) => (i === selected ? { c: WHITE, blink: true } : { c: p.sampleId ? `color-mix(in srgb, ${paletteCss(p.color)} 35%, #000)` : OFF }));
+  const browseLeds: Led[] = pads.map((p, i) => (i === selected ? { c: WHITE, blink: true } : { c: p.sampleId ? `color-mix(in srgb, ${paletteCss(p.color)} 35%, ${OFF})` : OFF }));
 
   const modes = [
     { name: "Play", color: "var(--amber)", leds: playLeds, how: "Start mode", pads: "Play samples, velocity-sensitive. The last pad hit is selected (pulsing).", enc: "Pad / Pad 2 / Global pages", keys: "Keys instrument" },

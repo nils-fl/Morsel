@@ -96,7 +96,7 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
     const px = (f: number) => ((f - v0) / (v1 - v0)) * w;
     // Tint each slice with the colour of the pad it will land on.
     slicesFromMarkers(markers).forEach(([a, b], k) => {
-      g.fillStyle = padColor(pads, firstPad, k) ?? "#4a525b";
+      g.fillStyle = padColor(pads, firstPad, k) ?? "#646c75";
       g.globalAlpha = 0.1;
       g.fillRect(px(a), 0, px(b) - px(a), h);
     });
@@ -104,14 +104,17 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
     const fg = css.getPropertyValue("--wave-fg") || "#4cf";
     const ra = px(markers[0]), rb = px(markers[markers.length - 1]);
     drawPeaks(g, data, v0 * data.length, v1 * data.length, w, h, fg, (x) => (x >= ra && x <= rb ? 1 : 0.28));
-    g.fillStyle = "rgba(0,0,0,.45)";
+    g.fillStyle = "rgba(0,0,0,.3)";
     g.fillRect(0, 0, ra, h);
     g.fillRect(rb, 0, w - rb, h);
+    const white = css.getPropertyValue("--white") || "#e6e9ec";
     markers.forEach((m, i) => {
       const bound = i === 0 || i === markers.length - 1;
-      g.fillStyle = i === sel ? css.getPropertyValue("--accent") || "#ffb02e" : bound ? "#f2f6ff" : "rgba(242,246,255,.75)";
+      g.fillStyle = i === sel ? css.getPropertyValue("--accent") || "#d9a55a" : white;
+      g.globalAlpha = i === sel || bound ? 1 : 0.7;
       g.fillRect(Math.round(px(m)) - (bound ? dpr : dpr / 2), 0, bound ? 2 * dpr : dpr, h);
     });
+    g.globalAlpha = 1;
   }, [data, view, markers, sel, firstPad, pads]);
 
   useEffect(() => {
@@ -124,10 +127,10 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
     const css = getComputedStyle(c);
     g.fillStyle = css.getPropertyValue("--wave-bg") || "#111";
     g.fillRect(0, 0, w, h);
-    drawPeaks(g, data, 0, data.length, w, h, css.getPropertyValue("--dim") || "#4a525b");
-    g.fillStyle = "rgba(242,246,255,.12)";
+    drawPeaks(g, data, 0, data.length, w, h, css.getPropertyValue("--dim") || "#646c75");
+    g.fillStyle = "rgba(230,233,236,.1)";
     g.fillRect(view[0] * w, 0, (view[1] - view[0]) * w, h);
-    g.strokeStyle = css.getPropertyValue("--accent") || "#ffb02e";
+    g.strokeStyle = css.getPropertyValue("--accent") || "#d9a55a";
     g.lineWidth = dpr;
     g.strokeRect(view[0] * w + dpr / 2, dpr / 2, Math.max(dpr, (view[1] - view[0]) * w - dpr), h - dpr);
   }, [data, view]);

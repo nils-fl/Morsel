@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { H, W, type Frame } from "../display/frame";
 
 /** Draws a 128x64 frame (from `source`) as a lit dot matrix, refreshed ~15 fps. */
-export function ScreenPreview({ source, scale = 3, color = "#9fe9ff" }: { source: () => Frame | null; scale?: number; color?: string }) {
+export function ScreenPreview({ source, scale = 3, color = "#9cc9d4" }: { source: () => Frame | null; scale?: number; color?: string }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const g = canvas.current?.getContext("2d");
@@ -11,9 +11,9 @@ export function ScreenPreview({ source, scale = 3, color = "#9fe9ff" }: { source
     const dot = Math.max(1, scale - 1);
     const draw = () => {
       const f = source();
-      g.fillStyle = "#000";
+      g.fillStyle = "#15191c";
       g.fillRect(0, 0, W * scale, H * scale);
-      g.fillStyle = "#080c0e";
+      g.fillStyle = "#1c2125";
       for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) g.fillRect(x * scale, y * scale, dot, dot);
       if (!f) return;
       g.fillStyle = color;

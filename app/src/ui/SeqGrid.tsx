@@ -3,7 +3,7 @@ import { sequencer } from "../seq/sequencer";
 import { STEP_TICKS } from "../seq/timing";
 import { KEYS_TRACK, clearTrack, newId, set, toggleArray, toggleStep, updatePattern, useApp } from "../state/store";
 import { noteName } from "./notes";
-import { paletteCss } from "./palette";
+import { mute, paletteCss } from "./palette";
 
 function usePlayheadStep() {
   const [step, setStep] = useState(-1);
@@ -52,7 +52,7 @@ export function SeqGrid() {
       <div className="seq-grid" style={{ "--steps": steps } as React.CSSProperties}>
         {tracks.map((t) => {
           const isKeys = t === KEYS_TRACK;
-          const color = isKeys ? "#a46bff" : paletteCss(pads[t].color);
+          const color = isKeys ? mute("#a46bff") : paletteCss(pads[t].color);
           const evs = pat.events.filter((e) => e.track === t);
           return (
             <div key={t} className={`seq-row ${selectedTrack === t ? "selected" : ""}`} style={{ "--row": color } as React.CSSProperties}>
