@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "boot-gif": "node scripts/boot-gif.mjs"
   },
   "dependencies": {
     "idb-keyval": "^6.3.0",

@@ -1,5 +1,9 @@
 # LaunchKit
 
+<p align="center">
+  <img src="docs/boot-animation.gif" alt="LaunchKit start-up animation on the Launchkey screen: a blob eats a waveform, burps, and the LAUNCHKIT logo bounces in" width="540">
+</p>
+
 A browser-based groovebox for the **Novation Launchkey Mini MK4 25**. LaunchKit puts the Launchkey in DAW mode over Web MIDI and takes over its pads, encoders, buttons and screen, turning it into a standalone sampler, step sequencer and song arranger. You don't need a DAW.
 
 ## Features
@@ -56,6 +60,7 @@ Run these inside `app/`:
 | `npm run preview` | Serve the production build |
 | `npm test` | Unit tests (Vitest) |
 | `npm run lint` | Lint (Oxlint) |
+| `npm run boot-gif` | Re-render `docs/boot-animation.gif` from the start-up animation code (needs ffmpeg) |
 
 ## Project layout
 
