@@ -4,7 +4,7 @@ import { engine } from "../audio/engine";
 import { PROJECT_VERSION, drumTrack, get, normalizePads, normalizeProject, set, updatePads } from "./store";
 import { sequencer } from "../seq/sequencer";
 import { listKits, saveKit } from "./persist";
-import type { Pad, Project } from "./types";
+import { FACTORY_KIT, type Pad, type Project } from "./types";
 
 interface FileSample { name: string; sampleRate: number; channels: string[] }
 interface ProjectFile { format: "launchkit"; version: number; project: Project; samples: Record<string, FileSample> }
@@ -35,19 +35,30 @@ function fromB64(b64: string) {
   return Float32Array.from(pcm, (v) => v / 0x7fff);
 }
 
-export async function exportProject(): Promise<Blob> {
-  const s = get();
+function encodeSamples(ids: Iterable<string>) {
   const samples: Record<string, FileSample> = {};
-  for (const id of usedSampleIds(s.project)) {
+  for (const id of ids) {
     const buf = engine.buffer(id);
     if (!buf) continue;
     samples[id] = {
-      name: s.samples[id]?.name ?? id,
+      name: get().samples[id]?.name ?? id,
       sampleRate: buf.sampleRate,
       channels: Array.from({ length: buf.numberOfChannels }, (_, c) => toB64(buf.getChannelData(c))),
     };
   }
-  const file: ProjectFile = { format: "launchkit", version: PROJECT_VERSION, project: s.project, samples };
+  return samples;
+}
+
+export async function exportProject(): Promise<Blob> {
+  const project = get().project;
+  const file: ProjectFile = { format: "launchkit", version: PROJECT_VERSION, project, samples: encodeSamples(usedSampleIds(project)) };
+  return new Blob([JSON.stringify(file)], { type: "application/json" });
+}
+
+/** A kit file (the format importKit reads) with the pads and their samples. */
+export function exportKit(name: string, pads: Pad[]): Blob {
+  const ids = new Set(pads.flatMap((pad) => (pad.sampleId ? [pad.sampleId] : [])));
+  const file = { format: "launchkit-kit", version: 1, name, pads, samples: encodeSamples(ids) };
   return new Blob([JSON.stringify(file)], { type: "application/json" });
 }
 
@@ -111,7 +122,7 @@ async function readJson(f: File): Promise<Record<string, unknown>> {
 
 /** First free kit name: "Name", then "Name (2)", "Name (3)", ... */
 async function freeKitName(name: string) {
-  const taken = new Set(await listKits());
+  const taken = new Set([...(await listKits()), FACTORY_KIT]);
   let n = name, i = 2;
   while (taken.has(n)) n = `${name} (${i++})`;
   return n;
@@ -130,6 +141,7 @@ export async function importKit(f: File, eng: typeof Engine) {
     .map((pad) => ({ ...pad, sampleId: pad.sampleId ? idMap.get(pad.sampleId) ?? null : null }));
   const name = await freeKitName(typeof file.name === "string" && file.name.trim() ? file.name.trim() : f.name.replace(/\..*$/, ""));
   await saveKit(name, pads);
+  set({ kits: [...get().kits, name].sort() });
   updatePads(() => pads);
   set({ status: `Loaded kit ${name} on ${drumTrack().name}` });
   return name;

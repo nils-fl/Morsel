@@ -1,6 +1,6 @@
 // Chop session shared by the Chop tab and the Launchkey: view, marker selection, audition,
 // and the hardware side (encoders scroll / zoom / pick / move markers, pads play slices).
-import { clampView, slicesFromMarkers, zeroCrossing } from "../audio/chop";
+import { addMarker, clampView, detectOnsets, equalSlices, removeMarker, slicesFromMarkers, zeroCrossing } from "../audio/chop";
 import { engine } from "../audio/engine";
 import { computePeaks, type Peaks } from "../display/widgets";
 import { COLOR } from "../midi/protocol";
@@ -12,7 +12,33 @@ import { showTemp } from "./notify";
 export const minSpan = (buf: AudioBuffer) => Math.min(1, 512 / buf.length);
 
 export function newChop(sampleId: string, markers: number[] = [0, 1]): ChopSession {
-  return { sampleId, markers, view: [0, 1], sel: null, firstPad: get().selectedPad };
+  return { sampleId, markers, view: [0, 1], sel: null, firstPad: get().selectedPad, count: 16, sens: 0.5 };
+}
+
+/** Slice boundaries inside `range` (N + 1 markers for N slices). */
+export function autoMarkers(buf: AudioBuffer, range: [number, number], mode: "equal" | "transient", count: number, sensitivity = 0.5): number[] {
+  const [a, b] = range;
+  if (mode === "equal") return [...equalSlices(count).map(([s0]) => a + (b - a) * s0), b];
+  return [...detectOnsets(buf.getChannelData(0), buf.sampleRate, count, sensitivity, range), b];
+}
+
+/** Markers for a fresh take: transients across the whole sample, or 8 equal slices when there are none. Inner markers snap to zero crossings. */
+export function takeMarkers(buf: AudioBuffer): number[] {
+  let markers = autoMarkers(buf, [0, 1], "transient", 16);
+  if (markers.length < 3) markers = autoMarkers(buf, [0, 1], "equal", 8);
+  const data = buf.getChannelData(0);
+  return markers.map((m, i, a) => (i === 0 || i === a.length - 1 ? m : zeroCrossing(data, m)));
+}
+
+/** Re-place the markers inside the region with the session's count and sensitivity. Returns the slice count. */
+export function autoChop(mode: "equal" | "transient") {
+  const c = get().chop, buf = chopBuffer();
+  if (!c || !buf) return 0;
+  const data = buf.getChannelData(0);
+  const region: [number, number] = [c.markers[0], c.markers[c.markers.length - 1]];
+  const markers = autoMarkers(buf, region, mode, c.count, c.sens).map((m, i, a) => (i === 0 || i === a.length - 1 ? m : zeroCrossing(data, m)));
+  updateChop({ markers, sel: null });
+  return markers.length - 1;
 }
 
 /** Patch the open session (no-op without one). A patch function sees the latest state. */
@@ -78,7 +104,37 @@ export function chopPlaySlice(k: number, gain?: number) {
 
 const time = (f: number, buf: AudioBuffer) => `${(f * buf.duration).toFixed(f * buf.duration < 10 ? 3 : 2)}s`;
 
-/** Encoders: 1 scroll, 2 zoom, 3 pick marker, 4 move marker. Shift = fine. */
+/** Play button: play from the selected marker (or the region start) to the region end, or stop. */
+export function chopTogglePlay() {
+  const c = get().chop;
+  if (!c) return;
+  if (chopPlaying()) return chopStop();
+  const end = c.markers[c.markers.length - 1];
+  chopPlay(c.sel !== null && c.sel < c.markers.length - 1 ? c.markers[c.sel] : c.markers[0], end);
+}
+
+/** Scene button: drop a marker at the playhead (tap-chop while playing), or at the view centre when stopped. */
+export function chopAddMarker() {
+  const c = get().chop, buf = chopBuffer();
+  if (!c || !buf) return;
+  const at = zeroCrossing(buf.getChannelData(0), chopPlayhead() ?? (c.view[0] + c.view[1]) / 2);
+  const markers = addMarker(c.markers, at, 0.01 / buf.duration);
+  if (markers === c.markers) return showTemp("Marker", "Too close");
+  updateChop({ markers, sel: markers.indexOf(at) });
+  showTemp("Marker added", `${markers.length - 1} slices`);
+}
+
+/** Shift + Scene: remove the selected marker (the region bounds stay). */
+export function chopRemoveMarker() {
+  const c = get().chop;
+  if (!c) return;
+  const markers = c.sel === null ? c.markers : removeMarker(c.markers, c.sel);
+  if (markers === c.markers) return showTemp("Marker", "Pick an inner one");
+  updateChop({ markers, sel: null });
+  showTemp("Marker removed", `${markers.length - 1} slices`);
+}
+
+/** Encoders: 1 scroll, 2 zoom, 3 pick marker, 4 move marker (Shift = fine), 5 slice count, 6 sensitivity. */
 export function chopEncoder(index: number, delta: number, fine: boolean) {
   const c = get().chop, buf = chopBuffer();
   if (!c || !buf) return;
@@ -128,6 +184,17 @@ export function chopEncoder(index: number, delta: number, fine: boolean) {
       markers[i] = m;
       updateChop({ markers, view: reveal(c, m, min) });
       showTemp(`Marker ${i + 1}`, time(m, buf));
+      break;
+    }
+    case 4:
+    case 5: {
+      // Re-detect transients with the new count or sensitivity.
+      const patch = index === 4
+        ? { count: Math.max(2, Math.min(PAD_COUNT, c.count + Math.sign(delta))) }
+        : { sens: Math.round(Math.max(0, Math.min(1, c.sens + Math.sign(delta) * 0.05)) * 20) / 20 };
+      updateChop(patch);
+      const n = autoChop("transient");
+      showTemp(index === 4 ? `Max ${get().chop!.count}` : `Sens ${Math.round(get().chop!.sens * 100)}%`, `${n} slices`);
       break;
     }
   }

@@ -1,5 +1,5 @@
 // Maps Launchkey events to actions per hardware mode, and renders LEDs + display.
-import { allPresets, keyOff, keyOn, playPad, releasePad, toggleSampling, togglePlay, toggleRecord } from "../actions";
+import { allPresets, keyOff, keyOn, openInChop, playPad, releasePad, sendChopToNewTrack, toggleSampling, togglePlay, toggleRecord } from "../actions";
 import { engine } from "../audio/engine";
 import { launchkey } from "../midi/launchkey";
 import { CC, COLOR, type LedMode, type PadLayout } from "../midi/protocol";
@@ -8,13 +8,13 @@ import { makeTicker, sequencer } from "../seq/sequencer";
 import { PPQN, STEP_TICKS } from "../seq/timing";
 import {
   type AppState, clearTrack, clipOf, copyClip, copyPattern, drumPads, drumTrack, get, keysTrack, patternHasNotes, patternLength, selectTrack,
-  selectedTrack, set, togglePadFlag, toggleStep, toggleTrackFlag, trackAudible, undo, updateProject, PAD_COLORS,
+  selectedTrack, set, store, togglePadFlag, toggleStep, toggleTrackFlag, trackAudible, undo, updateProject, PAD_COLORS,
 } from "../state/store";
 import type { HwMode, Track } from "../state/types";
 import { stepForPad } from "./stepMap";
 import { activeOverlay, showTemp } from "./notify";
-import { chopEncoder, chopPad, chopPadLeds, chopView } from "./chop";
-import { browseCan, browseDisplay, browseEncoder, browseEnter, browseLeds, browsePad, browseUp, browseView, enterBrowse, exitBrowse } from "./browse";
+import { chopAddMarker, chopEncoder, chopPad, chopPadLeds, chopRemoveMarker, chopStop, chopTogglePlay, chopView } from "./chop";
+import { browseCan, browseDisplay, browseEncoder, browseEnter, browseFolderToPads, browseLeds, browsePad, browseUp, browseView, enterBrowse, exitBrowse } from "./browse";
 import { H, W, type Frame } from "../display/frame";
 import { browserScreen, chopScreen, duckScreen, keysScreen, padScreen, stepScreen } from "../display/screens";
 import { HEADER_H, computePeaks, duckPanel, filterPanel, overlayBar, type Peaks } from "../display/widgets";
@@ -41,13 +41,28 @@ export function setHwMode(mode: HwMode) {
 }
 
 
-/** The Chop tab takes over the encoders, pads and screen while it is open. */
+/** An open chop session takes over the encoders, pads and screen (see initController), whichever tab is showing. */
 export function enterChopHw() {
   if (get().hwMode !== "chop") setHwMode("chop");
 }
 
 export function exitChopHw() {
-  if (get().hwMode === "chop") setHwMode(get().prevHwMode);
+  if (get().hwMode !== "chop") return;
+  chopStop();
+  setHwMode(get().prevHwMode);
+}
+
+/** Shift + Pad down: chop the selected pad's sample, or go back to the open chop when the pad is empty or holds the same sample. */
+function hwOpenChop() {
+  const s = get();
+  const pad = drumPads(s)[s.selectedPad];
+  if (s.chop && (!pad.sampleId || s.chop.sampleId === pad.sampleId)) {
+    set({ tab: "Chop" });
+    return enterChopHw();
+  }
+  if (!pad.sampleId) return showTemp("Chop", "Pad is empty");
+  openInChop();
+  enterChopHw();
 }
 
 const heldPads = new Set<number>();
@@ -71,6 +86,11 @@ function bootLeds(ms: number) {
 
 export function initController() {
   bootStart = performance.now();
+  // A new chop session (a take, Crop, a sample picked on the Chop tab) puts the Launchkey in Chop; closing it leaves.
+  store.subscribe((s, prev) => {
+    if (s.chop && s.chop.sampleId !== prev.chop?.sampleId) enterChopHw();
+    else if (!s.chop && prev.chop) exitChopHw();
+  });
   launchkey.on((e) => {
     const s = get();
     if (e.type === "pad" || e.type === "key" || e.type === "button" || e.type === "encoder") bootStart = -Infinity;
@@ -295,9 +315,24 @@ function onButton(button: string, down: boolean) {
     if (button === "scene" || (button === "padUp" && !s.shift)) return browseUp();
     if (button === "encPageUp" || button === "encPageDown") return browseEncoder(0, button === "encPageUp" ? -1 : 1, false);
   }
+  if (s.hwMode === "browse" && down && button === "func" && s.shift) return browseFolderToPads();
+  if (s.hwMode === "chop") {
+    // Chop owns Scene (add a marker, Shift = remove), Play (audition) and Function (send to a new drum rack).
+    if (button === "scene") return void (down && (s.shift ? chopRemoveMarker() : chopAddMarker()));
+    if (down && !s.shift && button === "play") return chopTogglePlay();
+    if (down && !s.shift && button === "func") return void sendChopToNewTrack();
+  }
   // The device turns Shift + Pad up into its own "< Track" CC, so that is what arrives; padUp + shift kept as a fallback.
+  // It toggles Browse, and leaves Chop (the session stays open on screen).
   if ((button === "trackPrev" || (button === "padUp" && s.shift)) && down) {
-    setHwMode(s.hwMode === "browse" ? s.prevHwMode : "browse");
+    if (s.hwMode === "chop") exitChopHw();
+    else setHwMode(s.hwMode === "browse" ? s.prevHwMode : "browse");
+    return;
+  }
+  // Shift + Pad down (presumably "Track >") toggles Chop.
+  if ((button === "trackNext" || (button === "padDown" && s.shift)) && down) {
+    if (s.hwMode === "chop") exitChopHw();
+    else hwOpenChop();
     return;
   }
   if (button === "scene") {

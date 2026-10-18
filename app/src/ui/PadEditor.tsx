@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { chopSelected, confirmDeleteSample, loadFilesToPads, openInChop, samplingLevel, shareTab, toggleSampling, unshareTab } from "../actions";
+import {
+  chopSelected, confirmDeleteSample, deleteSavedKit, isAudioFile, loadFilesToPads, loadFolderToPads, loadNamedKit, openInChop, saveCurrentKit, samplingLevel, shareTab,
+  toggleSampling, unshareTab,
+} from "../actions";
 import { DECAY_MAX } from "../audio/dsp";
 import { DUCK_PAGE, duckSourceLabel, duckTargetLabel, duckTargets, hz, padLabel, setDuck } from "../params";
 import { engine } from "../audio/engine";
-import { listKits, loadKit, saveKit } from "../state/persist";
-import { importKit } from "../state/projectFile";
-import { drumPads, drumTrack, get, set, updatePad, updatePads, useApp } from "../state/store";
-import { DUCK_ALL, PAD_COUNT, type SampleSource, type TabTarget } from "../state/types";
+import { exportKit, importKit } from "../state/projectFile";
+import { download } from "../seq/render";
+import { drumPads, drumTrack, get, set, updatePad, useApp } from "../state/store";
+import { DUCK_ALL, FACTORY_KIT, PAD_COUNT, type SampleSource, type SampleTarget } from "../state/types";
 import { Field, Section, Slider } from "./controls";
 import { PALETTE_CHOICES, paletteCss } from "./palette";
 import { Waveform } from "./Waveform";
@@ -21,6 +24,7 @@ export function PadEditor() {
   const samples = useApp((s) => s.samples);
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
+  const kitFolderInput = useRef<HTMLInputElement>(null);
   const buffer = pad.sampleId ? engine.buffer(pad.sampleId) : undefined;
   // Other pads cut from the same sample, drawn as thin markers.
   const slices = useApp(drumPads)
@@ -35,11 +39,19 @@ export function PadEditor() {
         color={paletteCss(pad.color)}
         actions={
           <>
-            <button onClick={() => fileInput.current?.click()}>Load file…</button>
+            <KitSelect />
+            <button onClick={() => fileInput.current?.click()} title="Load files onto this pad and the ones after it">Load file…</button>
             <input ref={fileInput} type="file" accept="audio/*" multiple hidden onChange={(e) => e.target.files && loadFilesToPads([...e.target.files], i)} />
+            <button onClick={() => kitFolderInput.current?.click()} title="Import a folder and put its first 16 samples (by name) on pads 1–16 as a kit">Folder → pads…</button>
+            <input ref={kitFolderInput} type="file" hidden multiple {...{ webkitdirectory: "" }} onChange={(e) => {
+              const files = [...(e.target.files ?? [])];
+              e.target.value = "";
+              void loadFolderToPads(files);
+            }} />
             <button onClick={() => folderInput.current?.click()} title="Adds a folder of samples to the library (browse it on the Launchkey with Shift + Pad up)">Import folder…</button>
             <input ref={folderInput} type="file" hidden multiple {...{ webkitdirectory: "" }} onChange={async (e) => {
-              const files = [...(e.target.files ?? [])].filter((f) => /\.(wav|aiff?|mp3|ogg|flac|m4a)$/i.test(f.name));
+              const files = [...(e.target.files ?? [])].filter(isAudioFile);
+              e.target.value = "";
               for (const f of files) await engine.addFile(f).catch(() => undefined);
               set({ status: `Imported ${files.length} samples into the library` });
             }} />
@@ -95,10 +107,10 @@ export function PadEditor() {
         </div>
       </Section>
       <div className="row wrap">
-        <SamplingPanel />
-        <SidechainPanel />
-        <ChopPanel />
         <KitPanel />
+        <SamplingPanel />
+        <ChopPanel />
+        <SidechainPanel />
       </div>
     </div>
   );
@@ -109,7 +121,7 @@ function SamplingPanel() {
   const source = useApp((s) => s.sampleSource);
   const pad = useApp((s) => s.selectedPad);
   const tabShared = useApp((s) => s.tabShared);
-  const tabTarget = useApp((s) => s.tabTarget);
+  const target = useApp((s) => s.sampleTarget);
   const [polled, setLevel] = useState(0);
   useEffect(() => {
     if (sampling === "idle") return;
@@ -122,11 +134,10 @@ function SamplingPanel() {
   return (
     <Section title="Sample">
       <p className="hint">
-        {source !== "tab"
-          ? `Records onto pad ${pad + 1}. Starts when the sound crosses the threshold. Hardware: Shift + Record.`
-          : tabShared
-            ? `Tab shared. Shift + Record (or ● Sample) arms a take; it starts when the tab plays. Up to 2 min → ${tabTarget === "pad" ? `pad ${pad + 1}` : "Chop"}.`
-            : "Share the YouTube tab once (tick “Share tab audio” in Chrome's picker). After that the Launchkey runs the takes."}
+        {source === "tab" && !tabShared
+          ? "Share the YouTube tab once (tick “Share tab audio” in Chrome's picker). After that the Launchkey runs the takes."
+          : `Shift + Record (or ● Sample) arms a take; it starts with the sound${source === "tab" ? " (press play in the tab), up to 2 min" : ", up to 30 s"}. ` +
+            (target === "chop" ? "The take opens in Chop with its hits marked; Function on the Launchkey makes a new drum rack." : `The take goes on pad ${pad + 1}.`)}
       </p>
       <div className="row">
         <select value={source} disabled={sampling !== "idle"} onChange={(e) => set({ sampleSource: e.target.value as SampleSource })}>
@@ -137,6 +148,10 @@ function SamplingPanel() {
         <button className={sampling !== "idle" ? "rec on" : "rec"} onClick={() => toggleSampling()}>
           {sampling === "idle" ? "● Sample" : sampling === "waiting" ? "Waiting… (stop)" : "■ Stop"}
         </button>
+        <select value={target} onChange={(e) => set({ sampleTarget: e.target.value as SampleTarget })} title="Where a take lands">
+          <option value="chop">Take → Chop</option>
+          <option value="pad">Take → pad {pad + 1}</option>
+        </select>
       </div>
       {source === "tab" && (
         <div className="row">
@@ -144,10 +159,6 @@ function SamplingPanel() {
             ? <button disabled={sampling !== "idle"} onClick={unshareTab}>Stop sharing</button>
             : <button disabled={sampling !== "idle"} onClick={() => void shareTab()}>Share tab…</button>}
           <span className={`hint tab-state ${tabShared ? "on" : ""}`}>{tabShared ? "● Shared" : "Not shared"}</span>
-          <select value={tabTarget} onChange={(e) => set({ tabTarget: e.target.value as TabTarget })} title="Where a take lands">
-            <option value="pad">Take → selected pad</option>
-            <option value="chop">Take → Chop editor</option>
-          </select>
         </div>
       )}
       <div className="meter"><div style={{ width: `${Math.min(100, level * 100)}%` }} /></div>
@@ -224,37 +235,55 @@ function ChopPanel() {
   );
 }
 
+/** Header picker: load the factory kit or a saved kit onto the pads' drum track. */
+function KitSelect() {
+  const kits = useApp((s) => s.kits);
+  return (
+    <select value="" title="Load a kit onto this drum track (Undo brings the pads back)" onChange={(e) => e.target.value && void loadNamedKit(e.target.value)}>
+      <option value="">Kit…</option>
+      <option value={FACTORY_KIT}>{FACTORY_KIT}</option>
+      {kits.map((k) => <option key={k} value={k}>{k}</option>)}
+    </select>
+  );
+}
+
 function KitPanel() {
-  const [kits, setKits] = useState<string[]>([]);
+  const kits = useApp((s) => s.kits);
   const [name, setName] = useState("");
   const kitInput = useRef<HTMLInputElement>(null);
-  useEffect(() => { listKits().then(setKits); }, []);
   return (
-    <Section title="Kits" actions={<button onClick={() => kitInput.current?.click()}>Import kit…</button>}>
+    <Section title="Kits" actions={
+      <>
+        <button onClick={() => kitInput.current?.click()}>Import kit…</button>
+        <button disabled={!name.trim()} title="Save the pads as a kit file with their samples, to share or keep" onClick={() => {
+          download(exportKit(name.trim(), drumPads()), `${name.trim()}.launchkit-kit.json`);
+        }}>Export kit…</button>
+      </>
+    }>
       <input ref={kitInput} type="file" accept=".json" hidden onChange={async (e) => {
         const f = e.target.files?.[0];
         e.target.value = "";
         if (!f) return;
         try {
           await importKit(f, engine);
-          setKits(await listKits());
         } catch (err) {
           set({ status: `Kit import failed: ${(err as Error).message}` });
         }
       }} />
       <div className="row">
         <input placeholder="Kit name" value={name} onChange={(e) => setName(e.target.value)} />
-        <button disabled={!name} onClick={async () => { await saveKit(name, drumPads()); setKits(await listKits()); }}>Save</button>
+        <button disabled={!name.trim()} onClick={() => void saveCurrentKit(name)}>Save</button>
       </div>
       <div className="row wrap">
+        <button onClick={() => void loadNamedKit(FACTORY_KIT)} title="The built-in synthesized kit">{FACTORY_KIT}</button>
         {kits.map((k) => (
-          <button key={k} onClick={async () => {
-            const pads = await loadKit(k);
-            if (pads) updatePads(() => pads);
-          }}>{k}</button>
+          <span key={k} className="kit-chip">
+            <button onClick={() => { setName(k); void loadNamedKit(k); }}>{k}</button>
+            <button onClick={() => void deleteSavedKit(k)} aria-label={`Delete kit ${k}`} title="Delete this kit">✕</button>
+          </span>
         ))}
-        {!kits.length && <span className="hint">No saved kits yet.</span>}
       </div>
+      <p className="hint">Launchkey: Shift + Pad up → Kits. On a sample folder, Shift + Function puts it on the pads.</p>
     </Section>
   );
 }

@@ -3,7 +3,7 @@ import type { SynthPreset } from "../audio/synthPresets";
 import { useStore } from "zustand";
 import { COLOR } from "../midi/protocol";
 import { BAR_TICKS } from "../seq/timing";
-import type { ChopSession, Clip, DuckSettings, DuckTarget, HwMode, KeysInstrument, NoteEvent, Pad, Pattern, Project, Returns, SampleInfo, SampleSource, Tab, TabTarget, Track, TrackFx, TrackKind, Zone } from "./types";
+import type { ChopSession, Clip, DuckSettings, DuckTarget, HwMode, KeysInstrument, NoteEvent, Pad, Pattern, Project, Returns, SampleInfo, SampleSource, SampleTarget, Tab, Track, TrackFx, TrackKind, Zone } from "./types";
 import { DUCK_ALL, MAX_TRACKS, PAD_COUNT, PATTERN_COUNT } from "./types";
 
 export const PAD_COLORS = [
@@ -338,12 +338,15 @@ export interface AppState {
   sampleSource: SampleSource;
   /** A browser tab is shared and ready for takes. */
   tabShared: boolean;
-  tabTarget: TabTarget;
+  /** Where a take lands: the Chop editor or the selected pad. */
+  sampleTarget: SampleTarget;
   /** Open tab of the on-screen UI. */
   tab: Tab;
   /** Colour theme of the on-screen UI (ui/theme.ts). */
   theme: "dark" | "light";
   chop: ChopSession | null;
+  /** Names of the saved kits (the factory kit is not among them). */
+  kits: string[];
   /** False while the browser keeps audio suspended (no click or key press on the page yet). */
   audioReady: boolean;
   undo: Project[];
@@ -376,10 +379,11 @@ export const store = createStore<AppState>(() => ({
   sampling: "idle",
   sampleSource: "input",
   tabShared: false,
-  tabTarget: "pad",
+  sampleTarget: "chop",
   tab: "Pads",
   theme: "dark",
   chop: null,
+  kits: [],
   audioReady: false,
   undo: [],
 }));
@@ -452,13 +456,14 @@ export const canRemoveTrack = (p: Project, id: string) => {
   return !!t && p.tracks.filter((x) => x.kind === t.kind).length > 1;
 };
 
-/** Add a track (up to 8) and select it. Returns its id. */
-export function addTrack(kind: TrackKind): string | null {
+/** Add a track (up to 8), optionally with its name and pads, and select it. One undo step. Returns its id. */
+export function addTrack(kind: TrackKind, opts: { name?: string; pads?: Pad[] } = {}): string | null {
   const p = get().project;
   if (!canAddTrack(p)) return null;
   const id = newId();
   const n = p.tracks.filter((t) => t.kind === kind).length + 1;
-  const t = defaultTrack(kind, id, p.tracks.length, `${kind === "drum" ? "Drums" : "Keys"} ${n}`);
+  const t = defaultTrack(kind, id, p.tracks.length, opts.name ?? `${kind === "drum" ? "Drums" : "Keys"} ${n}`);
+  if (opts.pads && kind === "drum") t.pads = normalizePads(opts.pads);
   if (t.keys) t.keys.sourceTrack = drumTrack().id;
   updateProject((pr) => ({ ...pr, tracks: [...pr.tracks, t] }));
   selectTrack(id);

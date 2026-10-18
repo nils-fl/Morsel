@@ -20,7 +20,8 @@ describe("listDir", () => {
     expect(listDir("Samples/Drums/Kicks", samples, []).map((e) => e.name)).toEqual(["kick 2", "Kick 10"]);
   });
   it("lists kits", () => {
-    expect(listDir(KITS, samples, ["b", "A"]).map((e) => e.name)).toEqual(["A", "b"]);
+    expect(listDir(KITS, samples, ["b", "A"]).map((e) => e.name)).toEqual(["Factory", "A", "b"]);
+    expect(listDir(KITS, samples, ["Factory"]).map((e) => e.name)).toEqual(["Factory"]);
   });
 });
 

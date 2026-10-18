@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DRUMS_ID, KEYS_ID, addTrack, canRemoveTrack, copyClip, copyPattern, defaultProject, get, migrateV1, normalizeProject, removeTrack, selectTrack, set, undo,
+  DRUMS_ID, KEYS_ID, addTrack, canRemoveTrack, copyClip, copyPattern, defaultPad, defaultProject, get, migrateV1, normalizeProject, removeTrack, selectTrack, set, undo,
 } from "./store";
 import { DUCK_ALL, MAX_TRACKS, PATTERN_COUNT, type NoteEvent, type Project } from "./types";
 
@@ -206,5 +206,28 @@ describe("copyPattern / copyClip", () => {
     expect(pat.bars).toBe(1);
     expect(pat.clips[DRUMS_ID].events.map((e) => e.note)).toEqual([0]);
     expect(pat.clips[KEYS_ID].events.map((e) => e.id)).toEqual(["q"]);
+  });
+});
+
+describe("addTrack with pads", () => {
+  it("adds a named drum track with its pads in one undo step and puts it on the pads", () => {
+    reset();
+    const pads = [{ ...defaultPad(0), sampleId: "x", start: 0.5 }];
+    const id = addTrack("drum", { name: "Chop 1", pads })!;
+    const t = get().project.tracks.find((x) => x.id === id)!;
+    expect(t.name).toBe("Chop 1");
+    expect(t.pads).toHaveLength(16);
+    expect(t.pads[0]).toMatchObject({ sampleId: "x", start: 0.5 });
+    expect(t.pads[1].sampleId).toBeNull();
+    expect(get().drumTrack).toBe(id);
+    expect(get().undo).toHaveLength(1);
+    undo();
+    expect(get().project.tracks).toHaveLength(2);
+  });
+
+  it("refuses a ninth track", () => {
+    reset();
+    while (get().project.tracks.length < MAX_TRACKS) addTrack("drum");
+    expect(addTrack("drum", { pads: [] })).toBeNull();
   });
 });

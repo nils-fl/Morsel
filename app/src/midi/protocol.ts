@@ -25,6 +25,7 @@ export const CC = {
   padUp: 106,
   padDown: 107,
   trackPrev: 102, // measured: what Pad up sends while Shift is held ("< Track" on the device), ch1
+  trackNext: 103, // assumed: Shift + Pad down ("Track >"), not measured yet
   scene: 104,
   func: 105,
   encAbsFirst: 21, // 21..28 on ch16
@@ -35,7 +36,7 @@ export const PAD_LAYOUT = { drum: 1, daw: 2 } as const;
 
 export type Button =
   | "shift" | "play" | "record" | "encPageUp" | "encPageDown"
-  | "padUp" | "padDown" | "trackPrev" | "scene" | "func";
+  | "padUp" | "padDown" | "trackPrev" | "trackNext" | "scene" | "func";
 
 export const BUTTON_BY_CC: Record<number, Button> = {
   [CC.shift]: "shift",
@@ -46,6 +47,7 @@ export const BUTTON_BY_CC: Record<number, Button> = {
   [CC.padUp]: "padUp",
   [CC.padDown]: "padDown",
   [CC.trackPrev]: "trackPrev",
+  [CC.trackNext]: "trackNext",
   [CC.scene]: "scene",
   [CC.func]: "func",
 };

@@ -25,6 +25,8 @@ export interface Recording {
   level(): number;
   /** True once the threshold was crossed and audio is being captured. */
   armed(): boolean;
+  /** True once the take reached its maximum length. */
+  full(): boolean;
 }
 
 // ---------- tab share ----------
@@ -118,6 +120,7 @@ export async function startRecording(source: RecordSource, opts: { threshold?: n
   return {
     level: () => peak,
     armed: () => capturing,
+    full: () => frames >= maxFrames,
     async stop() {
       src.disconnect(node);
       node.port.onmessage = null;

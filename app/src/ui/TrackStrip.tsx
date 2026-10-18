@@ -1,3 +1,4 @@
+import { addDrumTrack } from "../actions";
 import { addTrack, canAddTrack, canRemoveTrack, moveTrack, removeTrack, selectTrack, set, useApp } from "../state/store";
 import { MAX_TRACKS, type TrackKind } from "../state/types";
 import { paletteCss } from "./palette";
@@ -12,7 +13,8 @@ export function TrackStrip() {
   const keys = useApp((s) => s.keysTrack);
   const p = useApp((s) => s.project);
   const add = (kind: TrackKind) => {
-    if (!addTrack(kind)) set({ status: `Up to ${MAX_TRACKS} tracks` });
+    if (kind === "drum") void addDrumTrack();
+    else if (!addTrack(kind)) set({ status: `Up to ${MAX_TRACKS} tracks` });
   };
   return (
     <div className="tracks">
@@ -30,7 +32,7 @@ export function TrackStrip() {
         </button>
       ))}
       <span className="trk-actions">
-        <button disabled={!canAddTrack(p)} onClick={() => add("drum")} title="Add a drum rack track">+ Drums</button>
+        <button disabled={!canAddTrack(p)} onClick={() => add("drum")} title="Add a drum rack track with the factory kit">+ Drums</button>
         <button disabled={!canAddTrack(p)} onClick={() => add("keys")} title="Add a keys track">+ Keys</button>
         <button onClick={() => moveTrack(selected, -1)} disabled={tracks[0]?.id === selected} aria-label="Move track left">◀</button>
         <button onClick={() => moveTrack(selected, 1)} disabled={tracks[tracks.length - 1]?.id === selected} aria-label="Move track right">▶</button>

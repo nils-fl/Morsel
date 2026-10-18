@@ -11,7 +11,7 @@
 | Play / Record | Play = CC 115 (`B0 73`), Record = CC 117 (`B0 75`), on ch1 | So CC 117 is Record, not Shift. |
 | Pad up / down | Up = CC 106 (`B0 6A`), down = CC 107 (`B0 6B`), on ch1 | LEDs on ch4 work (confirmed by eye). |
 | Shift | CC 63 on **ch7** (`B6 3F 7F` / `B6 3F 00`) | Measured 2026-10-17. |
-| Shift + Pad up | CC 102 (`B0 66 7F` / `00`) on ch1, **instead of** CC 106 | The device's own "< Track" function. LaunchKit uses it to toggle Browse. Shift + Pad down (presumably "Track >") not measured yet. |
+| Shift + Pad up | CC 102 (`B0 66 7F` / `00`) on ch1, **instead of** CC 106 | The device's own "< Track" function. LaunchKit uses it to toggle Browse. Shift + Pad down (presumably "Track >", CC 103) not measured yet. LaunchKit assumes CC 103 and uses it to toggle Chop; Pad down with Shift held is also accepted. |
 | Button LEDs | `B3 <cc> <brightness>` (CC on ch4) lights the encoder page arrows (CC 51/52), Play and Record | Confirmed by eye. The buttons *send* on ch1, but their LEDs listen on ch4. |
 | Bitmap rate | ~12 frames/s, paced by the ack | Each 1216-byte frame is sent only after the previous one is acked. |
 | Pad layout after connect | The device reports `daw` (CC 29 on ch7) right after the handshake, even though the handshake asked for `drum` | The controller now sends the layout the current mode needs again (at most once a second). Confirmed 2026-10-17: Play mode plays with velocity straight after connecting. |

@@ -1,23 +1,21 @@
 import { engine } from "./audio/engine";
-import { renderFactoryKit } from "./audio/kit";
+import { factoryPads, refreshKits } from "./actions";
 import { launchkey } from "./midi/launchkey";
 import { initController } from "./modes/controller";
 import { loadProject, loadSynthPresets, saveProject } from "./state/persist";
-import { DRUMS_ID, defaultPad, defaultProject, get, normalizeProject, set, store, updatePads } from "./state/store";
+import { DRUMS_ID, defaultProject, get, normalizeProject, set, store, updatePads } from "./state/store";
 
 export async function boot() {
   engine.init();
   await engine.loadAllSamples();
   set({ userPresets: (await loadSynthPresets()).map((p) => ({ ...p, user: true })) });
+  await refreshKits();
 
   const saved = await loadProject();
   if (saved) {
     set({ project: normalizeProject(saved) });
   } else {
-    const kit = await renderFactoryKit();
-    const pads = await Promise.all(kit.map(async ({ name, buffer }, i) => ({ ...defaultPad(i), name, sampleId: await engine.addBuffer(name, buffer, "Factory") })));
-    pads[4].choke = pads[5].choke = 1; // closed hat chokes open hat
-    pads[12].decay = 2;
+    const pads = await factoryPads();
     set({ project: defaultProject() });
     updatePads(() => pads, false, DRUMS_ID);
   }

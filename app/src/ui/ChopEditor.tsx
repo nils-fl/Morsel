@@ -1,12 +1,12 @@
 // Chop editor: place slice markers on a long recording, audition them, send the slices to pads.
 // The session (markers, view, selection) lives in the store so the Launchkey can drive it too (modes/chop.ts).
 import { useEffect, useRef, useState } from "react";
-import { autoMarkers, confirmDeleteSample, cropSample, openInChop, slicesToPads } from "../actions";
+import { confirmDeleteSample, cropSample, openInChop, sendChopToNewTrack, slicesToPads } from "../actions";
 import { addMarker, clampView, moveMarker, removeMarker, slicesFromMarkers, zeroCrossing } from "../audio/chop";
 import { engine } from "../audio/engine";
-import { chopPlay, chopPlayhead, chopPlaying, chopPlaySlice, chopStop, minSpan, newChop, updateChop } from "../modes/chop";
-import { enterChopHw, exitChopHw } from "../modes/controller";
-import { drumPads, get, set, useApp } from "../state/store";
+import { autoChop, chopPlay, chopPlayhead, chopPlaying, chopPlaySlice, chopStop, minSpan, newChop, updateChop } from "../modes/chop";
+import { enterChopHw } from "../modes/controller";
+import { canAddTrack, drumPads, drumTrack, get, set, useApp } from "../state/store";
 import { PAD_COUNT, type ChopSession } from "../state/types";
 import { Field, Section } from "./controls";
 import { paletteCss } from "./palette";
@@ -31,14 +31,11 @@ export function ChopEditor() {
   const buffer = chop ? engine.buffer(chop.sampleId) : undefined;
   const active = !!buffer;
 
-  // While a sample is open here, the Launchkey's encoders, pads and screen work the chop.
+  // Opening the tab puts the Launchkey back in Chop; it stays there on other tabs until it leaves (Shift + Pad up) or the chop is sent.
   useEffect(() => {
     if (!active) return;
     enterChopHw();
-    return () => {
-      chopStop();
-      exitChopHw();
-    };
+    return () => chopStop();
   }, [active]);
 
   const source = (
@@ -52,7 +49,7 @@ export function ChopEditor() {
     return (
       <Section title="Chop" actions={source}>
         <p className="hint">
-          Record a YouTube tab on the Pads page (Sample → source <b>Browser tab</b>); the take opens here. Or pick any sample above.
+          Sample something on the Pads page (or Shift + Record on the Launchkey): the take opens here with its transients marked. Or pick any sample above.
         </p>
         {padHasSample && <button onClick={openInChop}>Chop pad {selectedPad + 1}'s sample</button>}
       </Section>
@@ -62,12 +59,10 @@ export function ChopEditor() {
 }
 
 function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: AudioBuffer; source: React.ReactNode }) {
-  const { sampleId, markers, view, sel, firstPad } = chop;
+  const { sampleId, markers, view, sel, firstPad, count, sens } = chop;
   const name = useApp((s) => s.samples[sampleId]?.name ?? "Sample");
   const pads = useApp(drumPads);
   const theme = useApp((s) => s.theme); // canvas colours come from CSS variables: redraw when they change
-  const [count, setCount] = useState(16);
-  const [sens, setSens] = useState(0.5);
   const [playhead, setPlayhead] = useState<number | null>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const overview = useRef<HTMLCanvasElement>(null);
@@ -275,12 +270,19 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
 
   // ---------- actions ----------
 
-  const auto = (mode: "equal" | "transient", n = count) => {
-    const next = autoMarkers(buffer, region, mode, n, sens).map((m, i, a) => (i === 0 || i === a.length - 1 ? m : snap(m)));
-    updateChop({ markers: next, sel: null });
-  };
+  const auto = (mode: "equal" | "transient") => autoChop(mode);
   const fit = Math.min(slices.length, PAD_COUNT - firstPad);
+  const overwrites = (from: number, n: number) => pads.slice(from, from + n).filter((p) => p.sampleId).length;
+  const newRack = () => {
+    const full = !canAddTrack(get().project);
+    const n = Math.min(slices.length, PAD_COUNT);
+    const used = overwrites(0, n);
+    if (full && used && !window.confirm(`There are already 8 tracks, so the slices go to ${drumTrack().name}, replacing ${used} pad${used === 1 ? "" : "s"} with samples. Continue? (Undo brings them back.)`)) return;
+    void sendChopToNewTrack();
+  };
   const send = () => {
+    const used = overwrites(firstPad, fit);
+    if (used && !window.confirm(`Replace ${used} pad${used === 1 ? "" : "s"} with samples on ${drumTrack().name}? (Undo brings them back.)`)) return;
     const n = slicesToPads(sampleId, markers, firstPad, name);
     const dropped = slices.length - n;
     set({ status: `Sent ${n} slice${n === 1 ? "" : "s"} to pads ${firstPad + 1}–${firstPad + n}${dropped ? ` (${dropped} didn't fit)` : ""}` });
@@ -292,7 +294,7 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
     // Keep the inner markers, re-expressed in the cropped sample.
     const span = region[1] - region[0];
     set({
-      chop: { ...newChop(id, markers.map((m) => (m - region[0]) / span)), firstPad },
+      chop: { ...newChop(id, markers.map((m) => (m - region[0]) / span)), firstPad, count, sens },
       status: `Cropped to ${(span * buffer.duration).toFixed(2)} s`,
     });
   };
@@ -322,9 +324,9 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
           <button onClick={() => auto("transient")}>Transients</button>
           <label className="chop-sens" title="Transient sensitivity">
             <span className="hint">Sens</span>
-            <input type="range" min={0} max={1} step={0.05} value={sens} onChange={(e) => setSens(Number(e.target.value))} />
+            <input type="range" min={0} max={1} step={0.05} value={sens} onChange={(e) => updateChop({ sens: Number(e.target.value) })} />
           </label>
-          <select value={count} onChange={(e) => setCount(Number(e.target.value))} title="Most slices for Transients / slices for Equal">
+          <select value={count} onChange={(e) => updateChop({ count: Number(e.target.value) })} title="Most slices for Transients / slices for Equal">
             {[2, 4, 8, 12, 16, 32].map((n) => <option key={n} value={n}>{n} max</option>)}
           </select>
           <button onClick={() => auto("equal")}>Equal</button>
@@ -357,16 +359,21 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
         </p>
         <p className="hint">
           <b>Launchkey:</b> pads play slices 1–16 and select that slice's start marker · encoder 1 scroll · 2 zoom · 3 pick marker ·
-          4 move marker · hold Shift for fine steps.
+          4 move marker (Shift = fine) · 5 max slices · 6 sensitivity · Play: play from the marker · Scene: add a marker at the playhead
+          (Shift + Scene: remove) · <b>Function: new drum rack</b> · Shift + Pad up: leave.
         </p>
         <div className="row">
+          <button className="primary" disabled={!slices.length} onClick={newRack} title="Crop to the region, make a new drum track and put the slices on pads 1–16 (Launchkey: Function)">
+            → New drum rack ({Math.min(slices.length, PAD_COUNT)} pads)
+          </button>
+          <span className="chop-sep" />
           <Field label="First pad">
             <select value={firstPad} onChange={(e) => updateChop({ firstPad: Number(e.target.value) })}>
               {PAD_IDS.map((i) => <option key={i} value={i}>Pad {i + 1}</option>)}
             </select>
           </Field>
           <button disabled={!fit} onClick={send}>
-            Send {fit} slice{fit === 1 ? "" : "s"} → pads {firstPad + 1}–{firstPad + fit}
+            Send {fit} slice{fit === 1 ? "" : "s"} → {drumTrack().name} pads {firstPad + 1}–{firstPad + fit}
           </button>
           {slices.length > fit && <span className="hint">{slices.length - fit} won't fit</span>}
         </div>

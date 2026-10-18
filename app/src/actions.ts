@@ -1,14 +1,16 @@
 // Actions shared by the on-screen UI and the Launchkey controller.
 import { engine } from "./audio/engine";
 import { connectTab, disconnectTab, normalize, startRecording, tabConnected, type Recording } from "./audio/recorder";
-import { equalSlices, detectOnsets, slicesFromMarkers } from "./audio/chop";
-import { DECAY_MAX } from "./audio/dsp";
-import { chopStop, newChop } from "./modes/chop";
+import { slicesFromMarkers } from "./audio/chop";
+import { FACTORY_SOUNDS, renderFactoryKit } from "./audio/kit";
+import { autoMarkers, chopStop, newChop, takeMarkers } from "./modes/chop";
+import { showTemp } from "./modes/notify";
 import { sequencer } from "./seq/sequencer";
-import { drumPads, drumTrack, get, keysTrack, set, updateKeys, updatePad, updatePads, updateProject } from "./state/store";
-import { deleteSynthPreset, saveSynthPreset } from "./state/persist";
+import { addTrack, defaultPad, drumPads, drumTrack, get, keysTrack, set, updateKeys, updatePad, updatePads, updateProject } from "./state/store";
+import { deleteKit, deleteSynthPreset, listKits, loadKit, saveKit, saveSynthPreset } from "./state/persist";
+import { padsFromSamples, slicePads } from "./state/pads";
 import { FACTORY_PRESETS, type SynthPreset } from "./audio/synthPresets";
-import { PAD_COUNT, type Project, type SampleSource } from "./state/types";
+import { FACTORY_KIT, MAX_TRACKS, PAD_COUNT, type Pad, type Project, type SampleInfo, type SampleSource } from "./state/types";
 
 /** Play a pad of the drum track (the pads always play it) and record it when recording. */
 export function playPad(i: number, vel: number) {
@@ -126,8 +128,17 @@ export async function toggleSampling(fromHardware = false) {
     starting = false;
   }
   set({ sampling: "waiting", status: tab ? "Waiting for sound… press play in the shared tab" : "Waiting for sound…" });
+  showTemp("Sample", "Waiting for sound");
   levelTimer = window.setInterval(() => {
-    if (rec?.armed() && get().sampling === "waiting") set({ sampling: "recording", status: "Recording…" });
+    if (!rec) return;
+    if (rec.full()) {
+      void finishSampling();
+      return showTemp("Sample", "Max length");
+    }
+    if (rec.armed() && get().sampling === "waiting") {
+      set({ sampling: "recording", status: "Recording… Shift + Record stops" });
+      showTemp("Recording", "Shift+Rec = stop");
+    }
   }, 50);
 }
 
@@ -136,14 +147,21 @@ async function finishSampling() {
   if (!r) return;
   clearInterval(levelTimer);
   rec = null;
-  const { sampleSource: source, tabTarget } = get();
+  const { sampleSource: source, sampleTarget } = get();
   set({ sampling: "idle" });
   const buf = await r.stop();
-  if (!buf) return set({ status: "Nothing recorded" });
+  if (!buf) {
+    showTemp("Sample", "Nothing recorded");
+    return set({ status: "Nothing recorded" });
+  }
   const tab = source === "tab";
   const id = await engine.addBuffer(`${tab ? "Tab" : "Rec"} ${new Date().toLocaleTimeString()}`, normalize(buf));
-  if (tab && tabTarget === "chop") {
-    set({ chop: newChop(id), tab: "Chop", status: `Captured ${buf.duration.toFixed(1)} s – chop it up` });
+  if (sampleTarget === "chop") {
+    // Straight into Chop with the transients marked: the hardware can audition, adjust and send right away.
+    const markers = takeMarkers(engine.buffer(id)!);
+    const n = markers.length - 1;
+    set({ chop: { ...newChop(id, markers), firstPad: 0 }, tab: "Chop", status: `Captured ${buf.duration.toFixed(1)} s · ${n} slices · Func on the Launchkey (or → New drum rack) makes a drum track` });
+    showTemp(`${n} slices`, "Func = new rack");
     return;
   }
   const pad = get().selectedPad;
@@ -157,24 +175,52 @@ export function samplingLevel() {
 
 // ---------- chop ----------
 
-/** Slice boundaries inside `range` (N + 1 markers for N slices). */
-export function autoMarkers(buf: AudioBuffer, range: [number, number], mode: "equal" | "transient", count: number, sensitivity = 0.5): number[] {
-  const [a, b] = range;
-  if (mode === "equal") return [...equalSlices(count).map(([s0]) => a + (b - a) * s0), b];
-  return [...detectOnsets(buf.getChannelData(0), buf.sampleRate, count, sensitivity, range), b];
-}
-
 /** Write slices to consecutive pads from `firstPad`, keeping each pad's colour. Returns how many fitted. */
 export function slicesToPads(sampleId: string, markers: number[], firstPad: number, baseName: string): number {
-  const slices = slicesFromMarkers(markers).slice(0, PAD_COUNT - firstPad);
-  const base = baseName.slice(0, 9);
-  updatePads((pads) => pads.map((pad, i) => {
-    const k = i - firstPad;
-    if (k < 0 || k >= slices.length) return pad;
-    const [start, end] = slices[k];
-    return { ...pad, sampleId, name: `${base} ${k + 1}`, start, end, decay: DECAY_MAX, mode: "oneshot", reverse: false };
-  }));
-  return slices.length;
+  updatePads((pads) => slicePads(pads, sampleId, markers, firstPad, baseName));
+  return Math.min(markers.length - 1, PAD_COUNT - firstPad);
+}
+
+/** Name for the next drum track made from a chop: "Chop 1", "Chop 2"… */
+function nextChopName() {
+  const names = new Set(get().project.tracks.map((t) => t.name));
+  let n = 1;
+  while (names.has(`Chop ${n}`)) n++;
+  return `Chop ${n}`;
+}
+
+/**
+ * Send the open chop to a new drum track: crop to the region (when it isn't the whole sample), slices on pads 1-N,
+ * select the track and go back to playing. With 8 tracks already, the slices go to pads 1-N of the current drum track.
+ * Undoable in one step.
+ */
+export async function sendChopToNewTrack() {
+  const c = get().chop;
+  if (!c) return;
+  chopStop();
+  let { sampleId, markers } = c;
+  const [a, b] = [markers[0], markers[markers.length - 1]];
+  if (a > 0 || b < 1) {
+    const id = await cropSample(sampleId, a, b);
+    if (id) {
+      sampleId = id;
+      markers = markers.map((m) => (m - a) / (b - a));
+    }
+  }
+  const n = Math.min(markers.length - 1, PAD_COUNT);
+  const name = nextChopName();
+  const empty = Array.from({ length: PAD_COUNT }, (_, i) => defaultPad(i));
+  const id = addTrack("drum", { name, pads: slicePads(empty, sampleId, markers, 0, "Slice") });
+  let msg: string;
+  if (id) {
+    msg = `${name}: ${n} slice${n === 1 ? "" : "s"} on pads 1–${n}`;
+  } else {
+    updatePads((pads) => slicePads(pads, sampleId, markers, 0, "Slice"));
+    msg = `${MAX_TRACKS} tracks already – ${n} slices sent to ${drumTrack().name} pads 1–${n}`;
+  }
+  // Leaving Chop (the controller follows the session) lands on Play, so the new rack is playable at once.
+  set({ chop: null, selectedPad: 0, tab: "Pads", status: msg, ...(get().hwMode === "chop" && { prevHwMode: "play" as const }) });
+  showTemp(id ? "New rack" : `${MAX_TRACKS} tracks`, id ? `${name} · ${n} pads` : `Sent to ${drumTrack().name}`);
 }
 
 /** Chop the selected pad's sample across pads starting at the selected pad. */
@@ -258,10 +304,90 @@ export async function cropSample(id: string, start: number, end: number): Promis
   return engine.addBuffer(`${name} crop`.slice(0, 40), out);
 }
 
+// ---------- loading samples and kits ----------
+
+export const isAudioFile = (f: File) => /^audio\//.test(f.type) || /\.(wav|aiff?|mp3|ogg|flac|m4a)$/i.test(f.name);
+const byPath = (a: File, b: File) => (a.webkitRelativePath || a.name).localeCompare(b.webkitRelativePath || b.name, undefined, { sensitivity: "base", numeric: true });
+
+/** Load files onto consecutive pads from `firstPad`, in name order. One undo step. */
 export async function loadFilesToPads(files: File[], firstPad: number) {
-  const audio = files.filter((f) => /^audio\//.test(f.type) || /\.(wav|aiff?|mp3|ogg|flac|m4a)$/i.test(f.name));
-  for (let k = 0; k < audio.length && firstPad + k < PAD_COUNT; k++) {
-    const id = await engine.addFile(audio[k]);
-    updatePad(firstPad + k, { sampleId: id, name: audio[k].name.replace(/\.[^.]+$/, "").slice(0, 12), start: 0, end: 1 }, true);
+  const audio = files.filter(isAudioFile).sort(byPath).slice(0, PAD_COUNT - firstPad);
+  const loaded: SampleInfo[] = [];
+  for (const f of audio) {
+    const id = await engine.addFile(f).catch(() => undefined);
+    if (id) loaded.push(get().samples[id]);
   }
+  updatePads((pads) => pads.map((pad, i) => {
+    const s = loaded[i - firstPad];
+    return s ? { ...pad, sampleId: s.id, name: s.name.slice(0, 12), start: 0, end: 1, reverse: false } : pad;
+  }));
+}
+
+/** Put up to 16 library samples on the pads as a kit (in the given order, hats choked). One undo step. Returns how many. */
+export function samplesToPads(samples: { id: string; name: string }[]) {
+  updatePads(() => padsFromSamples(samples));
+  return Math.min(samples.length, PAD_COUNT);
+}
+
+/** Import a picked folder into the library and make its first 16 samples (by path) the current drum track's kit. */
+export async function loadFolderToPads(files: File[]) {
+  const audio = files.filter(isAudioFile).sort(byPath);
+  const loaded: SampleInfo[] = [];
+  for (const f of audio) {
+    const id = await engine.addFile(f).catch(() => undefined);
+    if (id) loaded.push(get().samples[id]);
+  }
+  if (!loaded.length) return set({ status: "No audio files in that folder" });
+  const n = samplesToPads(loaded.slice(0, PAD_COUNT));
+  set({ status: `Imported ${loaded.length} samples · ${n} on ${drumTrack().name} pads 1–${n}` });
+}
+
+/** The factory kit's pads. Reuses its samples in the library and renders any that were deleted. */
+export async function factoryPads(): Promise<Pad[]> {
+  const lib = Object.values(get().samples).filter((s) => s.folder === FACTORY_KIT && engine.buffer(s.id));
+  const found = FACTORY_SOUNDS.map((name) => lib.find((s) => s.name === name)?.id);
+  const ids = found.every(Boolean)
+    ? (found as string[])
+    : await renderFactoryKit().then((kit) => Promise.all(kit.map(({ name, buffer }, i) => found[i] ?? engine.addBuffer(name, buffer, FACTORY_KIT))));
+  const pads = ids.map((sampleId, i) => ({ ...defaultPad(i), name: FACTORY_SOUNDS[i], sampleId }));
+  pads[4].choke = pads[5].choke = 1; // closed hat chokes open hat
+  pads[12].decay = 2; // let the 808 ring
+  return pads;
+}
+
+/** Load the factory kit or a saved kit onto the pads' drum track (undoable). */
+export async function loadNamedKit(name: string) {
+  const pads = name === FACTORY_KIT ? await factoryPads() : await loadKit(name);
+  if (!pads) return false;
+  updatePads(() => pads);
+  set({ status: `Loaded kit ${name} on ${drumTrack().name}` });
+  return true;
+}
+
+export async function refreshKits() {
+  set({ kits: (await listKits()).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true })) });
+}
+
+/** Save the pads' drum track as a kit, asking before replacing one with the same name. */
+export async function saveCurrentKit(name: string) {
+  name = name.trim();
+  if (!name) return;
+  if (name === FACTORY_KIT) return set({ status: `“${FACTORY_KIT}” is the built-in kit – pick another name` });
+  if (get().kits.includes(name) && !window.confirm(`Replace the kit “${name}”?`)) return;
+  await saveKit(name, drumPads());
+  await refreshKits();
+  set({ status: `Saved kit ${name}` });
+}
+
+export async function deleteSavedKit(name: string) {
+  if (!window.confirm(`Delete the kit “${name}”? Its samples stay in the library.`)) return;
+  await deleteKit(name);
+  await refreshKits();
+  set({ status: `Deleted kit ${name}` });
+}
+
+/** "+ Drums": a new drum track, ready to play with the factory kit. */
+export async function addDrumTrack() {
+  const pads = await factoryPads();
+  if (!addTrack("drum", { pads })) set({ status: `Up to ${MAX_TRACKS} tracks` });
 }

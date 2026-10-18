@@ -101,7 +101,10 @@ button:hover:not(:disabled) { border-color: var(--page); color: var(--page); }
 button:active:not(:disabled) { background: color-mix(in srgb, var(--page) var(--tint), var(--panel)); }
 button:disabled { opacity: .3; cursor: default; }
 button.on, button.on:hover { background: color-mix(in srgb, var(--page) var(--tint), var(--panel)); color: var(--page); border-color: var(--page); }
+button.primary:not(:disabled) { color: var(--page); border-color: var(--page); }
 button.rec { --page: var(--rec); }
+.kit-chip { display: inline-flex; }
+.kit-chip button + button { margin-left: -1px; padding-inline: 6px; }
 button.rec.on { --tint: 30%; }
 input:focus, select:focus, button:focus-visible { outline: 1px solid var(--page); outline-offset: 1px; }
 input[type="number"] { width: 64px; font-variant-numeric: tabular-nums; }

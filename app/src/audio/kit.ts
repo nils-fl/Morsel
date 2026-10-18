@@ -61,6 +61,9 @@ const KIT: { name: string; len: number; gen: Gen }[] = [
   { name: "Stab", len: 0.8, gen: (c) => [60, 63, 67, 70].forEach((n) => tone(c, "sawtooth", 440 * 2 ** ((n - 69) / 12), 440 * 2 ** ((n - 69) / 12), 0.01, 0.12, 0.6)) },
 ];
 
+/** Names of the factory sounds, pads 1-16. */
+export const FACTORY_SOUNDS = KIT.map((k) => k.name);
+
 export async function renderFactoryKit(): Promise<{ name: string; buffer: AudioBuffer }[]> {
   return Promise.all(
     KIT.map(async ({ name, len, gen }) => {

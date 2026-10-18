@@ -1,9 +1,10 @@
 // MPC-style BROWSE mode on the Launchkey display: pick samples/kits for the selected pad.
 import { engine } from "../audio/engine";
-import { Cursor, KITS, fitLine, fitName, jumpLetter, listDir, type Entry } from "../browse/tree";
+import { Cursor, KITS, SAMPLES, fitLine, fitName, jumpLetter, listDir, type Entry } from "../browse/tree";
 import { COLOR, type LedMode } from "../midi/protocol";
-import { listKits, loadKit } from "../state/persist";
-import { drumPads, get, updatePad, updateProject } from "../state/store";
+import { loadNamedKit, samplesToPads } from "../actions";
+import { listKits } from "../state/persist";
+import { drumPads, drumTrack, get, updatePad } from "../state/store";
 import { showTemp } from "./notify";
 
 const PREVIEW_DELAY_MS = 150;
@@ -73,13 +74,19 @@ export async function browseEnter() {
   if (e.kind === "sample") {
     updatePad(pad, { sampleId: e.id, name: fitName(e.name, 12), start: 0, end: 1, reverse: false }, true);
     showTemp(`LOADED > PAD ${pad + 1}`, fitName(e.name));
-  } else {
-    const pads = await loadKit(e.name);
-    if (pads) {
-      updateProject((p) => ({ ...p, pads }));
-      showTemp("KIT LOADED", fitName(e.name));
-    }
+  } else if (await loadNamedKit(e.name)) {
+    showTemp("KIT LOADED", fitName(e.name));
   }
+}
+
+/** Shift + Function on a sample folder: its first 16 samples become the drum track's kit. */
+export function browseFolderToPads() {
+  const e = current();
+  if (e?.kind !== "folder" || !e.path.startsWith(SAMPLES + "/")) return showTemp("Browse", "Pick a folder");
+  const samples = listDir(e.path, Object.values(get().samples), kits).filter((x) => x.kind === "sample");
+  if (!samples.length) return showTemp(fitName(e.name), "No samples");
+  const n = samplesToPads(samples);
+  showTemp(`FOLDER > PADS 1-${n}`, fitName(drumTrack().name));
 }
 
 /** Scene button: up one folder. */

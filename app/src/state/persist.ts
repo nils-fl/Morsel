@@ -45,6 +45,10 @@ export async function loadKit(name: string): Promise<Pad[] | undefined> {
   return pads && normalizePads(pads);
 }
 
+export async function deleteKit(name: string) {
+  await del(`kit:${name}`);
+}
+
 export async function listKits(): Promise<string[]> {
   return (await keys()).map(String).filter((k) => k.startsWith("kit:")).map((k) => k.slice(4));
 }

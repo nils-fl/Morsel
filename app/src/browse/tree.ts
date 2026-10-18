@@ -1,5 +1,5 @@
 // Virtual folder tree over the sample library + saved kits (pure, no DOM/MIDI).
-import type { SampleInfo } from "../state/types";
+import { FACTORY_KIT, type SampleInfo } from "../state/types";
 
 export type Entry =
   | { kind: "folder"; name: string; path: string }
@@ -24,7 +24,10 @@ export function listDir(path: string, samples: SampleInfo[], kits: string[]): En
       { kind: "folder", name: KITS, path: KITS },
     ];
   }
-  if (path === KITS) return [...kits].map((name) => ({ kind: "kit" as const, name })).sort(byName);
+  if (path === KITS) {
+    const saved = kits.filter((k) => k !== FACTORY_KIT).map((name) => ({ kind: "kit" as const, name })).sort(byName);
+    return [{ kind: "kit", name: FACTORY_KIT }, ...saved];
+  }
   if (path !== SAMPLES && !path.startsWith(SAMPLES + "/")) return [];
 
   const rel = path === SAMPLES ? "" : path.slice(SAMPLES.length + 1);

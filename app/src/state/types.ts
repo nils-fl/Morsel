@@ -157,9 +157,12 @@ export type HwMode = "play" | "step" | "track" | "mixer" | "pattern" | "browse" 
 export const TABS = ["Pads", "Chop", "Sequencer", "Keys", "Mixer", "Song", "Help", "Lab"] as const;
 export type Tab = (typeof TABS)[number];
 
+/** The synthesized kit that is always there, listed first among the kits (its samples live in the library folder of the same name). */
+export const FACTORY_KIT = "Factory";
+
 export type SampleSource = "input" | "master" | "tab";
-/** Where a browser-tab take lands. */
-export type TabTarget = "pad" | "chop";
+/** Where a sampled take lands. */
+export type SampleTarget = "chop" | "pad";
 
 /** Chop editor session, shared by the Chop tab and the Launchkey (encoders, pads, screen). */
 export interface ChopSession {
@@ -172,6 +175,9 @@ export interface ChopSession {
   sel: number | null;
   /** Pad the first slice is sent to. */
   firstPad: number;
+  /** Automatic markers: most slices (Transients) or slice count (Equal), and transient sensitivity 0..1. */
+  count: number;
+  sens: number;
 }
 
 export interface SampleInfo {
