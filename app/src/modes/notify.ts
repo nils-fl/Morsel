@@ -7,7 +7,7 @@ import type { FilterCurve } from "../display/widgets";
 
 const OVERLAY_MS = 1000;
 
-export const hasScreen = (m: HwMode) => m === "browse" || m === "play" || m === "step";
+export const hasScreen = (m: HwMode) => m === "browse" || m === "play" || m === "step" || m === "chop";
 
 /** Extra graphics drawn with a message (bitmap screens only). */
 export type Visual = { kind: "filter" } & FilterCurve;

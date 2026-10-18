@@ -15,6 +15,7 @@
   --magenta: #ff3fa4;
   --lime: #b4ff3a;
   --violet: #a77bff;
+  --orange: #ff7a2e;
   --white: #f2f6ff;
   --rec: #ff3b3b;
   --ok: #3dff8b;
@@ -209,6 +210,24 @@ p.hint { margin: 0 0 8px; }
 .section p { margin: 0 0 8px; }
 
 .waveform { width: 100%; height: 150px; display: block; cursor: ew-resize; background: var(--wave-bg); border: 1px solid var(--line); }
+
+/* Chop editor */
+.chop-tools { margin-top: 0; }
+.chop-sep { width: 1px; align-self: stretch; background: var(--line); }
+.chop-sens { display: flex; align-items: center; gap: 4px; }
+.chop-sens input { width: 80px; }
+.chop-time { margin-left: auto; }
+.chop-lane { position: relative; height: 20px; overflow: hidden; border: 1px solid var(--line); border-bottom: 0; background: var(--wave-bg); }
+.chop-lane button {
+  position: absolute; top: 0; bottom: 0; min-width: 0; padding: 0; overflow: hidden;
+  border: 0; border-left: 1px solid var(--wave-bg); border-radius: 0;
+  background: color-mix(in srgb, var(--slice) 55%, #000); color: var(--ink); font-size: 10px; line-height: 20px;
+}
+.chop-lane button:hover:not(:disabled) { background: var(--slice); color: var(--ink); }
+.chop-wave { position: relative; }
+.chop-wave canvas { width: 100%; height: 240px; display: block; cursor: crosshair; touch-action: none; background: var(--wave-bg); border: 1px solid var(--line); }
+.chop-playhead { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--white); pointer-events: none; box-shadow: 0 0 6px var(--white); }
+.chop-overview { width: 100%; height: 36px; display: block; margin: 4px 0 8px; cursor: pointer; touch-action: none; border: 1px solid var(--line); }
 
 /* Parameter sliders drawn as the screen's meter widget: outlined box, filled to value. */
 .sliders { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 2px 18px; margin-top: 10px; }

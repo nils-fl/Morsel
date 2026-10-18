@@ -17,7 +17,7 @@ const CONTROLS: Record<ControlId, { name: string; does: string; shift?: string }
   screen: { name: "Screen", does: "Selected pad's waveform (Play), the 16-step grid (Step) or the sample browser (Browse). Turning an encoder pops up its value; the filters show their curve." },
   encoders: { name: "Encoders 1–8", does: "Edit the parameters of the current encoder page (see below).", shift: "Fine steps" },
   play: { name: "Play", does: "Start / stop.", shift: "Metronome on / off" },
-  record: { name: "Record", does: "Stopped: 1-bar count-in, then overdub. Playing: recording on / off.", shift: "Sample the audio input onto the selected pad (press again to stop)" },
+  record: { name: "Record", does: "Stopped: 1-bar count-in, then overdub. Playing: recording on / off.", shift: "Sample the audio input onto the selected pad (press again to stop). Browser-tab capture has to be started on screen; this button can stop it." },
   padUp: { name: "Pad ⌃", does: "The arrow left of the top pad row. Previous pattern. Step mode: previous bar. Browse: up a folder.", shift: "Enter / leave Browse" },
   padDown: { name: "Pad ⌄", does: "The arrow left of the bottom pad row. Next pattern. Step mode: next bar. Browse: open folder / load onto the pad." },
   pads: { name: "Pads", does: "Depends on the mode (see Modes). Pressure opens the pad's filters." },

@@ -76,18 +76,23 @@ class Engine {
 
   private previewSrc: AudioBufferSourceNode | null = null;
 
-  /** Monophonic raw audition (used by the browser): a new preview cuts the last one. */
-  preview(id: string) {
+  /**
+   * Monophonic raw audition (browser, chop editor): a new preview cuts the last one.
+   * Plays `duration` seconds from `offset`; returns the context time it starts at.
+   */
+  preview(id: string, offset = 0, duration?: number, gain = 0.8): number | undefined {
     this.stopPreview();
     const buf = this.buffers.get(id);
     if (!buf) return;
     const src = this.ctx.createBufferSource();
     src.buffer = buf;
     const g = this.ctx.createGain();
-    g.gain.value = 0.8;
+    g.gain.value = gain;
     src.connect(g).connect(this.voices.master);
-    src.start();
+    const when = this.ctx.currentTime;
+    src.start(when, offset, duration);
     this.previewSrc = src;
+    return when;
   }
 
   stopPreview() {

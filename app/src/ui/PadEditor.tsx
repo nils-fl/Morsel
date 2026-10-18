@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { chopSelected, loadFilesToPads, samplingLevel, toggleSampling } from "../actions";
+import { chopSelected, loadFilesToPads, openInChop, samplingLevel, toggleSampling } from "../actions";
 import { DECAY_MAX } from "../audio/dsp";
 import { hz } from "../params";
 import { engine } from "../audio/engine";
 import { listKits, loadKit, saveKit } from "../state/persist";
 import { importKit } from "../state/projectFile";
 import { get, set, updatePad, updateProject, useApp } from "../state/store";
+import type { SampleSource } from "../state/types";
 import { Field, Section, Slider } from "./controls";
 import { PALETTE_CHOICES, paletteCss } from "./palette";
 import { Waveform } from "./Waveform";
@@ -20,6 +21,10 @@ export function PadEditor() {
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const buffer = pad.sampleId ? engine.buffer(pad.sampleId) : undefined;
+  // Other pads cut from the same sample, drawn as thin markers.
+  const slices = useApp((s) => s.project.pads)
+    .filter((p, j) => j !== i && p.sampleId && p.sampleId === pad.sampleId)
+    .flatMap((p) => [p.start, p.end]);
   const up = (patch: Parameters<typeof updatePad>[1]) => updatePad(i, patch);
 
   return (
@@ -41,7 +46,7 @@ export function PadEditor() {
           </>
         }
       >
-        <Waveform color={paletteCss(pad.color)} buffer={buffer} start={pad.start} end={pad.end} onChange={(start, end) => up({ start, end })} />
+        <Waveform color={paletteCss(pad.color)} buffer={buffer} start={pad.start} end={pad.end} slices={slices} onChange={(start, end) => up({ start, end })} />
         <div className="row wrap">
           <Field label="Name">
             <input value={pad.name} maxLength={12} onChange={(e) => up({ name: e.target.value })} />
@@ -111,13 +116,18 @@ function SamplingPanel() {
 
   return (
     <Section title="Sample">
-      <p className="hint">Records onto pad {pad + 1}. Starts when the sound crosses the threshold. Hardware: Shift + Record.</p>
+      <p className="hint">
+        {source === "tab"
+          ? "Pick the YouTube tab and tick “Share tab audio”, then press play there. Up to 2 min; the take opens in Chop."
+          : `Records onto pad ${pad + 1}. Starts when the sound crosses the threshold. Hardware: Shift + Record.`}
+      </p>
       <div className="row">
-        <select value={source} disabled={sampling !== "idle"} onChange={(e) => set({ sampleSource: e.target.value as "input" | "master" })}>
+        <select value={source} disabled={sampling !== "idle"} onChange={(e) => set({ sampleSource: e.target.value as SampleSource })}>
           <option value="input">Audio input</option>
           <option value="master">Resample (master out)</option>
+          <option value="tab">Browser tab (YouTube…)</option>
         </select>
-        <button className={sampling !== "idle" ? "rec on" : "rec"} onClick={toggleSampling}>
+        <button className={sampling !== "idle" ? "rec on" : "rec"} onClick={() => toggleSampling()}>
           {sampling === "idle" ? "● Sample" : sampling === "waiting" ? "Waiting… (stop)" : "■ Stop"}
         </button>
       </div>
@@ -138,6 +148,7 @@ function ChopPanel() {
         </select>
         <button onClick={() => chopSelected("equal", Math.min(count, 16 - pad))}>Equal</button>
         <button onClick={() => chopSelected("transient", Math.min(count, 16 - pad))}>Transients</button>
+        <button onClick={openInChop} title="Place, move and audition slices by hand">Editor…</button>
       </div>
     </Section>
   );

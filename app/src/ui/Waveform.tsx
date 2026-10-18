@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
+import { drawPeaks, drawWaveBg } from "./wave";
 
-/** Waveform with draggable start/end handles (values 0..1). */
+/** Waveform with draggable start/end handles (values 0..1). `slices` draws thin chop markers. */
 export function Waveform(props: {
   buffer: AudioBuffer | undefined;
   start: number;
@@ -9,7 +10,7 @@ export function Waveform(props: {
   color?: string;
   onChange: (start: number, end: number) => void;
 }) {
-  const { buffer, start, end, color, onChange } = props;
+  const { buffer, start, end, slices, color, onChange } = props;
   const canvas = useRef<HTMLCanvasElement>(null);
   const drag = useRef<"start" | "end" | null>(null);
 
@@ -21,37 +22,22 @@ export function Waveform(props: {
     const h = (c.height = c.clientHeight * dpr);
     const g = c.getContext("2d")!;
     const css = getComputedStyle(c);
-    g.fillStyle = css.getPropertyValue("--wave-bg") || "#111";
-    g.fillRect(0, 0, w, h);
-    // Faint grid, like the screen's dotted reference lines.
-    g.fillStyle = "rgba(255,255,255,.06)";
-    for (let x = 0; x < w; x += w / 16) g.fillRect(Math.round(x), 0, dpr, h);
-    g.fillRect(0, Math.round(h / 2), w, dpr);
+    drawWaveBg(g, css, w, h, dpr);
     if (!buffer) return;
     const fg = color || css.getPropertyValue("--wave-fg") || "#4cf";
     const d = buffer.getChannelData(0);
-    const per = Math.max(1, Math.floor(d.length / w));
     const a = Math.min(start, end) * w;
     const b = Math.max(start, end) * w;
-    for (let x = 0; x < w; x++) {
-      let lo = 1, hi = -1;
-      for (let i = x * per, n = Math.min(d.length, i + per); i < n; i++) {
-        const v = d[i];
-        if (v < lo) lo = v;
-        if (v > hi) hi = v;
-      }
-      g.fillStyle = fg;
-      g.globalAlpha = x >= a && x <= b ? 1 : 0.28;
-      g.fillRect(x, ((1 - hi) * h) / 2, 1, Math.max(1, ((hi - lo) * h) / 2));
-    }
-    g.globalAlpha = 1;
+    drawPeaks(g, d, 0, d.length, w, h, fg, (x) => (x >= a && x <= b ? 1 : 0.28));
     g.fillStyle = "rgba(0,0,0,.45)";
     g.fillRect(0, 0, a, h);
     g.fillRect(b, 0, w - b, h);
+    g.fillStyle = "rgba(242,246,255,.5)";
+    for (const m of slices ?? []) g.fillRect(Math.round(m * w), 0, dpr, h);
     g.fillStyle = "#f2f6ff";
     g.fillRect(a - dpr, 0, 2 * dpr, h);
     g.fillRect(b - dpr, 0, 2 * dpr, h);
-  }, [buffer, start, end, color]);
+  }, [buffer, start, end, slices, color]);
 
   const pos = (e: React.PointerEvent) => {
     const r = canvas.current!.getBoundingClientRect();

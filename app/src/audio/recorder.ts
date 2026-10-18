@@ -16,7 +16,7 @@ function ensureWorklet() {
   return workletReady;
 }
 
-export type RecordSource = "input" | "master";
+export type RecordSource = "input" | "master" | "tab";
 
 export interface Recording {
   /** Resolves with the captured audio once stop() is called. */
@@ -27,7 +27,7 @@ export interface Recording {
   armed(): boolean;
 }
 
-export async function startRecording(source: RecordSource, opts: { threshold?: number; maxSeconds?: number; deviceId?: string } = {}): Promise<Recording> {
+export async function startRecording(source: RecordSource, opts: { threshold?: number; maxSeconds?: number; deviceId?: string; onEnded?: () => void } = {}): Promise<Recording> {
   await ensureWorklet();
   const ctx = engine.ctx;
   const threshold = opts.threshold ?? 0.02;
@@ -39,6 +39,24 @@ export async function startRecording(source: RecordSource, opts: { threshold?: n
     stream = await navigator.mediaDevices.getUserMedia({
       audio: { deviceId: opts.deviceId, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
     });
+    src = ctx.createMediaStreamSource(stream);
+  } else if (source === "tab") {
+    // Chrome's share picker: pick a tab and tick "Share tab audio". Video is required by the API; keep it tiny
+    // but alive, since stopping it can end the whole share. All tracks stop in stop().
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: 1, width: 320, height: 180 },
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false },
+      selfBrowserSurface: "exclude",
+      systemAudio: "include",
+    } as DisplayMediaStreamOptions);
+    const track = stream.getAudioTracks()[0];
+    if (!track) {
+      stream.getTracks().forEach((t) => t.stop());
+      throw new Error("No audio shared – tick 'Share tab audio' in the picker");
+    }
+    // "Stop sharing" in Chrome ends the take (the caller ignores repeat calls).
+    const onEnded = opts.onEnded;
+    if (onEnded) stream.getTracks().forEach((t) => t.addEventListener("ended", onEnded, { once: true }));
     src = ctx.createMediaStreamSource(stream);
   } else {
     src = engine.voices.master;

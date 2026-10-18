@@ -57,3 +57,38 @@ export function stepScreen(v: StepView): Frame {
   footer(f, v.pageTag, v.status);
   return f;
 }
+
+export interface ChopScreenView {
+  name: string;
+  peaks: Peaks | null;
+  markers: number[]; // positions within the visible window (0..1 on screen)
+  sel: number | null;
+  playhead: number | null; // within the window, or null
+  slices: number;
+  zoom: number;
+  at: string; // time of the selected marker (or the view start)
+}
+
+export function chopScreen(v: ChopScreenView): Frame {
+  const f = new Frame();
+  header(f, v.name, `${v.slices} SL`);
+  const y = HEADER_H + 2, h = 40;
+  waveform(f, 0, y, W, h, v.peaks, 0, 1);
+  const px = (m: number) => Math.round(m * (W - 1));
+  v.markers.forEach((m, i) => {
+    if (m < 0 || m > 1) return;
+    const x = px(m);
+    if (i === v.sel) {
+      // Selected: solid, with a notch on top.
+      f.vline(x, y, y + h - 1);
+      f.hline(x - 2, x + 2, y);
+      f.hline(x - 1, x + 1, y + 1);
+    } else for (let j = y; j < y + h; j += 2) f.set(x, j);
+  });
+  if (v.playhead !== null && v.playhead >= 0 && v.playhead <= 1) {
+    const x = px(v.playhead);
+    for (let j = y; j < y + h; j++) f.set(x, j, (j >> 1) % 2);
+  }
+  footer(f, "CHOP", `${v.zoom < 10 ? v.zoom.toFixed(1) : Math.round(v.zoom)}x ${v.sel !== null ? `M${v.sel + 1} ` : ""}${v.at}`);
+  return f;
+}

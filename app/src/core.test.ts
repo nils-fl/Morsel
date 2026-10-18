@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectOnsets, equalSlices } from "./audio/chop";
+import { addMarker, clampView, detectOnsets, equalSlices, moveMarker, removeMarker, slicesFromMarkers, zeroCrossing } from "./audio/chop";
 import { DAW_NOTES, DRUM_NOTES, displayTextSysex, noteForPad, padFromNote, padLedMessage, relativeDelta } from "./midi/protocol";
 import { padForStep, stepForPad } from "./modes/stepMap";
 import { quantizeTick, STEP_TICKS, swingOffsetTicks } from "./seq/timing";
@@ -66,6 +66,41 @@ describe("chop", () => {
     expect(on[0]).toBe(0);
     const secs = on.slice(1).map((o) => o * 2);
     for (const at of [0.6, 1.1, 1.6]) expect(secs.some((s) => Math.abs(s - at) < 0.03)).toBe(true);
+  });
+  it("finds onsets only inside a range, as fractions of the whole buffer", () => {
+    const sr = 44100;
+    const data = new Float32Array(sr * 2);
+    for (const at of [0.1, 0.6, 1.1, 1.6]) for (let i = 0; i < 2000; i++) data[Math.floor(at * sr) + i] = Math.sin(i / 3) * (1 - i / 2000);
+    const on = detectOnsets(data, sr, 8, 0.5, [0.5, 1]);
+    expect(on[0]).toBe(0.5);
+    const secs = on.slice(1).map((o) => o * 2);
+    expect(secs.every((s) => s >= 1 && s <= 2)).toBe(true);
+    for (const at of [1.1, 1.6]) expect(secs.some((s) => Math.abs(s - at) < 0.03)).toBe(true);
+  });
+  it("snaps to the nearest zero crossing", () => {
+    const data = new Float32Array(1000).map((_, i) => Math.sin((i / 100) * Math.PI)); // crosses every 100 samples
+    expect(Math.abs(zeroCrossing(data, 0.43) * 1000 - 400)).toBeLessThanOrEqual(1);
+    expect(Math.abs(zeroCrossing(data, 0.48) * 1000 - 500)).toBeLessThanOrEqual(1);
+    expect(zeroCrossing(new Float32Array(1000).fill(0.5), 0.43)).toBe(0.43); // none in reach
+  });
+  it("keeps markers sorted and apart", () => {
+    let m = [0.1, 0.9];
+    m = addMarker(m, 0.5, 0.05);
+    m = addMarker(m, 0.3, 0.05);
+    expect(m).toEqual([0.1, 0.3, 0.5, 0.9]);
+    expect(addMarker(m, 0.52, 0.05)).toBe(m); // too close
+    expect(addMarker(m, 0.95, 0.05)).toBe(m); // outside the region
+    expect(moveMarker(m, 1, 0.8, 0.05)).toEqual([0.1, 0.45, 0.5, 0.9]); // clamped below its neighbour
+    expect(moveMarker(m, 0, 0, 0.05)[0]).toBe(0); // region bounds move too
+    expect(removeMarker(m, 0)).toBe(m);
+    expect(removeMarker(m, 2)).toEqual([0.1, 0.3, 0.9]);
+    expect(slicesFromMarkers(m)).toEqual([[0.1, 0.3], [0.3, 0.5], [0.5, 0.9]]);
+  });
+  it("keeps the view inside the sample and no narrower than the minimum", () => {
+    expect(clampView(0.9, 0.2, 0.01)).toEqual([0.8, 1]);
+    expect(clampView(-0.1, 0.2, 0.01)).toEqual([0, 0.2]);
+    expect(clampView(0.5, 0.001, 0.01)[1] - 0.5).toBeCloseTo(0.01);
+    expect(clampView(0.3, 3, 0.01)).toEqual([0, 1]);
   });
 });
 

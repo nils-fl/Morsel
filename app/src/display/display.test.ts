@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { bitmapSysex, isBitmapAck, SYSEX_HEADER } from "../midi/protocol";
 import { font5x7 } from "./fonts";
 import { Frame, PACKED_SIZE, fitText } from "./frame";
-import { browserScreen } from "./screens";
+import { browserScreen, chopScreen } from "./screens";
 import { filterPanel, highpassDb, lowpassDb, scrollTop } from "./widgets";
 
 describe("Frame.pack", () => {
@@ -88,5 +88,17 @@ describe("filter panel", () => {
     filterPanel(f, 0, 9, 128, 45, { lpHz: 1000, hpHz: null, qDb: 1 });
     // bottom-left inside the box (far below the flat passband line) stays empty
     expect(f.get(5, 50)).toBe(0);
+  });
+});
+
+describe("chop screen", () => {
+  const base = { name: "Tab", peaks: null, sel: null, playhead: null, slices: 2, zoom: 1, at: "0.000s" };
+  it("draws the selected marker solid and hides markers outside the window", () => {
+    const f = chopScreen({ ...base, markers: [0.25, 0.5, 1.5], sel: 1 });
+    const x = Math.round(0.5 * 127);
+    const col = (cx: number) => Array.from({ length: 40 }, (_, j) => f.get(cx, 11 + j));
+    expect(col(x).every(Boolean)).toBe(true); // selected: solid
+    const dotted = col(Math.round(0.25 * 127));
+    expect(dotted.some(Boolean) && !dotted.every(Boolean)).toBe(true); // others: dotted
   });
 });

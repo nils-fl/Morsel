@@ -5,7 +5,8 @@ import { ScreenPreview } from "./ui/ScreenPreview";
 import { sequencer } from "./seq/sequencer";
 import { QUANTIZE_OPTIONS } from "./seq/timing";
 import { set, undo, updateProject, useApp } from "./state/store";
-import type { HwMode } from "./state/types";
+import { TABS, type HwMode, type Tab } from "./state/types";
+import { ChopEditor } from "./ui/ChopEditor";
 import { EncoderStrip } from "./ui/EncoderStrip";
 import { Guide, GuideOverlay } from "./ui/Guide";
 import { KeysPanel } from "./ui/KeysPanel";
@@ -15,15 +16,14 @@ import { PadGrid } from "./ui/PadGrid";
 import { SeqGrid } from "./ui/SeqGrid";
 import { SongPanel } from "./ui/SongPanel";
 
-const TABS = ["Pads", "Sequencer", "Keys", "Song", "Help", "Lab"] as const;
-type Tab = (typeof TABS)[number];
 // Each page has its own colour, like the page LEDs on an Elektron box.
 const TAB_COLOR: Record<Tab, string> = {
-  Pads: "var(--amber)", Sequencer: "var(--cyan)", Keys: "var(--violet)", Song: "var(--lime)", Help: "var(--white)", Lab: "var(--magenta)",
+  Pads: "var(--amber)", Chop: "var(--orange)", Sequencer: "var(--cyan)", Keys: "var(--violet)", Song: "var(--lime)", Help: "var(--white)", Lab: "var(--magenta)",
 };
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("Pads");
+  const tab = useApp((s) => s.tab);
+  const setTab = (t: Tab) => set({ tab: t });
   const [guide, setGuide] = useState(false);
   useEffect(() => { document.documentElement.style.setProperty("--page", TAB_COLOR[tab]); }, [tab]);
   useEffect(() => {
@@ -47,6 +47,7 @@ export default function App() {
       </nav>
       <main>
         {tab === "Pads" && <PadEditor />}
+        {tab === "Chop" && <ChopEditor />}
         {tab === "Sequencer" && <SeqGrid />}
         {tab === "Keys" && <KeysPanel />}
         {tab === "Song" && <SongPanel />}

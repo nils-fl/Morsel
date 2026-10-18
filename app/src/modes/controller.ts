@@ -10,17 +10,20 @@ import { type AppState, clearTrack, get, patternLength, set, toggleArray, toggle
 import type { HwMode } from "../state/types";
 import { stepForPad } from "./stepMap";
 import { activeOverlay, showTemp } from "./notify";
+import { chopEncoder, chopPad, chopPadLeds, chopView } from "./chop";
 import { browseCan, browseDisplay, browseEncoder, browseEnter, browseLeds, browsePad, browseUp, browseView, enterBrowse, exitBrowse } from "./browse";
 import { H, W, type Frame } from "../display/frame";
-import { browserScreen, padScreen, stepScreen } from "../display/screens";
+import { browserScreen, chopScreen, padScreen, stepScreen } from "../display/screens";
 import { HEADER_H, computePeaks, filterPanel, overlayBar, type Peaks } from "../display/widgets";
 
 const MODES: HwMode[] = ["play", "step", "mixer", "pattern"];
-const MODE_NAMES: Record<HwMode, string> = { play: "Play", step: "Step", mixer: "Mixer", pattern: "Pattern", browse: "Browse" };
+const MODE_NAMES: Record<HwMode, string> = { play: "Play", step: "Step", mixer: "Mixer", pattern: "Pattern", browse: "Browse", chop: "Chop" };
+/** Modes entered on top of another one; leaving them returns to prevHwMode. */
+const TEMPORARY: HwMode[] = ["browse", "chop"];
 
 
-/** Play mode uses the drum layout (velocity, pressure); every other mode lights the pads in DAW layout. */
-const layoutFor = (mode: HwMode): PadLayout => (mode === "play" ? "drum" : "daw");
+/** Play and Chop use the drum layout (velocity, pressure); every other mode lights the pads in DAW layout. */
+const layoutFor = (mode: HwMode): PadLayout => (mode === "play" || mode === "chop" ? "drum" : "daw");
 let lastLayoutFix = 0;
 
 export function setHwMode(mode: HwMode) {
@@ -28,11 +31,20 @@ export function setHwMode(mode: HwMode) {
   if (prev === mode) return;
   if (prev === "browse") exitBrowse();
   if (mode === "browse") enterBrowse();
-  set({ hwMode: mode, prevHwMode: prev === "browse" ? get().prevHwMode : prev });
+  set({ hwMode: mode, prevHwMode: TEMPORARY.includes(prev) ? get().prevHwMode : prev });
   launchkey.setLayout(layoutFor(mode));
   showTemp("Mode", MODE_NAMES[mode]);
 }
 
+
+/** The Chop tab takes over the encoders, pads and screen while it is open. */
+export function enterChopHw() {
+  if (get().hwMode !== "chop") setHwMode("chop");
+}
+
+export function exitChopHw() {
+  if (get().hwMode === "chop") setHwMode(get().prevHwMode);
+}
 
 const heldPads = new Set<number>();
 
@@ -73,6 +85,10 @@ export function initController() {
       case "encoder": {
         if (s.hwMode === "browse") {
           browseEncoder(e.index, e.delta, s.shift);
+          break;
+        }
+        if (s.hwMode === "chop") {
+          chopEncoder(e.index, e.delta, s.shift);
           break;
         }
         const p = turnEncoder(s.encPage, e.index, e.delta, s.shift);
@@ -136,6 +152,9 @@ function onPad(pad: number, vel: number, on: boolean) {
     case "browse":
       set({ selectedPad: pad, selectedTrack: pad });
       browsePad();
+      break;
+    case "chop":
+      chopPad(pad, vel);
       break;
     case "play":
       if (sequencer.repeatOn && s.playing) {
@@ -213,7 +232,10 @@ function onButton(button: string, down: boolean) {
       } else togglePlay();
       break;
     case "record":
-      if (s.shift) toggleSampling();
+      if (s.shift) {
+        if (s.sampleSource === "tab" && s.sampling === "idle") showTemp("Sample", "Start on screen");
+        toggleSampling(true);
+      }
       else toggleRecord();
       break;
     case "func":
@@ -317,6 +339,10 @@ function screenFor(s: AppState): Frame | null {
         pageTag: PAGES[s.encPage].tag, pageInfo: PAGES[s.encPage].summary(),
       });
     }
+    case "chop": {
+      const v = chopView(W);
+      return v && chopScreen(v);
+    }
     case "step":
       return stepScreen({
         pattern: s.currentPattern,
@@ -340,7 +366,7 @@ function renderLoop() {
     overlayBar(frame, msg.name, msg.value);
   }
   if (!launchkey.connected || ledsPaused) return;
-  launchkey.setPads(s.hwMode === "browse" ? browseLeds() : padLeds(s));
+  launchkey.setPads(s.hwMode === "browse" ? browseLeds() : s.hwMode === "chop" ? chopPadLeds(heldPads) : padLeds(s));
   const ep = encPageLeds(s);
   launchkey.setButtonLed(CC.encPageUp, ep.up);
   launchkey.setButtonLed(CC.encPageDown, ep.down);

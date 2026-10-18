@@ -85,7 +85,25 @@ export interface Project {
   levels: number[]; // per track 0..1
 }
 
-export type HwMode = "play" | "step" | "mixer" | "pattern" | "browse";
+export type HwMode = "play" | "step" | "mixer" | "pattern" | "browse" | "chop";
+
+export const TABS = ["Pads", "Chop", "Sequencer", "Keys", "Song", "Help", "Lab"] as const;
+export type Tab = (typeof TABS)[number];
+
+export type SampleSource = "input" | "master" | "tab";
+
+/** Chop editor session, shared by the Chop tab and the Launchkey (encoders, pads, screen). */
+export interface ChopSession {
+  sampleId: string;
+  /** Sorted slice boundaries (N + 1 markers = N slices); the first and last bound the region. */
+  markers: number[];
+  /** Visible window, fractions 0..1 of the sample. */
+  view: [number, number];
+  /** Selected marker index, or null. */
+  sel: number | null;
+  /** Pad the first slice is sent to. */
+  firstPad: number;
+}
 
 export interface SampleInfo {
   id: string;
