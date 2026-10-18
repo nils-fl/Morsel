@@ -219,7 +219,7 @@ export async function sendChopToNewTrack() {
     msg = `${MAX_TRACKS} tracks already – ${n} slices sent to ${drumTrack().name} pads 1–${n}`;
   }
   // Leaving Chop (the controller follows the session) lands on Play, so the new rack is playable at once.
-  set({ chop: null, selectedPad: 0, tab: "Pads", status: msg, ...(get().hwMode === "chop" && { prevHwMode: "play" as const }) });
+  set({ chop: null, selectedPad: 0, tab: "Track", status: msg, ...(get().hwMode === "chop" && { prevHwMode: "play" as const }) });
   showTemp(id ? "New rack" : `${MAX_TRACKS} tracks`, id ? `${name} · ${n} pads` : `Sent to ${drumTrack().name}`);
 }
 

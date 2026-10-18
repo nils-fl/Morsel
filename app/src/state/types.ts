@@ -154,7 +154,8 @@ export const DUCK_ALL = "all";
 
 export type HwMode = "play" | "step" | "track" | "mixer" | "pattern" | "browse" | "chop";
 
-export const TABS = ["Pads", "Chop", "Sequencer", "Keys", "Mixer", "Song", "Help", "Lab"] as const;
+/** "Track" shows the selected track: the drum rack or the keys instrument. */
+export const TABS = ["Track", "Chop", "Sequencer", "Mixer", "Song", "Help", "Lab"] as const;
 export type Tab = (typeof TABS)[number];
 
 /** The synthesized kit that is always there, listed first among the kits (its samples live in the library folder of the same name). */

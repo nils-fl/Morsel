@@ -48,7 +48,7 @@ export function PadEditor() {
               e.target.value = "";
               void loadFolderToPads(files);
             }} />
-            <button onClick={() => folderInput.current?.click()} title="Adds a folder of samples to the library (browse it on the Launchkey with Shift + Pad up)">Import folder…</button>
+            <button onClick={() => folderInput.current?.click()} title="Adds a folder of samples to the library (browse it on the Launchkey with Shift + Encoder ⌃)">Import folder…</button>
             <input ref={folderInput} type="file" hidden multiple {...{ webkitdirectory: "" }} onChange={async (e) => {
               const files = [...(e.target.files ?? [])].filter(isAudioFile);
               e.target.value = "";
@@ -283,7 +283,7 @@ function KitPanel() {
           </span>
         ))}
       </div>
-      <p className="hint">Launchkey: Shift + Pad up → Kits. On a sample folder, Shift + Function puts it on the pads.</p>
+      <p className="hint">Launchkey: Shift + Encoder ⌃ → Kits. On a sample folder, Shift + Function puts it on the pads.</p>
     </Section>
   );
 }

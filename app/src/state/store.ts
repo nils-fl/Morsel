@@ -380,7 +380,7 @@ export const store = createStore<AppState>(() => ({
   sampleSource: "input",
   tabShared: false,
   sampleTarget: "chop",
-  tab: "Pads",
+  tab: "Track",
   theme: "dark",
   chop: null,
   kits: [],
@@ -430,6 +430,15 @@ export function selectTrack(id: string) {
   const t = trackById(get().project, id);
   if (!t) return;
   set({ selectedTrack: id, ...(t.kind === "drum" ? { drumTrack: id } : { keysTrack: id }) });
+}
+
+/** Select the next (dir = 1) or previous (dir = -1) track, wrapping around. Returns it. */
+export function stepTrack(dir: 1 | -1): Track {
+  const s = get(), tracks = s.project.tracks;
+  const i = tracks.findIndex((t) => t.id === selectedTrack(s).id);
+  const t = tracks[(i + dir + tracks.length) % tracks.length];
+  selectTrack(t.id);
+  return t;
 }
 
 export function updateTrack(id: string, fn: Partial<Track> | ((t: Track) => Track), undoable = false) {

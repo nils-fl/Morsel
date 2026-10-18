@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DRUMS_ID, KEYS_ID, addTrack, canRemoveTrack, copyClip, copyPattern, defaultPad, defaultProject, get, migrateV1, normalizeProject, removeTrack, selectTrack, set, undo,
+  DRUMS_ID, KEYS_ID, addTrack, canRemoveTrack, copyClip, copyPattern, defaultPad, defaultProject, get, migrateV1, normalizeProject, removeTrack, selectTrack, set, stepTrack, undo,
 } from "./store";
 import { DUCK_ALL, MAX_TRACKS, PATTERN_COUNT, type NoteEvent, type Project } from "./types";
 
@@ -229,5 +229,19 @@ describe("addTrack with pads", () => {
     reset();
     while (get().project.tracks.length < MAX_TRACKS) addTrack("drum");
     expect(addTrack("drum", { pads: [] })).toBeNull();
+  });
+});
+
+describe("stepTrack", () => {
+  it("steps through the tracks, wrapping, and gives a drum track the pads and a keys track the keybed", () => {
+    reset();
+    const id = addTrack("drum")!;
+    selectTrack(DRUMS_ID);
+    expect(stepTrack(1).id).toBe(KEYS_ID);
+    expect(get()).toMatchObject({ selectedTrack: KEYS_ID, keysTrack: KEYS_ID, drumTrack: DRUMS_ID });
+    expect(stepTrack(1).id).toBe(id);
+    expect(get()).toMatchObject({ selectedTrack: id, drumTrack: id });
+    expect(stepTrack(1).id).toBe(DRUMS_ID);
+    expect(stepTrack(-1).id).toBe(id);
   });
 });

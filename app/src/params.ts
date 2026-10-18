@@ -3,7 +3,7 @@ import { DECAY_MAX, cutoffHz, padQDb, synthQDb } from "./audio/dsp";
 import type { Visual } from "./modes/notify";
 import { QUANTIZE_OPTIONS, REPEAT_OPTIONS } from "./seq/timing";
 import { drumPads, get, keysTrack, parseDuckTarget, selectedTrack, set, trackById, updateKeys, updatePad, updateProject, updateTrack } from "./state/store";
-import { DUCK_ALL, MAX_TRACKS, PAD_COUNT, type DuckSettings, type DuckTarget, type Pad, type SynthParams, type TrackFx, type Wave } from "./state/types";
+import { DUCK_ALL, MAX_TRACKS, PAD_COUNT, type DuckSettings, type DuckTarget, type Pad, type SynthParams, type TrackFx, type TrackKind, type Wave } from "./state/types";
 import { allPresets, applyPreset } from "./actions";
 import { presetEdited } from "./audio/synthPresets";
 
@@ -84,6 +84,8 @@ export interface Page {
   params: Param[];
   /** One-line summary of the page's values for the screen footer. */
   summary(): string;
+  /** Only shown on tracks of this kind; pages without one are on every track. */
+  kind?: TrackKind;
 }
 
 const panText = (v: number) => (Math.abs(v) < 0.01 ? "C" : v < 0 ? `L${Math.round(-v * 100)}` : `R${Math.round(v * 100)}`);
@@ -188,6 +190,7 @@ export const PAGES: Page[] = [
   {
     name: "Pad",
     tag: "PAD",
+    kind: "drum",
     summary: () => {
       const p = padNow();
       return `S${Math.round(p.start * 100)} E${Math.round(p.end * 100)} ${p.pitch > 0 ? "+" : ""}${Math.round(p.pitch * 10) / 10}st`;
@@ -207,6 +210,7 @@ export const PAGES: Page[] = [
   {
     name: "Pad 2",
     tag: "PAD2",
+    kind: "drum",
     summary: () => {
       const p = padNow();
       return `Reso ${Math.round(p.resonance * 100)}% Pan ${panText(p.pan)}`;
@@ -219,6 +223,7 @@ export const PAGES: Page[] = [
   {
     name: "Keys",
     tag: "KEYS",
+    kind: "keys",
     summary: presetLabel,
     params: [
       {
@@ -319,16 +324,6 @@ export const PAGES: Page[] = [
       },
       optionParam("Quantize", QUANTIZE_OPTIONS, "quantize"),
       optionParam("Repeat", REPEAT_OPTIONS, "repeatRate"),
-      { ...synthParam("Keys Cutoff", "cutoff", 0, 1, 0.01, hz), visual: synthFilterVisual },
-      { ...synthParam("Keys Reso", "resonance", 0, 1, 0.01, pct), visual: synthFilterVisual },
-      synthParam("Keys Env", "envAmount", 0, 1, 0.01, pct),
-      {
-        name: "Keys Vol",
-        value: () => keysNow().volume,
-        range: [0, 1],
-        nudge: (d, fine) => updateKeys({ volume: clamp(keysNow().volume + d * (fine ? 0.001 : 0.01), 0, 1) }),
-        format: () => pct(keysNow().volume),
-      },
     ],
   },
   {
@@ -383,6 +378,23 @@ export const DUCK_PAGE = PAGES.findIndex((p) => p.tag === "DUCK");
 export const KEYS_PAGE = PAGES.findIndex((p) => p.tag === "KEYS");
 export const FX_PAGE = PAGES.findIndex((p) => p.tag === "FX");
 export const MIX_PAGE = PAGES.findIndex((p) => p.tag === "MIX");
+
+/** Indexes of the encoder pages a track of this kind shows, in order. */
+export const pagesFor = (kind: TrackKind) => PAGES.flatMap((p, i) => (!p.kind || p.kind === kind ? [i] : []));
+
+/** The page `dir` steps from `page` among the selected track's pages (clamped), or `page` when there is none. */
+export function stepPage(page: number, dir: 1 | -1, kind = selectedTrack().kind): number {
+  const list = pagesFor(kind);
+  const i = list.indexOf(page);
+  if (i < 0) return list[0];
+  return list[Math.max(0, Math.min(list.length - 1, i + dir))];
+}
+
+/** Keep the encoder page on one the selected track shows (Pad or Keys after switching kind). */
+export function fixPage() {
+  const s = get();
+  if (!pagesFor(selectedTrack(s).kind).includes(s.encPage)) set({ encPage: pagesFor(selectedTrack(s).kind)[0] });
+}
 
 
 /** Apply an encoder move (the mixer follows the project through the store subscription in boot.ts). */

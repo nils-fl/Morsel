@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { bitmapSysex, isBitmapAck, SYSEX_HEADER } from "../midi/protocol";
 import { font5x7 } from "./fonts";
 import { Frame, PACKED_SIZE, fitText } from "./frame";
-import { browserScreen, chopScreen, duckScreen, keysScreen } from "./screens";
+import { browserScreen, chopScreen, duckScreen, keysScreen, padScreen, stepScreen } from "./screens";
 import { BOOT_BURP_MS, BOOT_EAT_MS, BOOT_MS, bootFrame } from "./bootAnim";
 import { filterPanel, highpassDb, lowpassDb, scrollTop } from "./widgets";
 
@@ -131,5 +131,23 @@ describe("keys screen", () => {
     const b = keysScreen({ presets, index: 2, title: "Acid Bass", note: "SYNTH", summary: "" });
     // The selected row is an inverted bar, so moving the cursor changes the picture.
     expect(Array.from(a.px)).not.toEqual(Array.from(b.px));
+  });
+});
+
+describe("track header", () => {
+  // The header is an inverted bar: its unlit pixels are the text.
+  const headerText = (f: Frame) => Array.from(f.px.slice(0, 128 * 9));
+  const pad = { pad: 4, name: "Snare", peaks: null, start: 0, end: 1, status: "P1 PLAY", pageTag: "PAD", pageInfo: "" };
+  const step = { pattern: 0, item: "Snare", bar: 0, bars: 1, steps: Array(16).fill(false), playhead: -1, status: "", pageTag: "PAD" };
+
+  it("names the selected track on the pad and step screens", () => {
+    expect(headerText(padScreen({ ...pad, track: "T1 Drums" }))).not.toEqual(headerText(padScreen({ ...pad, track: "T3 Chop 1" })));
+    expect(headerText(stepScreen({ ...step, track: "T1 Drums" }))).not.toEqual(headerText(stepScreen({ ...step, track: "T2 Keys 1" })));
+  });
+
+  it("shows the keys track instead of the preset when given", () => {
+    const presets = [{ label: "Init" }];
+    const v = { presets, index: 0, title: "Init", note: "SYNTH", summary: "" };
+    expect(headerText(keysScreen({ ...v, track: "T2 Keys 1" }))).not.toEqual(headerText(keysScreen(v)));
   });
 });

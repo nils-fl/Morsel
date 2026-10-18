@@ -31,7 +31,7 @@ export function ChopEditor() {
   const buffer = chop ? engine.buffer(chop.sampleId) : undefined;
   const active = !!buffer;
 
-  // Opening the tab puts the Launchkey back in Chop; it stays there on other tabs until it leaves (Shift + Pad up) or the chop is sent.
+  // Opening the tab puts the Launchkey back in Chop; it stays there on other tabs until it leaves (Shift + Encoder ⌄) or the chop is sent.
   useEffect(() => {
     if (!active) return;
     enterChopHw();
@@ -49,7 +49,7 @@ export function ChopEditor() {
     return (
       <Section title="Chop" actions={source}>
         <p className="hint">
-          Sample something on the Pads page (or Shift + Record on the Launchkey): the take opens here with its transients marked. Or pick any sample above.
+          Sample something on a drum track's Track tab (or Shift + Record on the Launchkey): the take opens here with its transients marked. Or pick any sample above.
         </p>
         {padHasSample && <button onClick={openInChop}>Chop pad {selectedPad + 1}'s sample</button>}
       </Section>
@@ -360,7 +360,7 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
         <p className="hint">
           <b>Launchkey:</b> pads play slices 1–16 and select that slice's start marker · encoder 1 scroll · 2 zoom · 3 pick marker ·
           4 move marker (Shift = fine) · 5 max slices · 6 sensitivity · Play: play from the marker · Scene: add a marker at the playhead
-          (Shift + Scene: remove) · <b>Function: new drum rack</b> · Shift + Pad up: leave.
+          (Shift + Scene: remove) · <b>Function: new drum rack</b> · Shift + Encoder ⌄: leave.
         </p>
         <div className="row">
           <button className="primary" disabled={!slices.length} onClick={newRack} title="Crop to the region, make a new drum track and put the slices on pads 1–16 (Launchkey: Function)">

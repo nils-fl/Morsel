@@ -1,6 +1,6 @@
 // The 8 encoders of the current page as small knobs: arc = value, name and formatted value beside it.
-import { PAGES } from "../params";
-import { set, useApp } from "../state/store";
+import { PAGES, pagesFor } from "../params";
+import { selectedTrack, set, useApp } from "../state/store";
 
 const SWEEP = 135; // degrees either side of 12 o'clock
 
@@ -30,11 +30,14 @@ function Knob({ value, range }: { value: number; range: [number, number] }) {
 export function EncoderStrip() {
   useApp((s) => s); // values come from the store via the params, so redraw on any change
   const encPage = useApp((s) => s.encPage);
-  const page = PAGES[encPage];
+  // Only the pages of the selected track's kind (no Pad pages on a keys track, no Keys page on a drum track).
+  const pages = pagesFor(useApp(selectedTrack).kind);
+  const at = Math.max(0, pages.indexOf(encPage));
+  const page = PAGES[pages[at]];
   return (
     <div className="enc-strip">
-      <button className="enc-tag" onClick={() => set({ encPage: (encPage + 1) % PAGES.length })} title="Encoder page (click for next)">
-        <b>ENC {encPage + 1}/{PAGES.length}</b><span>{page.name}</span>
+      <button className="enc-tag" onClick={() => set({ encPage: pages[(at + 1) % pages.length] })} title="Encoder page (click for next)">
+        <b>ENC {at + 1}/{pages.length}</b><span>{page.name}</span>
       </button>
       <div className="enc-knobs">
         {Array.from({ length: 8 }, (_, i) => {

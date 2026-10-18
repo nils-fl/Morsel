@@ -5,7 +5,7 @@ import { ScreenPreview } from "./ui/ScreenPreview";
 import { toggleTheme } from "./ui/theme";
 import { sequencer } from "./seq/sequencer";
 import { QUANTIZE_OPTIONS } from "./seq/timing";
-import { patternHasNotes, set, undo, updateProject, useApp } from "./state/store";
+import { patternHasNotes, selectedTrack, set, undo, updateProject, useApp } from "./state/store";
 import { TABS, type HwMode, type Tab } from "./state/types";
 import { ChopEditor } from "./ui/ChopEditor";
 import { EncoderStrip } from "./ui/EncoderStrip";
@@ -21,14 +21,21 @@ import { TrackStrip } from "./ui/TrackStrip";
 
 // Each page has its own colour, like the page LEDs on an Elektron box.
 const TAB_COLOR: Record<Tab, string> = {
-  Pads: "var(--amber)", Chop: "var(--orange)", Sequencer: "var(--cyan)", Keys: "var(--violet)", Mixer: "var(--yellow)", Song: "var(--lime)", Help: "var(--white)", Lab: "var(--magenta)",
+  Track: "var(--amber)", Chop: "var(--orange)", Sequencer: "var(--cyan)", Mixer: "var(--yellow)", Song: "var(--lime)", Help: "var(--white)", Lab: "var(--magenta)",
 };
+const KEYS_COLOR = "var(--violet)";
 
 export default function App() {
-  const tab = useApp((s) => s.tab);
+  const track = useApp(selectedTrack);
+  // Chop makes drum racks: its tab is there on a drum track, or while a chop is open.
+  const chopOpen = useApp((s) => s.chop !== null);
+  const showChop = track.kind === "drum" || chopOpen;
+  const chosen = useApp((s) => s.tab);
+  const tab = chosen === "Chop" && !showChop ? "Track" : chosen;
+  const color = (t: Tab) => (t === "Track" && track.kind === "keys" ? KEYS_COLOR : TAB_COLOR[t]);
   const setTab = (t: Tab) => set({ tab: t });
   const [guide, setGuide] = useState(false);
-  useEffect(() => { document.documentElement.style.setProperty("--page", TAB_COLOR[tab]); }, [tab]);
+  useEffect(() => { document.documentElement.style.setProperty("--page", color(tab)); });
   useEffect(() => {
     // "?" opens the guide, unless you're typing in a field.
     const onKey = (e: KeyboardEvent) => {
@@ -44,15 +51,16 @@ export default function App() {
       {guide && <GuideOverlay onClose={() => setGuide(false)} />}
       <PadGrid />
       <nav className="tabs">
-        {TABS.map((t) => (
-          <button key={t} className={t === tab ? "on" : ""} style={{ "--tab": TAB_COLOR[t] } as React.CSSProperties} onClick={() => setTab(t)}>{t}</button>
+        {TABS.filter((t) => t !== "Chop" || showChop).map((t) => (
+          <button key={t} className={t === tab ? "on" : ""} style={{ "--tab": color(t) } as React.CSSProperties} onClick={() => setTab(t)}>
+            {t === "Track" ? `${track.kind === "drum" ? "▦" : "♪"} ${track.name}` : t}
+          </button>
         ))}
       </nav>
       <main>
-        {tab === "Pads" && <PadEditor />}
+        {tab === "Track" && (track.kind === "drum" ? <PadEditor /> : <KeysPanel />)}
         {tab === "Chop" && <ChopEditor />}
         {tab === "Sequencer" && <SeqGrid />}
-        {tab === "Keys" && <KeysPanel />}
         {tab === "Mixer" && <Mixer />}
         {tab === "Song" && <SongPanel />}
         {tab === "Help" && <Guide />}

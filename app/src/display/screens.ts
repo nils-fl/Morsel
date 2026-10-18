@@ -18,6 +18,7 @@ export function browserScreen(v: BrowserView): Frame {
 }
 
 export interface PadView {
+  track: string; // e.g. "T1 Drums"
   pad: number;
   name: string;
   peaks: Peaks | null;
@@ -30,15 +31,17 @@ export interface PadView {
 
 export function padScreen(v: PadView): Frame {
   const f = new Frame();
-  header(f, `${v.pad + 1} ${v.name}`, v.status);
-  waveform(f, 0, HEADER_H + 2, W, 40, v.peaks, v.start, v.end);
+  header(f, v.track, v.status);
+  f.textFit(2, HEADER_H + 2, `${v.pad + 1} ${v.name}`, W - 4);
+  waveform(f, 0, HEADER_H + 11, W, 32, v.peaks, v.start, v.end);
   footer(f, v.pageTag, v.pageInfo);
   return f;
 }
 
 export interface StepView {
   pattern: number;
-  track: string;
+  track: string; // e.g. "T1 Drums"
+  item: string; // what the steps write: the pad (drum track) or the note (keys track)
   bar: number;
   bars: number;
   steps: boolean[]; // 16 steps of the visible bar
@@ -49,12 +52,12 @@ export interface StepView {
 
 export function stepScreen(v: StepView): Frame {
   const f = new Frame();
-  header(f, `P${v.pattern + 1} ${v.track}`, `B${v.bar + 1}/${v.bars}`);
+  header(f, v.track, `P${v.pattern + 1} B${v.bar + 1}/${v.bars}`);
   // Mirrors the pads: top row = steps 1-8, bottom row = 9-16.
   const size = 13, gap = 3, x0 = Math.floor((W - (8 * size + 7 * gap)) / 2);
   stepRow(f, x0, 14, size, gap, v.steps.slice(0, 8), v.playhead, 0);
   stepRow(f, x0, 14 + size + 4, size, gap, v.steps.slice(8, 16), v.playhead, 8);
-  footer(f, v.pageTag, v.status);
+  footer(f, v.pageTag, `${v.item}  ${v.status}`);
   return f;
 }
 
@@ -121,14 +124,18 @@ export interface KeysView {
   title: string; // preset label, e.g. "Warm Pad*"
   note: string; // right side of the header, e.g. "SYNTH" or "PAD SMP"
   summary: string;
+  /** Header on a keys track ("T2 Keys 1"); without one the header shows the preset. */
+  track?: string;
+  /** Footer tag (the encoder page), "KEYS" by default. */
+  tag?: string;
 }
 
-/** Keys encoder page: the preset list around the current one, like the sample browser. */
+/** A keys track (or the Keys encoder page): the preset list around the current one, like the sample browser. */
 export function keysScreen(v: KeysView): Frame {
   const f = new Frame();
-  header(f, `KEYS ${v.title}`, v.note);
+  header(f, v.track ?? `KEYS ${v.title}`, v.note);
   const rows = Math.floor((H - HEADER_H - 1 - 9) / ROW_H);
   list(f, HEADER_H + 1, rows, v.presets.map((p) => ({ label: p.user ? `${p.label} (mine)` : p.label })), v.index);
-  footer(f, "KEYS", v.summary);
+  footer(f, v.tag ?? "KEYS", v.summary);
   return f;
 }
