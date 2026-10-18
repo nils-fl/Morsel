@@ -269,6 +269,15 @@ export function clearTrack(patternIndex: number, track: number) {
   updatePattern(patternIndex, (pat) => ({ ...pat, events: pat.events.filter((e) => e.track !== track) }));
 }
 
+/** Overwrite pattern `to` with a copy of `from` (fresh event ids, so the two never share notes). Undoable. */
+export function copyPattern(from: number, to: number) {
+  if (from === to) return;
+  updatePattern(to, () => {
+    const src = get().project.patterns[from];
+    return { bars: src.bars, events: src.events.map((e) => ({ ...e, id: newId() })) };
+  });
+}
+
 export function trackAudible(p: Project, track: number) {
   const anySolo = p.solos.some(Boolean);
   return anySolo ? p.solos[track] : !p.mutes[track];

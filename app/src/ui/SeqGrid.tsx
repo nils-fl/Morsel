@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { sequencer } from "../seq/sequencer";
 import { STEP_TICKS } from "../seq/timing";
-import { KEYS_TRACK, clearTrack, newId, set, toggleArray, toggleStep, updatePattern, useApp } from "../state/store";
+import { KEYS_TRACK, clearTrack, copyPattern, newId, set, toggleArray, toggleStep, updatePattern, useApp } from "../state/store";
 import { noteName } from "./notes";
 import { mute, paletteCss } from "./palette";
 
@@ -23,6 +23,7 @@ function usePlayheadStep() {
 export function SeqGrid() {
   const patIndex = useApp((s) => s.currentPattern);
   const pat = useApp((s) => s.project.patterns[s.currentPattern]);
+  const patterns = useApp((s) => s.project.patterns);
   const pads = useApp((s) => s.project.pads);
   const mutes = useApp((s) => s.project.mutes);
   const solos = useApp((s) => s.project.solos);
@@ -47,6 +48,14 @@ export function SeqGrid() {
           bars: p.bars * 2 > 4 ? 4 : p.bars * 2,
           events: [...p.events, ...p.events.map((e) => ({ ...e, id: newId(), tick: e.tick + p.bars * 16 * STEP_TICKS }))].filter((e) => e.tick < Math.min(4, p.bars * 2) * 16 * STEP_TICKS),
         }))}>Double</button>
+        <select value="" title="Copy this pattern over another one (Undo reverts it)" onChange={(e) => {
+          const to = Number(e.target.value);
+          copyPattern(patIndex, to);
+          set({ status: `Copied pattern ${patIndex + 1} → ${to + 1}` });
+        }}>
+          <option value="" disabled>Copy to…</option>
+          {patterns.map((p, i) => i !== patIndex && <option key={i} value={i}>Pattern {i + 1}{p.events.length ? " (overwrite)" : ""}</option>)}
+        </select>
         <span className="hint">Click a cell to toggle. Keys notes come from recording on the keyboard.</span>
       </div>
       <div className="seq-grid" style={{ "--steps": steps } as React.CSSProperties}>

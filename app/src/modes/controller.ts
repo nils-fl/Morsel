@@ -6,7 +6,7 @@ import { CC, COLOR, type LedMode, type PadLayout } from "../midi/protocol";
 import { DUCK_PAGE, PAGES, setDuck, trackLabel, turnEncoder } from "../params";
 import { makeTicker, sequencer } from "../seq/sequencer";
 import { PPQN, STEP_TICKS } from "../seq/timing";
-import { type AppState, clearTrack, get, patternLength, set, toggleArray, toggleStep, undo, updateProject, KEYS_TRACK, PAD_COLORS } from "../state/store";
+import { type AppState, clearTrack, copyPattern, get, patternLength, set, toggleArray, toggleStep, undo, updateProject, KEYS_TRACK, PAD_COLORS } from "../state/store";
 import type { HwMode } from "../state/types";
 import { stepForPad } from "./stepMap";
 import { activeOverlay, showTemp } from "./notify";
@@ -209,7 +209,14 @@ function onPad(pad: number, vel: number, on: boolean) {
       showTemp(p.pads[pad].name, double ? (p.solos[pad] ? "Solo" : "Solo off") : p.mutes[pad] ? "Muted" : "On");
       break;
     }
-    case "pattern":
+    case "pattern": {
+      // Hold a pattern pad + tap another = copy the held pattern there.
+      const held = [...heldPads].find((p) => p !== pad);
+      if (held !== undefined) {
+        copyPattern(held, pad);
+        showTemp("Copied", `Pattern ${held + 1} > ${pad + 1}`);
+        break;
+      }
       // Hold Scene + pad = append to the song (Shift + pad is taken by the Launchkey).
       if (sequencer.repeatOn) {
         updateProject((p) => ({ ...p, song: [...p.song, { pattern: pad, repeats: 1 }] }));
@@ -219,6 +226,7 @@ function onPad(pad: number, vel: number, on: boolean) {
         showTemp("Pattern", `${pad + 1}${s.playing ? " (queued)" : ""}`);
       }
       break;
+    }
   }
 }
 

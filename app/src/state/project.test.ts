@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultProject, normalizeProject } from "./store";
+import { copyPattern, defaultProject, get, normalizeProject, set, undo } from "./store";
 import { PATTERN_COUNT, TRACK_COUNT } from "./types";
 
 describe("normalizeProject", () => {
@@ -51,5 +51,22 @@ describe("normalizeProject", () => {
     expect(ids).toHaveLength(4);
     expect(new Set(ids).size).toBe(4);
     expect(ids.slice(0, 2)).toEqual(["x", "xd"]);
+  });
+});
+
+describe("copyPattern", () => {
+  it("copies bars and notes with fresh ids, and undo restores the target", () => {
+    const p = defaultProject();
+    p.patterns[0] = { bars: 2, events: [{ id: "a", tick: 0, track: 0, note: 36, vel: 100, len: 10 }, { id: "b", tick: 96, track: 3, note: 38, vel: 90, len: 10 }] };
+    p.patterns[3] = { bars: 1, events: [{ id: "z", tick: 0, track: 5, note: 40, vel: 80, len: 10 }] };
+    set({ project: p, undo: [] });
+    copyPattern(0, 3);
+    const copy = get().project.patterns[3];
+    expect(copy.bars).toBe(2);
+    expect(copy.events.map(({ id: _id, ...e }) => e)).toEqual(p.patterns[0].events.map(({ id: _id, ...e }) => e));
+    expect(copy.events.some((e) => e.id === "a" || e.id === "b")).toBe(false);
+    expect(get().project.patterns[0]).toEqual(p.patterns[0]);
+    undo();
+    expect(get().project.patterns[3].events.map((e) => e.id)).toEqual(["z"]);
   });
 });

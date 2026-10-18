@@ -39,6 +39,7 @@ const SHORTCUTS: [string, string][] = [
   ["Pad on Duck page", "Make it the sidechain input"],
   ["Hold Scene + pads", "Note repeat (Play)"],
   ["Hold Scene + pad", "Add pattern to song (Pattern)"],
+  ["Hold pad + tap pad", "Copy pattern (Pattern)"],
   ["Double-tap pad", "Solo (Mixer)"],
 ];
 
