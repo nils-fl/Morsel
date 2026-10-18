@@ -268,9 +268,9 @@ function KitPanel() {
   return (
     <Section title="Kits" actions={
       <>
-        <button onClick={() => kitInput.current?.click()} title="Import one or more .launchkit-kit.json files">Import kits…</button>
+        <button onClick={() => kitInput.current?.click()} title="Import one or more .morsel-kit.json files">Import kits…</button>
         <button disabled={!name.trim()} title="Save the pads as a kit file with their samples, to share or keep" onClick={() => {
-          download(exportKit(name.trim(), drumPads()), `${name.trim()}.launchkit-kit.json`);
+          download(exportKit(name.trim(), drumPads()), `${name.trim()}.morsel-kit.json`);
         }}>Export kit…</button>
       </>
     }>

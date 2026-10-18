@@ -2,12 +2,13 @@
 import { get, set } from "../state/store";
 
 export type Theme = "dark" | "light";
-const KEY = "launchkit:theme";
+const KEY = "morsel:theme";
+const OLD_KEY = "launchkit:theme"; // before the rename
 
 /** The saved theme, or dark. Storage can be unavailable (private window, blocked site data). */
 export function savedTheme(): Theme {
   try {
-    return localStorage.getItem(KEY) === "light" ? "light" : "dark";
+    return (localStorage.getItem(KEY) ?? localStorage.getItem(OLD_KEY)) === "light" ? "light" : "dark";
   } catch {
     return "dark";
   }

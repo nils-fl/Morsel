@@ -1,4 +1,4 @@
-// Build LaunchKit kit files from a folder of sample packs (needs ffmpeg / ffprobe).
+// Build Morsel kit files from a folder of sample packs (needs ffmpeg / ffprobe).
 //
 //   node scripts/make-kits.mjs "<packs folder>" [out folder, default ../kits]
 //
@@ -197,8 +197,8 @@ async function buildPack(pack) {
     let name = `${kitName(pack) || "Kit"}${variants > 1 ? ` ${"AB"[v]}` : ""}`;
     for (let i = 2; usedNames.has(name); i++) name = `${kitName(pack) || "Kit"}${variants > 1 ? ` ${"AB"[v]}` : ""} (${i})`;
     usedNames.add(name);
-    const file = { format: "launchkit-kit", version: 1, name, folder: `Kits/${name}`, pads, samples };
-    const path = join(outDir, `${name}.launchkit-kit.json`);
+    const file = { format: "morsel-kit", version: 1, name, folder: `Kits/${name}`, pads, samples };
+    const path = join(outDir, `${name}.morsel-kit.json`);
     await writeFile(path, JSON.stringify(file));
     written.push(path);
     console.log(`+ ${name}: ${pads.filter((p) => p.sampleId).length}/16 pads from ${pack}`);

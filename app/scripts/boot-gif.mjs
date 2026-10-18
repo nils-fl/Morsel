@@ -30,7 +30,7 @@ try {
 
   const width = W * SCALE + PAD * 2;
   const height = H * SCALE + PAD * 2;
-  const dir = mkdtempSync(join(tmpdir(), "launchkit-boot-"));
+  const dir = mkdtempSync(join(tmpdir(), "morsel-boot-"));
 
   /** One frame as a binary PPM image. */
   function ppm(frame) {

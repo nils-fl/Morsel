@@ -20,13 +20,13 @@ boot().then(
   },
   (err: unknown) => {
     // Usually IndexedDB being unavailable (private window, blocked site data, full disk).
-    console.error("LaunchKit failed to start", err);
+    console.error("Morsel failed to start", err);
     const box = document.createElement("div");
     box.className = "boot-error";
     const title = document.createElement("strong");
-    title.textContent = "LaunchKit couldn't start";
+    title.textContent = "Morsel couldn't start";
     const msg = document.createElement("p");
-    msg.textContent = `${err instanceof Error ? err.message : String(err)}. LaunchKit stores samples and projects in the browser's storage (IndexedDB). Private windows or blocked site data can prevent that. Use a normal Chrome window and reload.`;
+    msg.textContent = `${err instanceof Error ? err.message : String(err)}. Morsel stores samples and projects in the browser's storage (IndexedDB). Private windows or blocked site data can prevent that. Use a normal Chrome window and reload.`;
     box.append(title, msg);
     root.replaceChildren(box);
   },

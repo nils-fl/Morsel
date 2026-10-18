@@ -7,11 +7,11 @@ import { mute, paletteCss } from "./palette";
 type ControlId = "strips" | "screen" | "shift" | "settings" | "play" | "record" | "octave" | "arpScale" | "padUp" | "padDown" | "encoders" | "pads" | "encUp" | "encDown" | "scene" | "func" | "keys";
 
 const CONTROLS: Record<ControlId, { name: string; does: string; shift?: string }> = {
-  strips: { name: "Pitch / Mod strips", does: "Handled by the Launchkey itself; LaunchKit doesn't use them yet." },
-  shift: { name: "Shift", does: "Hold for the second function of a button. With an encoder: fine steps. Shift + a pad is the Launchkey's own pad-mode shortcut (labels under the pads), so LaunchKit doesn't use it." },
-  settings: { name: "Settings", does: "The Launchkey's own settings menu. Not used by LaunchKit." },
+  strips: { name: "Pitch / Mod strips", does: "Handled by the Launchkey itself; Morsel doesn't use them yet." },
+  shift: { name: "Shift", does: "Hold for the second function of a button. With an encoder: fine steps. Shift + a pad is the Launchkey's own pad-mode shortcut (labels under the pads), so Morsel doesn't use it." },
+  settings: { name: "Settings", does: "The Launchkey's own settings menu. Not used by Morsel." },
   octave: { name: "Oct − / Oct +", does: "Shift the keyboard by octaves (handled by the Launchkey). Step mode on a drum track picks pads from the lowest 16 keys at the default octave." },
-  arpScale: { name: "Arp / Scale", does: "The Launchkey's own arpeggiator and scale mode. They work on the keys while LaunchKit plays them." },
+  arpScale: { name: "Arp / Scale", does: "The Launchkey's own arpeggiator and scale mode. They work on the keys while Morsel plays them." },
   encUp: { name: "Encoder page ⌃", does: "Previous encoder page (the arrows next to the encoders) of the selected track. Lit when there is a page to go to. Browse: previous item.", shift: "Enter / leave Browse (drum tracks)" },
   encDown: { name: "Encoder page ⌄", does: "Next encoder page of the selected track (drum tracks: Kit, Pad, Pad 2, Track FX, Mix, Global, Duck; keys tracks: Keys, LFO, Track FX, Mix, Global; Step mode adds Step first). Browse: next item. Chop: nothing.", shift: "Enter / leave Chop (the selected pad's sample, or the open chop)" },
   screen: { name: "Screen", does: "The header names the selected track (T2 Keys 1) and, on the right, the pattern and transport (P1 PLAY, REC, COUNT, SAMPLE), on every mode screen. Below in Play: the selected pad's waveform (Pad pages), the preset or sample list (Keys page), the duck curve (Duck), or the page's 8 encoders with their values (LFO, Track FX, Mix, Global). Otherwise: the 16-step grid (Step), the sample browser (Browse), the zoomed take with its slice markers (Chop), or the 16 pads as cells (Track, Mixer, Pattern). The footer names the mode or encoder page with its values. Switching mode or track pops up where you landed. Turning an encoder pops up its value (on the 8-encoder screens the cell lights up instead); the filters show their curve. Holding Shift shows what Shift does with each button." },
@@ -119,7 +119,7 @@ export function Guide() {
               <div><i /><span>Pitch</span></div>
               <div><i /><span>Mod</span></div>
             </div>
-            <button {...ctl("screen", "g-screen")}><span>LAUNCHKIT</span><span>P1 PLAY</span></button>
+            <button {...ctl("screen", "g-screen")}><span>MORSEL</span><span>P1 PLAY</span></button>
             <div className="g-btns">
               <button {...ctl("shift")}>Shift</button>
               <button {...ctl("settings")}>Settings</button>
@@ -223,7 +223,7 @@ export function Guide() {
           <h3 className="g-sub"><b>05</b> Good to know</h3>
           <ul className="g-notes">
             <li>Everything follows the selected track: Shift + Pad ⌃ / ⌄ steps through them, and the Track tab, the on-screen pads, the encoder pages and the Launchkey screen show only that track.</li>
-            <li>Close Ableton Live first: LaunchKit puts the Launchkey in DAW mode and takes over its pads, encoders, buttons and screen.</li>
+            <li>Close Ableton Live first: Morsel puts the Launchkey in DAW mode and takes over its pads, encoders, buttons and screen.</li>
             <li>Everything autosaves in this browser. Song tab → Export project to keep a copy with all samples.</li>
             <li>Drop audio files on an on-screen pad to load them. Folder → pads makes a folder the kit; Import folder only adds it to the browser.</li>
             <li>New drum tracks start with the Factory kit. The kit bar (Track tab), the Kit encoder page or Browse → Kits loads a kit; the Kits panel saves, renames, exports, imports (several at once) and deletes them.</li>
@@ -247,7 +247,7 @@ export function GuideOverlay({ onClose }: { onClose: () => void }) {
     <div className="g-overlay" onClick={onClose}>
       <div className="g-panel" role="dialog" aria-modal="true" aria-label="Guide" onClick={(e) => e.stopPropagation()}>
         <header className="g-head">
-          <strong>LAUNCHKIT</strong>
+          <strong>MORSEL</strong>
           <span>Guide · Launchkey Mini MK4</span>
           <button onClick={onClose}>Esc ✕</button>
         </header>

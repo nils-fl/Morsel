@@ -7,9 +7,10 @@ import { cancelKitLoad } from "../actions";
 import { releaseAll, setHwMode } from "../modes/controller";
 import { listKits, saveKit } from "./persist";
 import { FACTORY_KIT, type Pad, type Project } from "./types";
+import { KIT_FORMAT, PROJECT_FORMAT, isKitFormat, isProjectFormat } from "./fileFormat";
 
 interface FileSample { name: string; sampleRate: number; channels: string[] }
-interface ProjectFile { format: "launchkit"; version: number; project: Project; samples: Record<string, FileSample> }
+interface ProjectFile { format: typeof PROJECT_FORMAT; version: number; project: Project; samples: Record<string, FileSample> }
 
 function usedSampleIds(p: Project) {
   const ids = new Set<string>();
@@ -54,14 +55,14 @@ function encodeSamples(ids: Iterable<string>) {
 
 export async function exportProject(): Promise<Blob> {
   const project = get().project;
-  const file: ProjectFile = { format: "launchkit", version: PROJECT_VERSION, project, samples: encodeSamples(usedSampleIds(project)) };
+  const file: ProjectFile = { format: PROJECT_FORMAT, version: PROJECT_VERSION, project, samples: encodeSamples(usedSampleIds(project)) };
   return new Blob([JSON.stringify(file)], { type: "application/json" });
 }
 
 /** A kit file (the format importKit reads) with the pads and their samples. */
 export function exportKit(name: string, pads: Pad[]): Blob {
   const ids = new Set(pads.flatMap((pad) => (pad.sampleId ? [pad.sampleId] : [])));
-  const file = { format: "launchkit-kit", version: 1, name, pads, samples: encodeSamples(ids) };
+  const file = { format: KIT_FORMAT, version: 1, name, pads, samples: encodeSamples(ids) };
   return new Blob([JSON.stringify(file)], { type: "application/json" });
 }
 
@@ -119,7 +120,7 @@ async function readJson(f: File): Promise<Record<string, unknown>> {
   } catch {
     throw new Error("Not a JSON file");
   }
-  if (!isObj(data)) throw new Error("Not a LaunchKit file");
+  if (!isObj(data)) throw new Error("Not a Morsel file");
   return data;
 }
 
@@ -134,8 +135,8 @@ async function freeKitName(name: string) {
 /** Load a kit file onto the selected drum track's pads, add its samples to the library and save it under its name. Returns the name. */
 export async function importKit(f: File, eng: typeof Engine) {
   const file = await readJson(f);
-  if (file.format !== "launchkit-kit") throw new Error("Not a LaunchKit kit");
-  if (typeof file.version === "number" && file.version > PROJECT_VERSION) throw new Error("Made by a newer LaunchKit");
+  if (!isKitFormat(file.format)) throw new Error("Not a Morsel kit");
+  if (typeof file.version === "number" && file.version > PROJECT_VERSION) throw new Error("Made by a newer Morsel");
   if (!Array.isArray(file.pads)) throw new Error("Kit has no pads");
   const decoded = decodeSamples(file.samples);
   const folder = typeof file.folder === "string" ? file.folder : undefined;
@@ -152,9 +153,9 @@ export async function importKit(f: File, eng: typeof Engine) {
 
 export async function importProject(f: File, eng: typeof Engine) {
   const file = await readJson(f);
-  if (file.format !== "launchkit") throw new Error("Not a LaunchKit project");
+  if (!isProjectFormat(file.format)) throw new Error("Not a Morsel project");
   if (!isObj(file.project)) throw new Error("File has no project");
-  if (typeof file.version === "number" && file.version > PROJECT_VERSION) throw new Error("Made by a newer LaunchKit");
+  if (typeof file.version === "number" && file.version > PROJECT_VERSION) throw new Error("Made by a newer Morsel");
   const decoded = decodeSamples(file.samples);
   const p = normalizeProject(file.project);
   const idMap = await addSamples(eng, decoded);

@@ -1,10 +1,10 @@
-# LaunchKit
+# Morsel
 
 <p align="center">
-  <img src="docs/boot-animation.gif" alt="LaunchKit start-up animation on the Launchkey screen: a blob eats a waveform, burps, and the LAUNCHKIT logo bounces in" width="540">
+  <img src="docs/boot-animation.gif" alt="Morsel start-up animation on the Launchkey screen: a blob eats a waveform, burps, and the MORSEL logo bounces in" width="540">
 </p>
 
-A browser-based groovebox for the **Novation Launchkey Mini MK4 25**. LaunchKit puts the Launchkey in DAW mode over Web MIDI and takes over its pads, encoders, buttons and screen, turning it into a standalone sampler, step sequencer and song arranger. You don't need a DAW.
+A browser-based groovebox for the **Novation Launchkey Mini MK4 25**. Morsel puts the Launchkey in DAW mode over Web MIDI and takes over its pads, encoders, buttons and screen, turning it into a standalone sampler, step sequencer and song arranger. You don't need a DAW.
 
 ## Features
 
@@ -32,7 +32,7 @@ A browser-based groovebox for the **Novation Launchkey Mini MK4 25**. LaunchKit 
 - **Mixer** (Mixer tab): per track a filter, 3-band EQ, drive and compressor, pan, level, mute/solo, and sends to a shared reverb (A) and tempo-synced delay (B). The Launchkey has a **Track FX** encoder page (selected track) and a **Mix** page (encoders 1–8 = track levels). Bounces include the FX.
 - **Song mode**: chain patterns into a song, then bounce the song or one pattern to WAV.
 - **Browse** (Shift + Encoder-page ⌃, drum tracks): browse imported sample folders and kits from the hardware, with auto-preview.
-- **Drum kits**: a new project and every new drum track (*+ Drums*) start with the synthesized **Factory** kit. The **kit bar** at the top of a drum track's Track tab (◀, the kit list, ▶) works like the Keys presets: it loads the Factory kit or a saved kit onto that track and shows which kit it plays. On the Launchkey, the **Kit** encoder page (the first page of a drum track) scrolls the kits with encoder 1 and the screen lists them; Browse → Kits works too. The Kits panel saves (asking before it replaces one), renames (pick a kit, type the new name, *Rename*), exports (a `.launchkit-kit.json` with the samples), imports (several files at once) and deletes kits. *Folder → pads…* imports a folder and puts its first 16 samples (by name) on pads 1–16; on the Launchkey, Shift + Func on a sample folder in Browse does the same. Closed and open hats are put in the same choke group.
+- **Drum kits**: a new project and every new drum track (*+ Drums*) start with the synthesized **Factory** kit. The **kit bar** at the top of a drum track's Track tab (◀, the kit list, ▶) works like the Keys presets: it loads the Factory kit or a saved kit onto that track and shows which kit it plays. On the Launchkey, the **Kit** encoder page (the first page of a drum track) scrolls the kits with encoder 1 and the screen lists them; Browse → Kits works too. The Kits panel saves (asking before it replaces one), renames (pick a kit, type the new name, *Rename*), exports (a `.morsel-kit.json` with the samples), imports (several files at once) and deletes kits. *Folder → pads…* imports a folder and puts its first 16 samples (by name) on pads 1–16; on the Launchkey, Shift + Func on a sample folder in Browse does the same. Closed and open hats are put in the same choke group.
 - **Sampling**: Shift + Record arms a take from the audio input, the master out or a shared browser tab. Recording starts with the sound and stops on Shift + Record or at the maximum length (30 s, 2 minutes for a tab). The take opens in the Chop editor with its hits already marked (*Take → Chop*), or goes on the selected pad (*Take → pad*).
 - **Tab capture**: pick source *Browser tab* and click *Share tab…* once (tick "Share tab audio" in Chrome's picker). The share stays open, so Shift + Record on the Launchkey arms a take and recording starts when the tab plays.
 - **Keys presets**: 16 factory synth sounds (Sub Bass, Acid Bass, Reese, Pluck, Leads, Brass, Pads, Strings, Organ, Bell, …) plus your own (*Save as preset* on a keys track's Track tab). On the Launchkey, the **Keys** encoder page scrolls presets with encoder 1 (the screen lists them) and edits waves, detune, cutoff, resonance, env, attack and release with encoders 2–8. A * marks an edited preset.
@@ -70,7 +70,7 @@ npm install
 npm run dev
 ```
 
-Open the URL Vite prints and allow MIDI (with SysEx) access when the browser asks. The dot next to the LaunchKit logo turns green once the Launchkey is found.
+Open the URL Vite prints and allow MIDI (with SysEx) access when the browser asks. The dot next to the Morsel logo turns green once the Launchkey is found.
 
 Load samples by dropping audio files onto an on-screen pad, or use **Import folder** to add a whole folder to the browser.
 
@@ -101,7 +101,7 @@ app/src/
   browse/    Sample browser tree
   ui/        React panels (Pads, Sequencer, Keys, Mixer, Song/Matrix, Help, Lab)
   params.ts  Encoder pages and parameters
-kits/        Saved kit files (*.launchkit-kit.json, git-ignored: they embed samples)
+kits/        Saved kit files (*.morsel-kit.json, git-ignored: they embed samples)
 protocol_notes.md  DAW-mode protocol details measured on the hardware
 ```
 
@@ -111,7 +111,8 @@ The Launchkey's DAW-mode protocol differs from Novation's programmer's guide in 
 
 ## File formats
 
-- **Project** (`*.launchkit.json`): `{ format: "launchkit", version: 2, project, samples }`. Version 1 projects (one drum rack and one Keys instrument) load as a Drums and a Keys track.
-- **Kit** (`*.launchkit-kit.json`): `{ format: "launchkit-kit", version: 1, name, pads, samples }`.
+- **Project** (`*.morsel.json`): `{ format: "morsel", version: 2, project, samples }`. Version 1 projects (one drum rack and one Keys instrument) load as a Drums and a Keys track.
+- **Kit** (`*.morsel-kit.json`): `{ format: "morsel-kit", version: 1, name, pads, samples }`.
+- Files exported before the rename to Morsel (`*.launchkit.json`, `*.launchkit-kit.json`) still import.
 
 In both formats, the samples are stored as 16-bit PCM, base64-encoded per channel.

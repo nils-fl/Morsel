@@ -123,7 +123,7 @@ function TopBar({ onGuide }: { onGuide: () => void }) {
   return (
     <header className="topbar">
       <div className="brand">
-        <strong>LaunchKit</strong>
+        <strong>Morsel</strong>
         <span className={`dot ${s.connected ? "ok" : ""}`} title={s.connected ? "Launchkey connected" : "Launchkey not found"} />
         <button className="guide-btn" onClick={onGuide} title="Controls, modes and shortcuts (?)">? Guide</button>
         <button className="theme-btn" onClick={toggleTheme} title={s.theme === "light" ? "Switch to the dark theme" : "Switch to the light theme"} aria-label="Toggle light / dark theme">

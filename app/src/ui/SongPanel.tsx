@@ -76,7 +76,7 @@ export function SongPanel() {
       <Section title="Project">
         <div className="row">
           <input value={useApp((s) => s.project.name)} onChange={(e) => updateProject((p) => ({ ...p, name: e.target.value }), false)} />
-          <button onClick={async () => download(await exportProject(), `${get().project.name}.launchkit.json`)}>Export project</button>
+          <button onClick={async () => download(await exportProject(), `${get().project.name}.morsel.json`)}>Export project</button>
           <button onClick={() => importInput.current?.click()}>Import project…</button>
           <input ref={importInput} type="file" accept=".json" hidden onChange={async (e) => {
             const f = e.target.files?.[0];

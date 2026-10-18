@@ -88,7 +88,7 @@ export function bootFrame(ms: number): Frame | null {
     return f;
   }
   const t = Math.min(1, (ms - BOOT_BURP_MS) / 500);
-  const logo = "LAUNCHKIT";
+  const logo = "MORSEL";
   const lw = textWidth(logo) * 2;
   const y = Math.round(-16 + easeOutBounce(t) * (18 + 16));
   bigText(f, Math.floor((W - lw) / 2), y, logo);
