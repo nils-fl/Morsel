@@ -310,6 +310,31 @@ p.hint { margin: 0 0 8px; }
   .pad-row { gap: 5px; }
 }
 
+/* ---------- compact: short windows such as a 14" laptop (keep in sync with COMPACT_QUERY in App.tsx) ---------- */
+@media (max-height: 950px) {
+  .app { padding: 8px 14px 20px; }
+  .audio-banner { margin-bottom: 6px; padding: 5px 10px; }
+  .topbar { padding: 8px 10px; gap: 6px 14px; }
+  .pad-grid { margin: 8px 0; padding: 6px; gap: 6px; }
+  .pad-row { gap: 6px; }
+  .pad { aspect-ratio: auto; height: 46px; padding: 3px 7px; }
+  .tabs { margin-bottom: 8px; }
+  .tabs button { padding-top: 5px; padding-bottom: 4px; }
+  .section { margin-bottom: 8px; padding: 0 10px 8px; }
+  .section > header { margin: 0 -10px 8px; min-height: 26px; }
+  .section .actions { padding: 2px 6px; }
+  .row { margin: 6px 0; }
+  .waveform { height: 84px; }
+  .sliders { margin-top: 6px; }
+  .slider { padding: 1px 0; }
+  .chop-wave canvas { height: 180px; }
+  .chop-overview { height: 28px; }
+  .mini-kb { height: 90px; }
+  .seq-grid { gap: 2px; padding: 6px; }
+  .cell { height: 19px; }
+  .seq-name, .ms { padding-top: 2px; padding-bottom: 2px; }
+}
+
 /* ---------- guide ---------- */
 .guide-btn { --page: var(--white); margin-left: 4px; }
 .g-overlay {

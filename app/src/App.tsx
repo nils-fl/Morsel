@@ -65,8 +65,23 @@ function AudioBanner() {
   return <button className="audio-banner">Audio is paused by the browser. Click anywhere to start it.</button>;
 }
 
+/** Short windows (e.g. a 14" laptop) get the compact layout; keep in sync with the media query in index.css. */
+const COMPACT_QUERY = "(max-height: 950px)";
+
+function useCompact() {
+  const [compact, setCompact] = useState(() => window.matchMedia(COMPACT_QUERY).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(COMPACT_QUERY);
+    const on = () => setCompact(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  return compact;
+}
+
 function TopBar({ onGuide }: { onGuide: () => void }) {
   const s = useApp((s) => s);
+  const compact = useCompact();
   const p = s.project;
   return (
     <header className="topbar">
@@ -75,7 +90,7 @@ function TopBar({ onGuide }: { onGuide: () => void }) {
         <span className={`dot ${s.connected ? "ok" : ""}`} title={s.connected ? "Launchkey connected" : "Launchkey not found"} />
         <button className="guide-btn" onClick={onGuide} title="Controls, modes and shortcuts (?)">? Guide</button>
       </div>
-      <div className="screen-slot"><ScreenPreview source={currentFrame} /></div>
+      <div className="screen-slot"><ScreenPreview source={currentFrame} scale={compact ? 2 : 3} /></div>
       <div className="transport">
         <button className={s.playing ? "on" : ""} onClick={togglePlay}>{s.playing ? "■ Stop" : "▶ Play"}</button>
         <button className={`rec ${s.recording ? "on" : ""}`} onClick={toggleRecord}>{s.countIn ? "Count-in…" : "● Rec"}</button>
