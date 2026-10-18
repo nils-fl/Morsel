@@ -1,5 +1,5 @@
 import { get, newId, set } from "../state/store";
-import { listSampleIds, loadSample, saveSample, type StoredSample } from "../state/persist";
+import { deleteSample, listSampleIds, loadSample, saveSample, type StoredSample } from "../state/persist";
 import { Voices } from "./voices";
 import { buildClick } from "./dsp";
 import type { SampleInfo } from "../state/types";
@@ -65,6 +65,14 @@ class Engine {
     const channels = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c).slice());
     await saveSample(id, { name, folder, sampleRate: buffer.sampleRate, channels });
     return id;
+  }
+
+  /** Drop a sample from memory, the library and storage. Callers clear references to it first. */
+  async removeSample(id: string) {
+    this.buffers.delete(id);
+    const { [id]: _gone, ...rest } = get().samples;
+    set({ samples: rest });
+    await deleteSample(id);
   }
 
   /** Decode and store a file. Folder defaults to the file's directory when picked via a folder input. */

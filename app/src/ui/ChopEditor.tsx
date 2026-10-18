@@ -1,7 +1,7 @@
 // Chop editor: place slice markers on a long recording, audition them, send the slices to pads.
 // The session (markers, view, selection) lives in the store so the Launchkey can drive it too (modes/chop.ts).
 import { useEffect, useRef, useState } from "react";
-import { autoMarkers, cropSample, openInChop, slicesToPads } from "../actions";
+import { autoMarkers, confirmDeleteSample, cropSample, openInChop, slicesToPads } from "../actions";
 import { addMarker, clampView, moveMarker, removeMarker, slicesFromMarkers, zeroCrossing } from "../audio/chop";
 import { engine } from "../audio/engine";
 import { chopPlay, chopPlayhead, chopPlaying, chopPlaySlice, chopStop, minSpan, newChop, updateChop } from "../modes/chop";
@@ -302,6 +302,7 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
         actions={
           <>
             {source}
+            <button onClick={() => confirmDeleteSample(sampleId)} title="Delete this sample from the library and every pad using it">Delete</button>
             <button onClick={crop} disabled={region[0] <= 0 && region[1] >= 1} title="Keep only the region between the outer markers as a new sample">Crop to region</button>
           </>
         }

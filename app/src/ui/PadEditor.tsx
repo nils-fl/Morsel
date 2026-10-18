@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { chopSelected, loadFilesToPads, openInChop, samplingLevel, shareTab, toggleSampling, unshareTab } from "../actions";
+import { chopSelected, confirmDeleteSample, loadFilesToPads, openInChop, samplingLevel, shareTab, toggleSampling, unshareTab } from "../actions";
 import { DECAY_MAX } from "../audio/dsp";
 import { hz } from "../params";
 import { engine } from "../audio/engine";
@@ -42,7 +42,8 @@ export function PadEditor() {
               for (const f of files) await engine.addFile(f).catch(() => undefined);
               set({ status: `Imported ${files.length} samples into the library` });
             }} />
-            <button onClick={() => updatePad(i, { sampleId: null, name: `Pad ${i + 1}` }, true)}>Clear</button>
+            <button onClick={() => updatePad(i, { sampleId: null, name: `Pad ${i + 1}` }, true)} title="Empty this pad (the sample stays in the library)">Clear</button>
+            <button disabled={!pad.sampleId} onClick={() => pad.sampleId && confirmDeleteSample(pad.sampleId)} title="Delete this pad's sample from the library and every pad using it">Delete sample</button>
           </>
         }
       >

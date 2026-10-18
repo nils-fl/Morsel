@@ -3,10 +3,10 @@ import { engine } from "./audio/engine";
 import { connectTab, disconnectTab, normalize, startRecording, tabConnected, type Recording } from "./audio/recorder";
 import { equalSlices, detectOnsets, slicesFromMarkers } from "./audio/chop";
 import { DECAY_MAX } from "./audio/dsp";
-import { newChop } from "./modes/chop";
+import { chopStop, newChop } from "./modes/chop";
 import { sequencer } from "./seq/sequencer";
 import { get, set, updatePad, updateProject } from "./state/store";
-import { PAD_COUNT, type SampleSource } from "./state/types";
+import { PAD_COUNT, type Project, type SampleSource } from "./state/types";
 
 export function playPad(i: number, vel: number) {
   engine.voices.pad(i, vel, engine.now);
@@ -174,6 +174,43 @@ export function openInChop() {
   const pad = s.project.pads[s.selectedPad];
   if (!pad.sampleId) return set({ status: "Selected pad has no sample" });
   set({ chop: newChop(pad.sampleId, [Math.min(pad.start, pad.end), Math.max(pad.start, pad.end)]), tab: "Chop" });
+}
+
+/** Pads and Keys zones using a sample. */
+export function sampleUsers(id: string) {
+  const p = get().project;
+  return { pads: p.pads.filter((pad) => pad.sampleId === id).length, zones: p.keys.zones.filter((z) => z.sampleId === id).length };
+}
+
+/**
+ * Delete a sample for good: clears the pads and Keys zones that use it and closes it in the chop editor.
+ * Not undoable (the audio is gone), so the pad changes skip the undo stack.
+ */
+export async function deleteSampleEverywhere(id: string) {
+  const name = get().samples[id]?.name ?? "sample";
+  if (get().chop?.sampleId === id) {
+    chopStop();
+    set({ chop: null });
+  }
+  const strip = (p: Project): Project => ({
+    ...p,
+    pads: p.pads.map((pad, i) => (pad.sampleId === id ? { ...pad, sampleId: null, name: `Pad ${i + 1}`, start: 0, end: 1 } : pad)),
+    keys: { ...p.keys, zones: p.keys.zones.filter((z) => z.sampleId !== id) },
+  });
+  updateProject(strip, false);
+  // Undo must not bring back pads pointing at audio that no longer exists.
+  set({ undo: get().undo.map(strip) });
+  await engine.removeSample(id);
+  set({ status: `Deleted ${name}` });
+}
+
+/** Ask, then delete. Says how many pads / Keys zones lose the sample. */
+export function confirmDeleteSample(id: string) {
+  const name = get().samples[id]?.name ?? "this sample";
+  const { pads, zones } = sampleUsers(id);
+  const used = [pads && `${pads} pad${pads === 1 ? "" : "s"}`, zones && `${zones} Keys zone${zones === 1 ? "" : "s"}`].filter(Boolean).join(" and ");
+  if (!window.confirm(`Delete “${name}”?${used ? ` It is used by ${used}, which will be cleared.` : ""} This can't be undone.`)) return;
+  void deleteSampleEverywhere(id);
 }
 
 /** Copy a region of a sample into a new library sample; returns its id. */
