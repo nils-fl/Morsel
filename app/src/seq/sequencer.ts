@@ -1,26 +1,29 @@
 import { engine } from "../audio/engine";
-import { addEvent, get, patternLength, set, setEventLength } from "../state/store";
-import type { NoteEvent, Pattern } from "../state/types";
-import { KEYS_TRACK } from "../state/types";
+import { scheduleNote } from "../audio/voices";
+import { addEvent, clipOf, get, patternLength, set, setEventLength } from "../state/store";
+import type { Clip, NoteEvent } from "../state/types";
 import { BAR_TICKS, PPQN, quantizeTick, secondsPerTick, swingOffsetTicks } from "./timing";
 
 const LOOKAHEAD = 0.12; // seconds scheduled ahead
 const TIMER_MS = 20;
 
-const indexCache = new WeakMap<Pattern, Map<number, NoteEvent[]>>();
-export function eventsByTick(pat: Pattern) {
-  let m = indexCache.get(pat);
+const indexCache = new WeakMap<Clip, Map<number, NoteEvent[]>>();
+export function eventsByTick(clip: Clip) {
+  let m = indexCache.get(clip);
   if (!m) {
     m = new Map();
-    for (const e of pat.events) {
+    for (const e of clip.events) {
       const list = m.get(e.tick) ?? [];
       list.push(e);
       m.set(e.tick, list);
     }
-    indexCache.set(pat, m);
+    indexCache.set(clip, m);
   }
   return m;
 }
+
+/** A pad held for note repeat. */
+export interface RepeatPad { track: string; pad: number; vel: number }
 
 // Timer in a worker: not throttled when the tab is hidden.
 export function makeTicker(cb: () => void) {
@@ -43,9 +46,10 @@ class Sequencer {
   /** Recorded notes that sounded live just before the loop end but were quantised to the next pass. */
   private skipNextPass = new Set<string>();
   private anchors: Anchor[] = [];
-  private openKeys = new Map<number, { id: string; tick: number; pattern: number }>();
-  /** Pads held for note repeat (pad -> velocity). */
-  repeatPads = new Map<number, number>();
+  /** Keys held while recording, by `${track}:${note}`. */
+  private openKeys = new Map<string, { id: string; track: string; tick: number; pattern: number }>();
+  /** Pads held for note repeat, by `${track}:${pad}`. */
+  repeatPads = new Map<string, RepeatPad>();
   repeatOn = false;
 
   start(opts: { countIn?: boolean } = {}) {
@@ -103,23 +107,22 @@ class Sequencer {
         if (tick % PPQN === 0) engine.click(t, tick % BAR_TICKS === 0);
       } else {
         if (s.metronome && tick % PPQN === 0) engine.click(t, tick % BAR_TICKS === 0);
-        const evs = eventsByTick(pat).get(tick);
-        if (evs) {
+        const when = t + swingOffsetTicks(tick, p.swing) * spt;
+        for (const track of p.tracks) {
+          const evs = eventsByTick(clipOf(pat, track.id)).get(tick);
+          if (!evs) continue;
           for (const e of evs) {
             if (this.skip.delete(e.id)) continue;
-            const when = t + swingOffsetTicks(tick, p.swing) * spt;
-            const lenSec = e.len * spt;
-            if (e.track === KEYS_TRACK) engine.voices.key(e.note, e.vel, when, lenSec);
-            else engine.voices.pad(e.track, e.vel, when, lenSec);
+            scheduleNote(engine.voices, track, e, when, e.len * spt);
           }
         }
         if (this.repeatOn && this.repeatPads.size && tick % s.repeatRate === 0) {
           const recording = s.recording && !s.countIn;
-          for (const [pad, vel] of this.repeatPads) {
+          for (const { track, pad, vel } of this.repeatPads.values()) {
             // Held across the loop while recording: the note from the last pass is already there and has just played.
-            if (recording && evs?.some((e) => e.track === pad)) continue;
-            engine.voices.pad(pad, vel, t + swingOffsetTicks(tick, p.swing) * spt, s.repeatRate * spt);
-            if (recording) addEvent(this.pattern, { tick, track: pad, note: 60, vel, len: s.repeatRate });
+            if (recording && eventsByTick(clipOf(pat, track)).get(tick)?.some((e) => e.note === pad)) continue;
+            engine.voices.pad(track, pad, vel, when, s.repeatRate * spt, true);
+            if (recording) addEvent(this.pattern, track, { tick, note: pad, vel, len: s.repeatRate });
           }
         }
       }
@@ -181,32 +184,33 @@ class Sequencer {
     else if (ev.tick >= this.nextTick) this.skip.add(ev.id);
   }
 
-  recordPad(pad: number, vel: number) {
+  recordPad(track: string, pad: number, vel: number) {
     const r = this.recordTick();
     if (!r) return;
-    const ev = addEvent(r.pattern, { tick: r.tick, track: pad, note: 60, vel, len: get().quantize || 24 });
+    const ev = addEvent(r.pattern, track, { tick: r.tick, note: pad, vel, len: get().quantize || 24 });
     this.skipIfAhead(ev, r);
   }
 
-  recordKeyOn(note: number, vel: number) {
+  recordKeyOn(track: string, note: number, vel: number) {
     const r = this.recordTick();
     if (!r) return;
-    const ev = addEvent(r.pattern, { tick: r.tick, track: KEYS_TRACK, note, vel, len: 24 });
+    const ev = addEvent(r.pattern, track, { tick: r.tick, note, vel, len: 24 });
     this.skipIfAhead(ev, r);
     const pos = this.tickAt();
-    this.openKeys.set(note, { id: ev.id, tick: pos ? pos.tick : r.tick, pattern: r.pattern });
+    this.openKeys.set(`${track}:${note}`, { id: ev.id, track, tick: pos ? pos.tick : r.tick, pattern: r.pattern });
   }
 
-  recordKeyOff(note: number) {
-    const open = this.openKeys.get(note);
+  recordKeyOff(track: string, note: number) {
+    const key = `${track}:${note}`;
+    const open = this.openKeys.get(key);
     if (!open) return;
-    this.openKeys.delete(note);
+    this.openKeys.delete(key);
     const pos = this.tickAt();
     if (!pos) return;
     const len = patternLength(get().project.patterns[open.pattern]);
     let dur = pos.tick - open.tick;
     if (dur < 0) dur += len;
-    setEventLength(open.pattern, open.id, Math.round(dur));
+    setEventLength(open.pattern, open.track, open.id, Math.round(dur));
   }
 }
 

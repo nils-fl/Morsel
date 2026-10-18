@@ -3,7 +3,7 @@ import { allPresets, applyPreset, deleteUserPreset, keyOff, keyOn, saveUserPrese
 import { FACTORY_PRESETS } from "../audio/synthPresets";
 import { presetLabel } from "../params";
 import { engine } from "../audio/engine";
-import { updateKeys, useApp } from "../state/store";
+import { keysTrack, updateKeys, useApp } from "../state/store";
 import type { SynthParams, Wave, Zone } from "../state/types";
 import { Field, Section, Slider } from "./controls";
 import { noteName, rootFromName } from "./notes";
@@ -13,8 +13,9 @@ const pct = (v: number) => `${Math.round(v * 100)}%`;
 const ms = (v: number) => (v >= 1 ? `${v.toFixed(2)} s` : `${Math.round(v * 1000)} ms`);
 
 export function KeysPanel() {
-  const keys = useApp((s) => s.project.keys);
-  const pads = useApp((s) => s.project.pads);
+  const keys = useApp((s) => keysTrack(s).keys!);
+  const trackName = useApp((s) => keysTrack(s).name);
+  const drumTracks = useApp((s) => s.project.tracks).filter((t) => t.kind === "drum");
   const dirInput = useRef<HTMLInputElement>(null);
   const synth = keys.synth;
   const upSynth = (patch: Partial<SynthParams>) => updateKeys({ synth: { ...synth, ...patch } });
@@ -33,7 +34,7 @@ export function KeysPanel() {
 
   return (
     <div className="keys-panel">
-      <Section title="Keys instrument">
+      <Section title={`${trackName} · Keys instrument`}>
         <div className="row">
           {(["synth", "chromatic", "multi"] as const).map((t) => (
             <button key={t} className={keys.type === t ? "on" : ""} onClick={() => updateKeys({ type: t })}>
@@ -74,8 +75,15 @@ export function KeysPanel() {
         <Section title="Pad sample on keys">
           <p className="hint">Plays a pad's sample across the keyboard. C4 = original pitch. Uses that pad's start, end, filter and envelope.</p>
           <Field label="Source pad">
-            <select value={keys.sourcePad} onChange={(e) => updateKeys({ sourcePad: Number(e.target.value) })}>
-              {pads.map((p, i) => <option key={i} value={i}>{i + 1}: {p.name}</option>)}
+            <select value={`${keys.sourceTrack}:${keys.sourcePad}`} onChange={(e) => {
+              const [track, pad] = e.target.value.split(":");
+              updateKeys({ sourceTrack: track, sourcePad: Number(pad) });
+            }}>
+              {drumTracks.map((t) => (
+                <optgroup key={t.id} label={t.name}>
+                  {t.pads.map((p, i) => <option key={i} value={`${t.id}:${i}`}>{i + 1}: {p.name}</option>)}
+                </optgroup>
+              ))}
             </select>
           </Field>
         </Section>
@@ -101,9 +109,9 @@ export function KeysPanel() {
 
 /** Pick, step through, save and delete Keys synth presets. Launchkey: encoder page Keys, encoder 1. */
 function PresetBar() {
-  const current = useApp((s) => s.project.keys.preset);
+  const current = useApp((s) => keysTrack(s).keys!.preset);
   const userPresets = useApp((s) => s.userPresets);
-  useApp((s) => s.project.keys); // re-render the "*" when the synth is edited
+  useApp((s) => keysTrack(s).keys); // re-render the "*" when the synth is edited
   const [name, setName] = useState("");
   const list = allPresets();
   const i = list.findIndex((p) => p.name === current);

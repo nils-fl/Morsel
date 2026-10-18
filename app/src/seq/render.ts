@@ -1,8 +1,7 @@
-import { Voices } from "../audio/voices";
+import { scheduleNote, Voices } from "../audio/voices";
 import { engine } from "../audio/engine";
-import { patternLength } from "../state/store";
+import { clipOf, patternLength } from "../state/store";
 import type { Project } from "../state/types";
-import { KEYS_TRACK } from "../state/types";
 import { secondsPerTick, swingOffsetTicks } from "./timing";
 
 const SR = 44100;
@@ -22,10 +21,8 @@ export async function renderToBuffer(p: Project, order: number[]): Promise<Audio
   let offset = 0;
   for (const i of order) {
     const pat = p.patterns[i];
-    for (const e of pat.events) {
-      const when = (offset + e.tick + swingOffsetTicks(e.tick, p.swing)) * spt;
-      if (e.track === KEYS_TRACK) voices.key(e.note, e.vel, when, e.len * spt);
-      else voices.pad(e.track, e.vel, when, e.len * spt);
+    for (const t of p.tracks) {
+      for (const e of clipOf(pat, t.id).events) scheduleNote(voices, t, e, (offset + e.tick + swingOffsetTicks(e.tick, p.swing)) * spt, e.len * spt);
     }
     offset += patternLength(pat);
   }

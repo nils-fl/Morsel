@@ -1,6 +1,5 @@
 export const PAD_COUNT = 16;
-export const KEYS_TRACK = 16;
-export const TRACK_COUNT = 17;
+export const MAX_TRACKS = 8;
 export const PATTERN_COUNT = 16;
 
 export interface Pad {
@@ -46,6 +45,8 @@ export interface Zone {
 
 export interface KeysInstrument {
   type: "synth" | "chromatic" | "multi";
+  /** Drum track and pad whose sample "chromatic" plays across the keyboard. */
+  sourceTrack: string;
   sourcePad: number;
   zones: Zone[];
   multiName: string;
@@ -55,18 +56,64 @@ export interface KeysInstrument {
   volume: number;
 }
 
+export type TrackKind = "drum" | "keys";
+
+/** Insert effects of a track, in signal order. Neutral values leave the sound untouched. */
+export interface TrackFx {
+  filter: "off" | "lp" | "hp" | "bp";
+  cutoff: number; // 0..1
+  resonance: number; // 0..1
+  eqLow: number; // dB, -15..15
+  eqMid: number;
+  eqHigh: number;
+  drive: number; // 0..1
+  comp: number; // 0..1 amount (0 = off)
+}
+
+export interface Track {
+  id: string;
+  name: string;
+  color: number; // Launchkey palette index
+  kind: TrackKind;
+  /** Drum tracks: the 16 pads. Keys tracks: empty. */
+  pads: Pad[];
+  /** Keys tracks only. */
+  keys: KeysInstrument | null;
+  /** Mute / solo of the pads inside a drum rack. */
+  padMutes: boolean[];
+  padSolos: boolean[];
+  level: number; // 0..1
+  pan: number; // -1..1
+  mute: boolean;
+  solo: boolean;
+  /** Post-fader sends to the shared reverb (A) and delay (B), 0..1. */
+  sendA: number;
+  sendB: number;
+  fx: TrackFx;
+}
+
+/** A note in a clip. On drum tracks `note` is the pad index (0..15). */
 export interface NoteEvent {
   id: string;
   tick: number;
-  track: number; // 0..15 pads, 16 keys
   note: number;
   vel: number; // 1..127
   len: number; // ticks
 }
 
+export interface Clip {
+  events: NoteEvent[];
+}
+
+/** A sequence: a length and one clip per track (by track id; a track without one is silent here). */
 export interface Pattern {
   bars: number;
-  events: NoteEvent[];
+  clips: Record<string, Clip>;
+}
+
+export interface Returns {
+  reverb: { size: number; decay: number; level: number }; // size, decay 0..1; level 0..1
+  delay: { time: number; feedback: number; tone: number; level: number }; // time in 16ths (1..16)
 }
 
 export interface SongStep {
@@ -78,32 +125,36 @@ export interface Project {
   name: string;
   bpm: number;
   swing: number; // 50..75 (%)
-  pads: Pad[];
-  keys: KeysInstrument;
+  tracks: Track[];
   patterns: Pattern[];
   song: SongStep[];
-  mutes: boolean[];
-  solos: boolean[];
-  levels: number[]; // per track 0..1
   duck: DuckSettings;
+  returns: Returns;
 }
 
-/** Sidechain ducker: hits on `source` dip the `target` track. */
+/**
+ * Who a duck dips: every pad and track but the source (DUCK_ALL), a whole track (its id),
+ * or one pad of a drum track (`${trackId}:${pad}`).
+ */
+export type DuckTarget = string;
+
+/** Sidechain ducker: hits on the source pad dip the target. */
 export interface DuckSettings {
   on: boolean;
-  source: number; // pad 0..15
-  target: number; // track 0..16 (16 = Keys), or DUCK_ALL for every track but the source
+  sourceTrack: string; // a drum track
+  sourcePad: number; // 0..15
+  target: DuckTarget;
   depth: number; // 0..1
   attack: number; // seconds, 0..0.05
   hold: number; // seconds at full depth before recovering, 0..0.5
   release: number; // seconds, 0.02..1
 }
 
-export const DUCK_ALL = -1;
+export const DUCK_ALL = "all";
 
-export type HwMode = "play" | "step" | "mixer" | "pattern" | "browse" | "chop";
+export type HwMode = "play" | "step" | "track" | "mixer" | "pattern" | "browse" | "chop";
 
-export const TABS = ["Pads", "Chop", "Sequencer", "Keys", "Song", "Help", "Lab"] as const;
+export const TABS = ["Pads", "Chop", "Sequencer", "Keys", "Mixer", "Song", "Help", "Lab"] as const;
 export type Tab = (typeof TABS)[number];
 
 export type SampleSource = "input" | "master" | "tab";

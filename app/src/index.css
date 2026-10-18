@@ -560,3 +560,44 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
 .boot-error { max-width: 560px; margin: 15vh auto; padding: 18px 20px; border: 1px solid var(--rec); background: var(--panel); }
 .boot-error strong { display: block; color: var(--rec); margin-bottom: 8px; }
 .boot-error p { margin: 0; color: var(--text); line-height: 1.5; }
+
+/* ---------- tracks (top bar) ---------- */
+.tracks { grid-column: 1 / 3; display: flex; gap: 4px; align-items: center; flex-wrap: wrap; --page: var(--yellow); }
+.trk { display: flex; align-items: center; gap: 6px; max-width: 160px; border-left: 3px solid var(--trk); text-transform: none; letter-spacing: 0; }
+.trk i { font-style: normal; color: var(--trk); font-variant-numeric: tabular-nums; }
+.trk span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trk em { font-style: normal; font-size: 8px; letter-spacing: .08em; color: var(--muted); border: 1px solid var(--line-hi); padding: 0 3px; }
+.trk.on { background: color-mix(in srgb, var(--trk) var(--tint), var(--panel)); border-color: var(--trk); color: var(--text); }
+.trk.muted span { opacity: .45; text-decoration: line-through; }
+.trk-actions { display: flex; gap: 4px; margin-left: 6px; }
+
+/* ---------- mixer ---------- */
+.mixer-panel { --page: var(--yellow); }
+.mixer { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(150px, 1fr); gap: 6px; overflow-x: auto; }
+.channel { border: 1px solid var(--line); border-top: 3px solid var(--trk); padding: 6px; background: var(--panel); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.channel.on { border-color: var(--trk); background: color-mix(in srgb, var(--trk) 8%, var(--panel)); }
+.channel header { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.channel header i { font-style: normal; color: var(--trk); }
+.channel header input { flex: 1; min-width: 0; }
+.channel .row { margin: 4px 0; gap: 4px; }
+.channel .row select { flex: 1; min-width: 0; }
+.channel h4 { margin: 6px 0 0; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+.channel .slider { grid-template-columns: 52px 1fr 50px; gap: 4px; }
+.returns { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.returns h4 { margin: 0 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--page); }
+
+/* ---------- matrix ---------- */
+.matrix { display: grid; grid-template-columns: 34px repeat(var(--cols), minmax(70px, 1fr)); gap: 2px; overflow-x: auto; }
+.mx-row { display: contents; }
+.mx-head { border-bottom: 2px solid var(--trk); text-transform: none; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mx-head.on { background: color-mix(in srgb, var(--trk) var(--tint), var(--panel)); color: var(--text); }
+.mx-num { padding: 0; font-variant-numeric: tabular-nums; }
+.mx-row.now .mx-num { background: color-mix(in srgb, var(--page) var(--tint), var(--panel)); color: var(--page); border-color: var(--page); }
+.mx-row.queued .mx-num { animation: blink .5s steps(2) infinite; }
+.mx-cell { height: 20px; padding: 2px 3px; border-radius: 0; }
+.mx-row.now .mx-cell { border-color: var(--line-hi); }
+.mx-cell.used { background: color-mix(in srgb, var(--trk) 14%, var(--panel)); }
+.mx-cell.sel { outline: 1px solid var(--trk); outline-offset: -1px; }
+.mx-dens { display: grid; grid-template-columns: repeat(var(--steps), 1fr); gap: 1px; height: 100%; align-items: end; }
+.mx-dens i { height: 30%; background: color-mix(in srgb, var(--trk) 25%, transparent); }
+.mx-dens i.on { height: 100%; background: var(--trk); }

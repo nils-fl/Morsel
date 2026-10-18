@@ -1,7 +1,7 @@
 // Overview of the hardware mapping, modes and encoder pages. Shown in the Help tab and as an overlay.
 import { useEffect, useState } from "react";
 import { PAGES } from "../params";
-import { useApp } from "../state/store";
+import { drumPads, useApp } from "../state/store";
 import { mute, paletteCss } from "./palette";
 
 type ControlId = "strips" | "screen" | "shift" | "settings" | "play" | "record" | "octave" | "arpScale" | "padUp" | "padDown" | "encoders" | "pads" | "encUp" | "encDown" | "scene" | "func" | "keys";
@@ -20,10 +20,10 @@ const CONTROLS: Record<ControlId, { name: string; does: string; shift?: string }
   record: { name: "Record", does: "Stopped: 1-bar count-in, then overdub. Playing: recording on / off.", shift: "Sample the audio input onto the selected pad (press again to stop). Browser tab: share the tab once on screen, then this starts and stops takes." },
   padUp: { name: "Pad ⌃", does: "The arrow left of the top pad row. Previous pattern. Step mode: previous bar. Browse: up a folder.", shift: "Enter / leave Browse" },
   padDown: { name: "Pad ⌄", does: "The arrow left of the bottom pad row. Next pattern. Step mode: next bar. Browse: open folder / load onto the pad." },
-  pads: { name: "Pads", does: "Depends on the mode (see Modes). Pressure opens the pad's filters." },
-  scene: { name: "Scene ›", does: "The › button right of the top pad row. Hold while playing pads: note repeat. Pattern mode: hold + pad adds that pattern to the song. Browse: up a folder.", shift: "Clear the selected track in this pattern" },
-  func: { name: "Func", does: "The button right of the bottom pad row. Cycle pad modes: Play → Step → Mixer → Pattern. Browse: open folder / load onto the pad.", shift: "Undo" },
-  keys: { name: "Keys", does: "Play the Keys instrument, recorded into the Keys track. Step mode: pick the track (lowest 16 keys = pads 1–16). The Launchkey's Arp and Scale still work." },
+  pads: { name: "Pads", does: "Depends on the mode (see Modes). In Play they play the drum track (the last drum track you selected). Pressure opens the pad's filters." },
+  scene: { name: "Scene ›", does: "The › button right of the top pad row. Hold while playing pads: note repeat. Pattern mode: hold + pad adds that pattern to the song. Browse: up a folder.", shift: "Clear the selected track's clip in this pattern (Step mode on a drum track: the selected pad's notes)" },
+  func: { name: "Func", does: "The button right of the bottom pad row. Cycle pad modes: Play → Step → Track → Mixer → Pattern. Browse: open folder / load onto the pad.", shift: "Undo" },
+  keys: { name: "Keys", does: "Play the keys track (the last keys track you selected), recorded into its clip. Step mode on a drum track: pick the pad (lowest 16 keys = pads 1–16); on a keys track: the note the step pads write. The Launchkey's Arp and Scale still work." },
 };
 
 // Controls the Launchkey handles itself (drawn faded).
@@ -33,14 +33,15 @@ const SHORTCUTS: [string, string][] = [
   ["Shift + Play", "Metronome"],
   ["Shift + Record", "Sample (input, master or shared tab) → selected pad"],
   ["Shift + Func", "Undo"],
-  ["Shift + Scene", "Clear selected track"],
+  ["Shift + Scene", "Clear selected track's clip"],
   ["Shift + Pad ⌃", "Browse on / off"],
   ["Shift + Encoder", "Fine steps"],
   ["Pad on Duck page", "Make it the sidechain input"],
   ["Hold Scene + pads", "Note repeat (Play)"],
   ["Hold Scene + pad", "Add pattern to song (Pattern)"],
   ["Hold pad + tap pad", "Copy pattern (Pattern)"],
-  ["Double-tap pad", "Solo (Mixer)"],
+  ["Hold Scene + pad + tap pad", "Copy only the selected track's clip (Pattern)"],
+  ["Double-tap pad", "Solo (Mixer, Track bottom row)"],
 ];
 
 const OFF = "#2a2f35", DIM = "#4a525a", WHITE = "#e6e9ec", GREEN = mute("#2fe05a"), BLUE = mute("#3b5bff"), RED = mute("#6b1a1a"), YELLOW = mute("#ffe83b"), CYAN = mute("#3be7ff");
@@ -51,6 +52,11 @@ const stepLeds = (): Led[] => Array.from({ length: 16 }, (_, i) => {
   const step = i >= 8 ? i - 8 : i + 8; // top row = steps 1-8
   if (step === 6) return { c: WHITE };
   return { c: [0, 4, 8, 10, 12].includes(step) ? CYAN : step % 4 === 0 ? DIM : OFF };
+});
+const trackLeds = (): Led[] => Array.from({ length: 16 }, (_, i) => {
+  const cols = [mute("#ff3b3b"), mute("#8a3bff"), mute("#ff8a1f"), mute("#3be7ff")];
+  if (i >= 8) return i - 8 < 4 ? { c: cols[i - 8], blink: i === 9 } : { c: OFF };
+  return i < 4 ? { c: i === 2 ? RED : GREEN } : { c: OFF };
 });
 const mixerLeds = (): Led[] => Array.from({ length: 16 }, (_, i) => ({ c: i === 2 ? RED : i === 4 ? YELLOW : i < 12 ? GREEN : mute("#1a5c2a") }));
 const patternLeds = (): Led[] => Array.from({ length: 16 }, (_, i) => (i === 0 ? { c: GREEN } : i === 2 ? { c: GREEN, blink: true } : { c: i < 4 ? BLUE : OFF }));
@@ -71,7 +77,7 @@ function MiniPads({ leds }: { leds: Led[] }) {
 }
 
 export function Guide() {
-  const pads = useApp((s) => s.project.pads);
+  const pads = useApp(drumPads);
   const selected = useApp((s) => s.selectedPad);
   const [focus, setFocus] = useState<ControlId>("func");
   const c = CONTROLS[focus];
@@ -88,11 +94,12 @@ export function Guide() {
   const browseLeds: Led[] = pads.map((p, i) => (i === selected ? { c: WHITE, blink: true } : { c: p.sampleId ? `color-mix(in srgb, ${paletteCss(p.color)} 35%, ${OFF})` : OFF }));
 
   const modes = [
-    { name: "Play", color: "var(--amber)", leds: playLeds, how: "Start mode", pads: "Play samples, velocity-sensitive. The last pad hit is selected (pulsing).", enc: "Pad / Pad 2 / Global pages", keys: "Keys instrument" },
-    { name: "Step", color: "var(--cyan)", leds: stepLeds(), how: "Func ×1", pads: "16 steps of the selected track: top row 1–8, bottom row 9–16. White = playhead, dim = beats.", enc: "Same pages", keys: "Pick the track (and hear it)" },
-    { name: "Mixer", color: "var(--lime)", leds: mixerLeds(), how: "Func ×2", pads: "Tap = mute (red), double-tap = solo (yellow).", enc: "Same pages", keys: "Keys instrument" },
-    { name: "Pattern", color: "var(--violet)", leds: patternLeds(), how: "Func ×3", pads: "Pick a pattern (green). Blue = has notes. While playing the switch is queued (flashing) until the loop ends.", enc: "Same pages", keys: "Keys instrument" },
-    { name: "Browse", color: "var(--white)", leds: browseLeds, how: "Shift + Pad ⌃", pads: "Target a pad (flashes white) and audition it. Pad ⌄ / Func = open or load, Pad ⌃ / › = up a folder.", enc: "1 or 8 = scroll (auto-preview), 2 or 7 = jump by letter (Shift: by 8). ⌃ / ⌄ arrows = one item", keys: "Keys instrument" },
+    { name: "Play", color: "var(--amber)", leds: playLeds, how: "Start mode", pads: "Play samples, velocity-sensitive. The last pad hit is selected (pulsing).", enc: "Pad / Pad 2 / Global pages", keys: "Keys track" },
+    { name: "Step", color: "var(--cyan)", leds: stepLeds(), how: "Func ×1", pads: "16 steps of the selected track (drum track: the selected pad): top row 1–8, bottom row 9–16. White = playhead, dim = beats.", enc: "Same pages", keys: "Drum track: pick the pad. Keys track: pick the note" },
+    { name: "Track", color: "var(--yellow)", leds: trackLeds(), how: "Func ×2", pads: "Top row = select track 1–8 (pulsing = selected). Bottom row = mute track 1–8 (red), double-tap = solo.", enc: "Same pages (Mix: 8 track levels)", keys: "Keys track" },
+    { name: "Mixer", color: "var(--lime)", leds: mixerLeds(), how: "Func ×3", pads: "Pads of the drum track. Tap = mute (red), double-tap = solo (yellow).", enc: "Same pages", keys: "Keys track" },
+    { name: "Pattern", color: "var(--violet)", leds: patternLeds(), how: "Func ×4", pads: "Pick a pattern (green). Blue = has notes. While playing the switch is queued (flashing) until the loop ends.", enc: "Same pages", keys: "Keys track" },
+    { name: "Browse", color: "var(--white)", leds: browseLeds, how: "Shift + Pad ⌃", pads: "Target a pad (flashes white) and audition it. Pad ⌄ / Func = open or load, Pad ⌃ / › = up a folder.", enc: "1 or 8 = scroll (auto-preview), 2 or 7 = jump by letter (Shift: by 8). ⌃ / ⌄ arrows = one item", keys: "Keys track" },
   ];
 
   return (
@@ -164,7 +171,7 @@ export function Guide() {
 
       <section className="g-block">
         <h3><b>02</b> Pad modes</h3>
-        <p className="hint">Func cycles Play → Step → Mixer → Pattern. Browse sits outside the cycle.</p>
+        <p className="hint">Func cycles Play → Step → Track → Mixer → Pattern. Browse sits outside the cycle.</p>
         <div className="g-modes">
           {modes.map((m) => (
             <article key={m.name} className="g-mode" style={{ "--mode": m.color } as React.CSSProperties}>

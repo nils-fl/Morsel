@@ -3,11 +3,14 @@ import { allPresets, keyOff, keyOn, playPad, releasePad, toggleSampling, toggleP
 import { engine } from "../audio/engine";
 import { launchkey } from "../midi/launchkey";
 import { CC, COLOR, type LedMode, type PadLayout } from "../midi/protocol";
-import { DUCK_PAGE, KEYS_PAGE, PAGES, presetLabel, setDuck, trackLabel, turnEncoder } from "../params";
+import { DUCK_PAGE, KEYS_PAGE, PAGES, duckSourceLabel, duckTargetLabel, padLabel, presetLabel, setDuck, turnEncoder } from "../params";
 import { makeTicker, sequencer } from "../seq/sequencer";
 import { PPQN, STEP_TICKS } from "../seq/timing";
-import { type AppState, clearTrack, copyPattern, get, patternLength, set, toggleArray, toggleStep, undo, updateProject, KEYS_TRACK, PAD_COLORS } from "../state/store";
-import type { HwMode } from "../state/types";
+import {
+  type AppState, clearTrack, clipOf, copyClip, copyPattern, drumPads, drumTrack, get, keysTrack, patternHasNotes, patternLength, selectTrack,
+  selectedTrack, set, togglePadFlag, toggleStep, toggleTrackFlag, trackAudible, undo, updateProject, PAD_COLORS,
+} from "../state/store";
+import type { HwMode, Track } from "../state/types";
 import { stepForPad } from "./stepMap";
 import { activeOverlay, showTemp } from "./notify";
 import { chopEncoder, chopPad, chopPadLeds, chopView } from "./chop";
@@ -17,8 +20,8 @@ import { browserScreen, chopScreen, duckScreen, keysScreen, padScreen, stepScree
 import { HEADER_H, computePeaks, duckPanel, filterPanel, overlayBar, type Peaks } from "../display/widgets";
 import { BOOT_BURP_MS, BOOT_EAT_MS, bootFrame } from "../display/bootAnim";
 
-const MODES: HwMode[] = ["play", "step", "mixer", "pattern"];
-const MODE_NAMES: Record<HwMode, string> = { play: "Play", step: "Step", mixer: "Mixer", pattern: "Pattern", browse: "Browse", chop: "Chop" };
+const MODES: HwMode[] = ["play", "step", "track", "mixer", "pattern"];
+const MODE_NAMES: Record<HwMode, string> = { play: "Play", step: "Step", track: "Track", mixer: "Mixer", pattern: "Pattern", browse: "Browse", chop: "Chop" };
 /** Modes entered on top of another one; leaving them returns to prevHwMode. */
 const TEMPORARY: HwMode[] = ["browse", "chop"];
 
@@ -125,17 +128,26 @@ export function initController() {
   makeTicker(renderLoop)(33);
 }
 
-// Notes currently sounding on the Keys instrument, so a key released after a mode switch still stops.
-const instrumentKeys = new Set<number>();
+// Notes currently sounding on a keys track (note -> track), so a key released after a mode or track switch still stops.
+const instrumentKeys = new Map<number, string>();
 // Keys used to pick a sound in Step mode (pad index per note).
 const selectKeys = new Map<number, number>();
+/** Step mode on a keys track: the note the step pads write (the last key pressed). */
+let stepNote: number | null = null;
+
+/** "Kick" for the selected pad on a drum track, the track name for a keys track. */
+const trackItemName = (s: AppState, t: Track) => (t.kind === "drum" ? t.pads[s.selectedPad].name : t.name);
 
 /** Step mode: key -> pad, repeating every 16 keys. At the default octave the lowest key (C3 = 48) is pad 1. */
 export const padForKey = (note: number) => ((note % 16) + 16) % 16;
 
 function onKey(note: number, vel: number, on: boolean) {
   if (!on) {
-    if (instrumentKeys.delete(note)) keyOff(note);
+    const track = instrumentKeys.get(note);
+    if (track !== undefined) {
+      instrumentKeys.delete(note);
+      keyOff(note, track);
+    }
     const pad = selectKeys.get(note);
     if (pad !== undefined) {
       selectKeys.delete(note);
@@ -144,77 +156,120 @@ function onKey(note: number, vel: number, on: boolean) {
     return;
   }
   const s = get();
-  if (s.hwMode === "step") {
+  const sel = selectedTrack(s);
+  if (s.hwMode === "step" && sel.kind === "drum") {
     // Shift + pad is taken by the Launchkey's own pad-mode shortcut, so the keys pick the sound here.
     const pad = padForKey(note);
     selectKeys.set(note, pad);
-    set({ selectedTrack: pad, selectedPad: pad });
-    engine.voices.pad(pad, vel, engine.now);
-    showTemp("Track", `${pad + 1} ${s.project.pads[pad].name}`);
+    set({ selectedPad: pad });
+    engine.voices.pad(sel.id, pad, vel, engine.now);
+    showTemp("Pad", padLabel(sel.id, pad));
     return;
   }
-  instrumentKeys.add(note);
-  keyOn(note, vel);
+  if (s.hwMode === "step") {
+    // Keys track: the key you play is the note the step pads write.
+    stepNote = note;
+    instrumentKeys.set(note, keyOn(note, vel, sel.id));
+    return;
+  }
+  instrumentKeys.set(note, keyOn(note, vel));
 }
 
 const DOUBLE_TAP_MS = 300;
 let lastMixerTap = { pad: -1, at: 0 };
+
+/** Second tap of the same pad within DOUBLE_TAP_MS (Mixer and Track mode: double-tap = solo). */
+function tapIsDouble(pad: number) {
+  const now = performance.now();
+  const double = lastMixerTap.pad === pad && now - lastMixerTap.at < DOUBLE_TAP_MS;
+  lastMixerTap = double ? { pad: -1, at: 0 } : { pad, at: now };
+  return double;
+}
 
 function onPad(pad: number, vel: number, on: boolean) {
   const s = get();
   if (!on) {
     if (s.hwMode === "play") {
       releasePad(pad);
-      sequencer.repeatPads.delete(pad);
+      sequencer.repeatPads.delete(`${drumTrack(s).id}:${pad}`);
     }
     return;
   }
   switch (s.hwMode) {
     case "browse":
-      set({ selectedPad: pad, selectedTrack: pad });
+      set({ selectedPad: pad });
       browsePad();
       break;
     case "chop":
       chopPad(pad, vel);
       break;
-    case "play":
+    case "play": {
       // On the Duck page the pad you hit becomes the sidechain input.
-      if (s.encPage === DUCK_PAGE && s.project.duck.source !== pad) {
-        setDuck({ source: pad });
-        showTemp("Duck input", trackLabel(pad));
+      const drums = drumTrack(s);
+      if (s.encPage === DUCK_PAGE && (s.project.duck.sourceTrack !== drums.id || s.project.duck.sourcePad !== pad)) {
+        setDuck({ sourceTrack: drums.id, sourcePad: pad });
+        showTemp("Duck input", duckSourceLabel());
       }
       if (sequencer.repeatOn && s.playing) {
-        sequencer.repeatPads.set(pad, vel);
-        set({ selectedPad: pad, selectedTrack: pad });
+        sequencer.repeatPads.set(`${drums.id}:${pad}`, { track: drums.id, pad, vel });
+        set({ selectedPad: pad, selectedTrack: drums.id });
       } else playPad(pad, vel);
       break;
+    }
     case "step": {
       const pat = s.project.patterns[s.currentPattern];
       const tick = (s.stepPage * 16 + stepForPad(pad)) * STEP_TICKS;
       if (tick >= patternLength(pat)) break;
-      toggleStep(s.currentPattern, s.selectedTrack, tick, STEP_TICKS, 60, Math.max(vel, 40));
+      const t = selectedTrack(s);
+      const note = t.kind === "drum" ? s.selectedPad : stepNote ?? (t.keys?.type === "synth" ? 48 : 60);
+      toggleStep(s.currentPattern, t.id, tick, STEP_TICKS, note, Math.max(vel, 40));
+      break;
+    }
+    case "track": {
+      // Top row = select track 1-8. Bottom row = mute track 1-8, double-tap = solo.
+      const p = s.project;
+      if (pad >= 8) {
+        const t = p.tracks[pad - 8];
+        if (!t) break;
+        selectTrack(t.id);
+        showTemp(`Track ${pad - 7}`, `${t.name} (${t.kind === "drum" ? "pads" : "keys"})`);
+        break;
+      }
+      const t = p.tracks[pad];
+      if (!t) break;
+      const double = tapIsDouble(pad);
+      if (double) {
+        toggleTrackFlag(t.id, "mute");
+        toggleTrackFlag(t.id, "solo");
+      } else toggleTrackFlag(t.id, "mute");
+      const now = get().project.tracks.find((x) => x.id === t.id)!;
+      showTemp(t.name, double ? (now.solo ? "Solo" : "Solo off") : now.mute ? "Muted" : "On");
       break;
     }
     case "mixer": {
-      // Tap = mute. Double-tap = solo: the second tap undoes the first tap's mute and toggles solo.
-      const now = performance.now();
-      const double = lastMixerTap.pad === pad && now - lastMixerTap.at < DOUBLE_TAP_MS;
-      lastMixerTap = double ? { pad: -1, at: 0 } : { pad, at: now };
+      // Pads of the drum track. Tap = mute. Double-tap = solo: the second tap undoes the first tap's mute and toggles solo.
+      const t = drumTrack(s);
+      const double = tapIsDouble(pad);
       if (double) {
-        toggleArray("mutes", pad);
-        toggleArray("solos", pad);
-      } else toggleArray("mutes", pad);
-      engine.voices.updateMix();
-      const p = get().project;
-      showTemp(p.pads[pad].name, double ? (p.solos[pad] ? "Solo" : "Solo off") : p.mutes[pad] ? "Muted" : "On");
+        togglePadFlag(t.id, pad, "padMutes");
+        togglePadFlag(t.id, pad, "padSolos");
+      } else togglePadFlag(t.id, pad, "padMutes");
+      const now = drumTrack();
+      showTemp(now.pads[pad].name, double ? (now.padSolos[pad] ? "Solo" : "Solo off") : now.padMutes[pad] ? "Muted" : "On");
       break;
     }
     case "pattern": {
-      // Hold a pattern pad + tap another = copy the held pattern there.
+      // Hold a pattern pad + tap another = copy the held pattern there; with Scene held too, only the selected track's clip.
       const held = [...heldPads].find((p) => p !== pad);
       if (held !== undefined) {
-        copyPattern(held, pad);
-        showTemp("Copied", `Pattern ${held + 1} > ${pad + 1}`);
+        if (sequencer.repeatOn) {
+          const t = selectedTrack(s);
+          copyClip(held, pad, t.id);
+          showTemp("Copied clip", `${t.name} ${held + 1} > ${pad + 1}`);
+        } else {
+          copyPattern(held, pad);
+          showTemp("Copied", `Pattern ${held + 1} > ${pad + 1}`);
+        }
         break;
       }
       // Hold Scene + pad = append to the song (Shift + pad is taken by the Launchkey).
@@ -248,13 +303,17 @@ function onButton(button: string, down: boolean) {
   if (button === "scene") {
     // Hold for note repeat (Play) or song-append (Pattern); Shift+Scene clears the selected track in this pattern.
     if (down && s.shift) {
-      clearTrack(s.currentPattern, s.selectedTrack);
-      showTemp("Cleared", s.selectedTrack === KEYS_TRACK ? "Keys" : s.project.pads[s.selectedTrack].name);
+      // Step mode on a drum track clears the selected pad's notes; elsewhere the whole clip.
+      const t = selectedTrack(s);
+      const onePad = s.hwMode === "step" && t.kind === "drum";
+      clearTrack(s.currentPattern, t.id, onePad ? s.selectedPad : undefined);
+      showTemp("Cleared", onePad ? trackItemName(s, t) : t.name);
       return;
     }
     sequencer.repeatOn = down;
-    if (down) for (const p of heldPads) sequencer.repeatPads.set(p, 100);
-    else sequencer.repeatPads.clear();
+    const drums = drumTrack(s).id;
+    if (down && s.hwMode === "play") for (const p of heldPads) sequencer.repeatPads.set(`${drums}:${p}`, { track: drums, pad: p, vel: 100 });
+    else if (!down) sequencer.repeatPads.clear();
     return;
   }
   if (!down) return;
@@ -344,9 +403,11 @@ function transportState(s: AppState) {
 function stepsOf(s: AppState) {
   const pat = s.project.patterns[s.currentPattern];
   const len = patternLength(pat);
+  const t = selectedTrack(s);
+  const events = clipOf(pat, t.id).events.filter((e) => t.kind !== "drum" || e.note === s.selectedPad);
   return Array.from({ length: 16 }, (_, step) => {
     const tick = (s.stepPage * 16 + step) * STEP_TICKS;
-    return tick < len && pat.events.some((e) => e.track === s.selectedTrack && e.tick >= tick && e.tick < tick + STEP_TICKS);
+    return tick < len && events.some((e) => e.tick >= tick && e.tick < tick + STEP_TICKS);
   });
 }
 
@@ -368,7 +429,7 @@ function screenFor(s: AppState): Frame | null {
     case "play": {
       if (s.encPage === KEYS_PAGE) {
         const presets = allPresets();
-        const k = p.keys;
+        const k = keysTrack(s).keys!;
         return keysScreen({
           presets: presets.map((x) => ({ label: x.name, user: x.user })),
           index: Math.max(0, presets.findIndex((x) => x.name === k.preset)),
@@ -380,11 +441,11 @@ function screenFor(s: AppState): Frame | null {
       if (s.encPage === DUCK_PAGE) {
         const d = p.duck;
         return duckScreen({
-          ...d, source: trackLabel(d.source), target: trackLabel(d.target),
+          ...d, source: duckSourceLabel(), target: duckTargetLabel(d.target),
           level: engine.voices.duckLevel(d.target), summary: PAGES[DUCK_PAGE].summary(),
         });
       }
-      const pad = p.pads[s.selectedPad];
+      const pad = drumPads(s)[s.selectedPad];
       return padScreen({
         pad: s.selectedPad, name: pad.name, peaks: peaksFor(pad.sampleId), start: pad.start, end: pad.end,
         status: `P${s.currentPattern + 1} ${transportState(s)}`,
@@ -398,7 +459,7 @@ function screenFor(s: AppState): Frame | null {
     case "step":
       return stepScreen({
         pattern: s.currentPattern,
-        track: s.selectedTrack === KEYS_TRACK ? "Keys" : p.pads[s.selectedTrack].name,
+        track: trackItemName(s, selectedTrack(s)),
         bar: s.stepPage, bars: p.patterns[s.currentPattern].bars,
         steps: stepsOf(s), playhead: playheadStep(s),
         status: `${p.bpm}BPM ${transportState(s)}`,
@@ -448,7 +509,7 @@ function renderLoop() {
   if (s.hwMode === "browse") return showStationaryIfChanged(...browseDisplay());
   const p = s.project;
   const line1 = `P${s.currentPattern + 1} ${p.bpm}BPM ${transportState(s)}`;
-  const line2 = `${MODE_NAMES[s.hwMode]} ${s.hwMode === "step" ? `B${s.stepPage + 1} ` : ""}${s.selectedTrack === KEYS_TRACK ? "Keys" : p.pads[s.selectedPad].name}`;
+  const line2 = `${MODE_NAMES[s.hwMode]} ${s.hwMode === "step" ? `B${s.stepPage + 1} ` : ""}${trackItemName(s, selectedTrack(s))}`;
   showStationaryIfChanged(line1, line2);
 }
 
@@ -507,7 +568,7 @@ function padLeds(s: AppState) {
     let mode: LedMode = "static";
     switch (s.hwMode) {
       case "play": {
-        const pad = p.pads[i];
+        const pad = drumPads(s)[i];
         color = heldPads.has(i) ? COLOR.white : pad.sampleId ? pad.color : COLOR.off;
         if (i === s.selectedPad && !heldPads.has(i)) mode = "pulse";
         break;
@@ -515,16 +576,29 @@ function padLeds(s: AppState) {
       case "step": {
         const step = stepForPad(i);
         if ((s.stepPage * 16 + step) * STEP_TICKS >= len) break;
-        const trackColor = s.selectedTrack === KEYS_TRACK ? COLOR.purple : p.pads[s.selectedTrack].color;
+        const t = selectedTrack(s);
+        const trackColor = t.kind === "drum" ? t.pads[s.selectedPad].color : t.color;
         color = steps[step] ? trackColor : step % 4 === 0 ? COLOR.dimWhite : COLOR.off;
         if (step === head) color = COLOR.white;
         break;
       }
-      case "mixer":
-        color = p.solos[i] ? COLOR.yellow : p.mutes[i] ? COLOR.dimRed : p.pads[i].sampleId ? COLOR.green : COLOR.dimGreen;
+      case "track": {
+        // Top row: tracks in their colours, the selected one pulsing. Bottom row: their mute/solo state.
+        const t = p.tracks[i >= 8 ? i - 8 : i];
+        if (!t) break;
+        if (i >= 8) {
+          color = t.color;
+          if (t.id === s.selectedTrack) mode = "pulse";
+        } else color = t.solo ? COLOR.yellow : !trackAudible(p, t.id) ? COLOR.dimRed : COLOR.green;
         break;
+      }
+      case "mixer": {
+        const t = drumTrack(s);
+        color = t.padSolos[i] ? COLOR.yellow : t.padMutes[i] ? COLOR.dimRed : t.pads[i].sampleId ? COLOR.green : COLOR.dimGreen;
+        break;
+      }
       case "pattern": {
-        const has = p.patterns[i].events.length > 0;
+        const has = patternHasNotes(p.patterns[i]);
         color = i === s.currentPattern ? COLOR.green : has ? COLOR.blue : COLOR.off;
         if (i === s.queuedPattern) { color = COLOR.green; mode = "flash"; }
         break;

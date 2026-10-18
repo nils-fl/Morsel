@@ -1,5 +1,5 @@
 import { del, get as idbGet, keys, set as idbSet } from "idb-keyval";
-import type { Project, SampleInfo, SynthParams } from "./types";
+import type { Pad, Project, SampleInfo, SynthParams } from "./types";
 import { defaultKeys, normalizePads } from "./store";
 
 export interface StoredSample {
@@ -36,12 +36,12 @@ export async function listSampleIds(): Promise<string[]> {
 }
 
 // Named kits = pads only; samples stay shared.
-export async function saveKit(name: string, pads: Project["pads"]) {
+export async function saveKit(name: string, pads: Pad[]) {
   await idbSet(`kit:${name}`, pads);
 }
 
-export async function loadKit(name: string): Promise<Project["pads"] | undefined> {
-  const pads = await idbGet<Project["pads"]>(`kit:${name}`);
+export async function loadKit(name: string): Promise<Pad[] | undefined> {
+  const pads = await idbGet<Pad[]>(`kit:${name}`);
   return pads && normalizePads(pads);
 }
 

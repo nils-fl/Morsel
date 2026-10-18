@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { loadFilesToPads, playPad, releasePad } from "../actions";
-import { useApp } from "../state/store";
+import { drumPads, useApp } from "../state/store";
 import { paletteCss } from "./palette";
 
 const ROWS = [
@@ -9,7 +9,7 @@ const ROWS = [
 ];
 
 export function PadGrid() {
-  const pads = useApp((s) => s.project.pads);
+  const pads = useApp(drumPads);
   const selected = useApp((s) => s.selectedPad);
   const [hit, setHit] = useState<number | null>(null);
   const [dropOn, setDropOn] = useState<number | null>(null);

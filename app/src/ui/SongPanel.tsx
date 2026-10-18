@@ -2,8 +2,9 @@ import { useRef, useState } from "react";
 import { engine } from "../audio/engine";
 import { arrangement, download, encodeWav, renderToBuffer } from "../seq/render";
 import { exportProject, importProject } from "../state/projectFile";
-import { get, set, updateProject, useApp } from "../state/store";
+import { get, patternHasNotes, set, updateProject, useApp } from "../state/store";
 import { Section } from "./controls";
+import { Matrix } from "./Matrix";
 
 export function SongPanel() {
   const song = useApp((s) => s.project.song);
@@ -30,6 +31,7 @@ export function SongPanel() {
 
   return (
     <div className="song-panel">
+      <Matrix />
       <Section
         title="Song"
         actions={
@@ -38,16 +40,16 @@ export function SongPanel() {
               <input type="checkbox" checked={songMode} onChange={(e) => set({ songMode: e.target.checked })} />
               <span>Play as song</span>
             </label>
-            <button onClick={() => setSong((s) => [...s, { pattern: get().currentPattern, repeats: 1 }])}>+ Add current pattern</button>
+            <button onClick={() => setSong((s) => [...s, { pattern: get().currentPattern, repeats: 1 }])}>+ Add current sequence</button>
           </>
         }
       >
-        <p className="hint">Hardware: Function → Pattern mode, then hold Scene and tap a pad to add that pattern to the song.</p>
+        <p className="hint">Each step plays a sequence (a row of the matrix) with every track's clip. Hardware: Function → Pattern mode, then hold Scene and tap a pad to add that sequence to the song.</p>
         <ol className="song-list">
           {song.map((step, i) => (
             <li key={i}>
               <select value={step.pattern} onChange={(e) => setSong((s) => s.map((x, j) => (j === i ? { ...x, pattern: Number(e.target.value) } : x)))}>
-                {patterns.map((p, j) => <option key={j} value={j}>Pattern {j + 1}{p.events.length ? "" : " (empty)"}</option>)}
+                {patterns.map((p, j) => <option key={j} value={j}>Sequence {j + 1}{patternHasNotes(p) ? "" : " (empty)"}</option>)}
               </select>
               <span>×</span>
               <input type="number" min={1} max={64} value={step.repeats} onChange={(e) => setSong((s) => s.map((x, j) => (j === i ? { ...x, repeats: Math.max(1, Number(e.target.value)) } : x)))} />

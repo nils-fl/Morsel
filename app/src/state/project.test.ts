@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { copyPattern, defaultProject, get, normalizeProject, set, undo } from "./store";
-import { PATTERN_COUNT, TRACK_COUNT } from "./types";
+import {
+  DRUMS_ID, KEYS_ID, addTrack, canRemoveTrack, copyClip, copyPattern, defaultProject, get, migrateV1, normalizeProject, removeTrack, selectTrack, set, undo,
+} from "./store";
+import { DUCK_ALL, MAX_TRACKS, PATTERN_COUNT, type NoteEvent, type Project } from "./types";
+
+const ev = (id: string, tick: number, note: number): NoteEvent => ({ id, tick, note, vel: 100, len: 10 });
+const reset = (p: Project = defaultProject()) => set({ project: p, undo: [], selectedTrack: DRUMS_ID, drumTrack: DRUMS_ID, keysTrack: KEYS_ID });
+const keysOf = (p: Project) => p.tracks.find((t) => t.kind === "keys")!.keys!;
 
 describe("normalizeProject", () => {
   it("returns the defaults for junk", () => {
@@ -8,73 +14,197 @@ describe("normalizeProject", () => {
     expect(normalizeProject("nope")).toEqual(defaultProject());
   });
 
-  it("fills in fields an older project doesn't have", () => {
-    const p = normalizeProject({ name: "Old", bpm: 120, levels: [0.5, 0.5], keys: { type: "chromatic", synth: { cutoff: 0.9 } } });
-    expect(p.name).toBe("Old");
-    expect(p.bpm).toBe(120);
-    expect(p.levels).toHaveLength(TRACK_COUNT);
-    expect(p.levels.slice(0, 3)).toEqual([0.5, 0.5, 1]);
-    expect(p.mutes).toHaveLength(TRACK_COUNT);
-    expect(p.patterns).toHaveLength(PATTERN_COUNT);
-    expect(p.keys.type).toBe("chromatic");
-    expect(p.keys.synth.cutoff).toBe(0.9);
-    expect(p.keys.synth.release).toBe(defaultProject().keys.synth.release);
-    expect(p.keys.zones).toEqual([]);
+  it("round-trips a v2 project", () => {
+    const p = defaultProject();
+    p.patterns[2] = { bars: 2, clips: { [DRUMS_ID]: { events: [ev("a", 0, 3)] }, [KEYS_ID]: { events: [ev("b", 96, 64)] } } };
+    p.tracks[0].fx.drive = 0.4;
+    p.tracks[1].sendA = 0.5;
+    expect(normalizeProject(JSON.parse(JSON.stringify(p)))).toEqual(p);
   });
 
-  it("keeps the Keys preset name, and gives old projects the default", () => {
-    expect(normalizeProject({ keys: { type: "synth" } }).keys.preset).toBe("Init");
-    expect(normalizeProject({ keys: { preset: 5 } }).keys.preset).toBe("Init");
-    expect(normalizeProject({ keys: { preset: "Warm Pad" } }).keys.preset).toBe("Warm Pad");
+  it("always keeps a drum and a keys track, at most 8 tracks", () => {
+    expect(normalizeProject({ tracks: [] }).tracks.map((t) => t.kind)).toEqual(["drum", "keys"]);
+    const many = Array.from({ length: 12 }, (_, i) => ({ id: `t${i}`, kind: "drum" }));
+    const p = normalizeProject({ tracks: many });
+    expect(p.tracks).toHaveLength(MAX_TRACKS);
+    expect(p.tracks.some((t) => t.kind === "keys")).toBe(true);
   });
 
-  it("gives old projects the default ducker and clamps saved duck settings", () => {
-    expect(normalizeProject({ name: "Old" }).duck).toEqual(defaultProject().duck);
-    expect(normalizeProject({ duck: "junk" }).duck).toEqual(defaultProject().duck);
-    const d = normalizeProject({ duck: { on: true, source: 40, target: 7, depth: 3, attack: -1, hold: 9, release: 0.5 } }).duck;
-    expect(d).toEqual({ on: true, source: 15, target: 7, depth: 1, attack: 0, hold: 0.5, release: 0.5 });
-    // Saved before Hold existed: keeps its own settings, gets the default hold.
-    expect(normalizeProject({ duck: { on: true, depth: 0.5 } }).duck.hold).toBe(defaultProject().duck.hold);
-    expect(normalizeProject({ duck: { target: -1 } }).duck.target).toBe(-1); // all others
+  it("gives duplicate track ids fresh ones and drops clips of unknown tracks", () => {
+    const p = normalizeProject({
+      tracks: [{ id: "x", kind: "drum" }, { id: "x", kind: "keys" }],
+      patterns: [{ bars: 1, clips: { x: { events: [ev("a", 0, 1)] }, gone: { events: [ev("b", 0, 1)] } } }],
+    });
+    expect(new Set(p.tracks.map((t) => t.id)).size).toBe(2);
+    expect(Object.keys(p.patterns[0].clips)).toEqual(["x"]);
   });
 
   it("clamps values and drops broken events and song steps", () => {
     const p = normalizeProject({
       bpm: 9999,
       swing: "x",
-      patterns: [{ bars: 9, events: [{ id: "a", tick: 0, track: 0, note: 36, vel: 100, len: 10 }, { id: "b", tick: -5, track: 0 }, { id: "c", tick: 0, track: 99 }, null] }],
+      tracks: [{ id: "d", kind: "drum" }, { id: "k", kind: "keys" }],
+      patterns: [{ bars: 9, clips: { d: { events: [ev("a", 0, 0), { id: "b", tick: -5, note: 0 }, ev("c", 0, 99), null] } } }],
       song: [{ pattern: 3, repeats: 2 }, { pattern: 99, repeats: 1 }, "x"],
     });
     expect(p.bpm).toBe(240);
     expect(p.swing).toBe(defaultProject().swing);
     expect(p.patterns[0].bars).toBe(4);
-    expect(p.patterns[0].events.map((e) => e.id)).toEqual(["a"]);
+    expect(p.patterns[0].clips.d.events.map((e) => e.id)).toEqual(["a"]); // pad 99 doesn't exist on a drum track
     expect(p.song).toEqual([{ pattern: 3, repeats: 2 }]);
   });
 
   it("gives repeated event ids (from the old Double button) fresh ones", () => {
-    const ev = (id: string, tick: number) => ({ id, tick, track: 0, note: 36, vel: 100, len: 10 });
-    const p = normalizeProject({ patterns: [{ bars: 4, events: [ev("x", 0), ev("xd", 100), ev("xd", 200), ev("x", 300)] }] });
-    const ids = p.patterns[0].events.map((e) => e.id);
+    const p = normalizeProject({ patterns: [{ bars: 4, events: [ev("x", 0, 0), ev("xd", 100, 0), ev("xd", 200, 0), ev("x", 300, 0)].map(({ note, ...e }) => ({ ...e, track: note })) }] });
+    const ids = p.patterns[0].clips[DRUMS_ID].events.map((e) => e.id);
     expect(ids).toHaveLength(4);
     expect(new Set(ids).size).toBe(4);
     expect(ids.slice(0, 2)).toEqual(["x", "xd"]);
   });
+
+  it("resets a duck target or source that points at a missing track", () => {
+    const d = normalizeProject({ tracks: [{ id: "d", kind: "drum" }, { id: "k", kind: "keys" }], duck: { on: true, sourceTrack: "nope", sourcePad: 40, target: "nope:3", depth: 3 } }).duck;
+    expect(d).toMatchObject({ on: true, sourceTrack: "d", sourcePad: 15, target: DUCK_ALL, depth: 1 });
+    expect(normalizeProject({ tracks: [{ id: "d", kind: "drum" }, { id: "k", kind: "keys" }], duck: { target: "d:3" } }).duck.target).toBe("d:3");
+    expect(normalizeProject({ tracks: [{ id: "d", kind: "drum" }, { id: "k", kind: "keys" }], duck: { target: "k:3" } }).duck.target).toBe(DUCK_ALL); // keys tracks have no pads
+  });
 });
 
-describe("copyPattern", () => {
-  it("copies bars and notes with fresh ids, and undo restores the target", () => {
+describe("v1 migration", () => {
+  const v1 = {
+    name: "Old",
+    bpm: 120,
+    pads: [{ name: "Kick", sampleId: "s1" }],
+    keys: { type: "chromatic", sourcePad: 3, synth: { cutoff: 0.9 } },
+    patterns: [{ bars: 2, events: [{ id: "a", tick: 0, track: 0, note: 60, vel: 100, len: 24 }, { id: "b", tick: 96, track: 16, note: 64, vel: 90, len: 48 }, { id: "c", tick: 0, track: 5, note: 60, vel: 80, len: 24 }] }],
+    mutes: [true, ...Array(15).fill(false), true],
+    solos: Array(17).fill(false),
+    levels: [...Array(16).fill(1), 0.5],
+    duck: { on: true, source: 2, target: 16, depth: 0.5 },
+  };
+
+  it("turns pads and Keys into a drum and a keys track", () => {
+    const p = normalizeProject(v1);
+    expect(p.name).toBe("Old");
+    expect(p.tracks.map((t) => [t.id, t.kind])).toEqual([[DRUMS_ID, "drum"], [KEYS_ID, "keys"]]);
+    const [drums, keys] = p.tracks;
+    expect(drums.pads[0]).toMatchObject({ name: "Kick", sampleId: "s1" });
+    expect(drums.pads).toHaveLength(16);
+    expect(drums.padMutes[0]).toBe(true);
+    expect(drums.mute).toBe(false);
+    expect(keys.mute).toBe(true);
+    expect(keys.level).toBe(0.5);
+    expect(keys.keys).toMatchObject({ type: "chromatic", sourceTrack: DRUMS_ID, sourcePad: 3 });
+    expect(keys.keys!.synth.cutoff).toBe(0.9);
+    expect(keys.keys!.synth.release).toBe(defaultProject().tracks[1].keys!.synth.release);
+  });
+
+  it("splits pattern events into clips; drum notes become pad numbers", () => {
+    const pat = normalizeProject(v1).patterns[0];
+    expect(pat.bars).toBe(2);
+    expect(pat.clips[DRUMS_ID].events.map((e) => [e.id, e.note])).toEqual([["a", 0], ["c", 5]]);
+    expect(pat.clips[KEYS_ID].events).toEqual([{ id: "b", tick: 96, note: 64, vel: 90, len: 48 }]);
+  });
+
+  it("moves the ducker over", () => {
+    expect(normalizeProject(v1).duck).toMatchObject({ on: true, sourceTrack: DRUMS_ID, sourcePad: 2, target: KEYS_ID, depth: 0.5 });
+    expect(normalizeProject({ ...v1, duck: { target: 7 } }).duck.target).toBe(`${DRUMS_ID}:7`);
+    expect(normalizeProject({ ...v1, duck: { target: -1 } }).duck.target).toBe(DUCK_ALL);
+    expect(normalizeProject({ name: "Old" }).duck).toEqual(defaultProject().duck);
+  });
+
+  it("keeps the Keys preset name, and gives old projects the default", () => {
+    expect(keysOf(normalizeProject({ keys: { type: "synth" } })).preset).toBe("Init");
+    expect(keysOf(normalizeProject({ keys: { preset: 5 } })).preset).toBe("Init");
+    expect(keysOf(normalizeProject({ keys: { preset: "Warm Pad" } })).preset).toBe("Warm Pad");
+  });
+
+  it("leaves a v2 project alone", () => {
     const p = defaultProject();
-    p.patterns[0] = { bars: 2, events: [{ id: "a", tick: 0, track: 0, note: 36, vel: 100, len: 10 }, { id: "b", tick: 96, track: 3, note: 38, vel: 90, len: 10 }] };
-    p.patterns[3] = { bars: 1, events: [{ id: "z", tick: 0, track: 5, note: 40, vel: 80, len: 10 }] };
-    set({ project: p, undo: [] });
+    expect(migrateV1(p as unknown as Record<string, unknown>).tracks).toHaveLength(2);
+    expect(normalizeProject(p).patterns).toHaveLength(PATTERN_COUNT);
+  });
+});
+
+describe("tracks", () => {
+  it("adds up to 8 tracks and selects the new one", () => {
+    reset();
+    const id = addTrack("drum")!;
+    expect(get().selectedTrack).toBe(id);
+    expect(get().drumTrack).toBe(id);
+    expect(get().project.tracks.find((t) => t.id === id)!.name).toBe("Drums 2");
+    while (addTrack("keys"));
+    expect(get().project.tracks).toHaveLength(MAX_TRACKS);
+    expect(addTrack("keys")).toBeNull();
+  });
+
+  it("keeps the last drum and keys track", () => {
+    reset();
+    expect(canRemoveTrack(get().project, DRUMS_ID)).toBe(false);
+    removeTrack(KEYS_ID);
+    expect(get().project.tracks).toHaveLength(2);
+  });
+
+  it("removes a track with its clips and fixes references to it; undo brings it back", () => {
+    reset();
+    const id = addTrack("drum")!;
+    const p = get().project;
+    set({
+      project: {
+        ...p,
+        patterns: p.patterns.map((pat, i) => (i === 0 ? { ...pat, clips: { [id]: { events: [ev("a", 0, 1)] }, [DRUMS_ID]: { events: [ev("b", 0, 2)] } } } : pat)),
+        duck: { ...p.duck, sourceTrack: id, target: `${id}:4` },
+        tracks: p.tracks.map((t) => (t.keys ? { ...t, keys: { ...t.keys, type: "chromatic" as const, sourceTrack: id } } : t)),
+      },
+    });
+    removeTrack(id);
+    const after = get().project;
+    expect(after.tracks.map((t) => t.id)).toEqual([DRUMS_ID, KEYS_ID]);
+    expect(Object.keys(after.patterns[0].clips)).toEqual([DRUMS_ID]);
+    expect(after.duck).toMatchObject({ sourceTrack: DRUMS_ID, target: DUCK_ALL });
+    expect(keysOf(after).sourceTrack).toBe(DRUMS_ID);
+    expect(get().selectedTrack).toBe(DRUMS_ID);
+    expect(get().drumTrack).toBe(DRUMS_ID);
+    undo();
+    expect(get().project.tracks.map((t) => t.id)).toContain(id);
+  });
+
+  it("selecting a keys track hands it the keybed but leaves the pads on the drum track", () => {
+    reset();
+    const k = addTrack("keys")!;
+    selectTrack(DRUMS_ID);
+    selectTrack(k);
+    expect(get()).toMatchObject({ selectedTrack: k, keysTrack: k, drumTrack: DRUMS_ID });
+  });
+});
+
+describe("copyPattern / copyClip", () => {
+  it("copies bars and every clip with fresh ids, and undo restores the target", () => {
+    const p = defaultProject();
+    p.patterns[0] = { bars: 2, clips: { [DRUMS_ID]: { events: [ev("a", 0, 0), ev("b", 96, 3)] }, [KEYS_ID]: { events: [ev("k", 0, 60)] } } };
+    p.patterns[3] = { bars: 1, clips: { [DRUMS_ID]: { events: [ev("z", 0, 5)] } } };
+    reset(p);
     copyPattern(0, 3);
     const copy = get().project.patterns[3];
     expect(copy.bars).toBe(2);
-    expect(copy.events.map(({ id: _id, ...e }) => e)).toEqual(p.patterns[0].events.map(({ id: _id, ...e }) => e));
-    expect(copy.events.some((e) => e.id === "a" || e.id === "b")).toBe(false);
+    const strip = (es: NoteEvent[]) => es.map(({ id: _id, ...e }) => e);
+    expect(strip(copy.clips[DRUMS_ID].events)).toEqual(strip(p.patterns[0].clips[DRUMS_ID].events));
+    expect(strip(copy.clips[KEYS_ID].events)).toEqual(strip(p.patterns[0].clips[KEYS_ID].events));
+    expect(copy.clips[DRUMS_ID].events.some((e) => e.id === "a" || e.id === "b")).toBe(false);
     expect(get().project.patterns[0]).toEqual(p.patterns[0]);
     undo();
-    expect(get().project.patterns[3].events.map((e) => e.id)).toEqual(["z"]);
+    expect(get().project.patterns[3].clips[DRUMS_ID].events.map((e) => e.id)).toEqual(["z"]);
+  });
+
+  it("copyClip replaces one track's clip only, trimmed to the target's length", () => {
+    const p = defaultProject();
+    p.patterns[0] = { bars: 2, clips: { [DRUMS_ID]: { events: [ev("a", 0, 0), ev("late", 500, 1)] }, [KEYS_ID]: { events: [ev("k", 0, 60)] } } };
+    p.patterns[1] = { bars: 1, clips: { [DRUMS_ID]: { events: [ev("z", 0, 5)] }, [KEYS_ID]: { events: [ev("q", 0, 62)] } } };
+    reset(p);
+    copyClip(0, 1, DRUMS_ID);
+    const pat = get().project.patterns[1];
+    expect(pat.bars).toBe(1);
+    expect(pat.clips[DRUMS_ID].events.map((e) => e.note)).toEqual([0]);
+    expect(pat.clips[KEYS_ID].events.map((e) => e.id)).toEqual(["q"]);
   });
 });

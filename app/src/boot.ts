@@ -3,7 +3,7 @@ import { renderFactoryKit } from "./audio/kit";
 import { launchkey } from "./midi/launchkey";
 import { initController } from "./modes/controller";
 import { loadProject, loadSynthPresets, saveProject } from "./state/persist";
-import { defaultPad, defaultProject, get, normalizeProject, set, store } from "./state/store";
+import { DRUMS_ID, defaultPad, defaultProject, get, normalizeProject, set, store, updatePads } from "./state/store";
 
 export async function boot() {
   engine.init();
@@ -18,17 +18,17 @@ export async function boot() {
     const pads = await Promise.all(kit.map(async ({ name, buffer }, i) => ({ ...defaultPad(i), name, sampleId: await engine.addBuffer(name, buffer, "Factory") })));
     pads[4].choke = pads[5].choke = 1; // closed hat chokes open hat
     pads[12].decay = 2;
-    set({ project: { ...defaultProject(), pads } });
+    set({ project: defaultProject() });
+    updatePads(() => pads, false, DRUMS_ID);
   }
   engine.voices.updateMix();
 
-  // Autosave (debounced) and keep the mixer in sync with mutes/levels.
+  // Autosave (debounced) and keep the mixer in sync with the tracks, their FX and the returns.
   let timer = 0;
   store.subscribe((s, prev) => {
     if (s.project === prev.project) return;
-    if (s.project.mutes !== prev.project.mutes || s.project.solos !== prev.project.solos || s.project.levels !== prev.project.levels) {
-      engine.voices.updateMix();
-    }
+    const p = s.project, q = prev.project;
+    if (p.tracks !== q.tracks || p.returns !== q.returns || p.bpm !== q.bpm) engine.voices.updateMix();
     clearTimeout(timer);
     timer = window.setTimeout(() => saveProject(get().project), 500);
   });

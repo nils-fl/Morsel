@@ -5,29 +5,34 @@ import { equalSlices, detectOnsets, slicesFromMarkers } from "./audio/chop";
 import { DECAY_MAX } from "./audio/dsp";
 import { chopStop, newChop } from "./modes/chop";
 import { sequencer } from "./seq/sequencer";
-import { get, set, updateKeys, updatePad, updateProject } from "./state/store";
+import { drumPads, drumTrack, get, keysTrack, set, updateKeys, updatePad, updatePads, updateProject } from "./state/store";
 import { deleteSynthPreset, saveSynthPreset } from "./state/persist";
 import { FACTORY_PRESETS, type SynthPreset } from "./audio/synthPresets";
 import { PAD_COUNT, type Project, type SampleSource } from "./state/types";
 
+/** Play a pad of the drum track (the pads always play it) and record it when recording. */
 export function playPad(i: number, vel: number) {
-  engine.voices.pad(i, vel, engine.now);
-  if (get().selectedPad !== i) set({ selectedPad: i, selectedTrack: i });
-  sequencer.recordPad(i, vel);
+  const track = drumTrack().id;
+  engine.voices.pad(track, i, vel, engine.now, undefined, true);
+  const s = get();
+  if (s.selectedPad !== i || s.selectedTrack !== track) set({ selectedPad: i, selectedTrack: track });
+  sequencer.recordPad(track, i, vel);
 }
 
 export function releasePad(i: number) {
-  engine.voices.releasePad(i, engine.now);
+  engine.voices.releasePad(drumTrack().id, i, engine.now);
 }
 
-export function keyOn(note: number, vel: number) {
-  engine.voices.keyOn(note, vel, engine.now);
-  sequencer.recordKeyOn(note, vel);
+/** A note on the keys track (the keybed always plays it). Returns the track, which keyOff needs. */
+export function keyOn(note: number, vel: number, track = keysTrack().id) {
+  engine.voices.keyOn(track, note, vel, engine.now);
+  sequencer.recordKeyOn(track, note, vel);
+  return track;
 }
 
-export function keyOff(note: number) {
-  engine.voices.keyOff(note, engine.now);
-  sequencer.recordKeyOff(note);
+export function keyOff(note: number, track = keysTrack().id) {
+  engine.voices.keyOff(track, note, engine.now);
+  sequencer.recordKeyOff(track, note);
 }
 
 export function togglePlay() {
@@ -58,7 +63,7 @@ export async function saveUserPreset(name: string) {
   name = name.trim().slice(0, 24);
   if (!name) return;
   if (FACTORY_PRESETS.some((p) => p.name === name)) return set({ status: `“${name}” is a factory preset – pick another name` });
-  const params = { ...get().project.keys.synth };
+  const params = { ...keysTrack().keys!.synth };
   await saveSynthPreset(name, params);
   const others = get().userPresets.filter((p) => p.name !== name);
   set({ userPresets: [...others, { name, params, user: true }].sort((a, b) => a.name.localeCompare(b.name)), status: `Saved preset ${name}` });
@@ -163,14 +168,11 @@ export function autoMarkers(buf: AudioBuffer, range: [number, number], mode: "eq
 export function slicesToPads(sampleId: string, markers: number[], firstPad: number, baseName: string): number {
   const slices = slicesFromMarkers(markers).slice(0, PAD_COUNT - firstPad);
   const base = baseName.slice(0, 9);
-  updateProject((p) => ({
-    ...p,
-    pads: p.pads.map((pad, i) => {
-      const k = i - firstPad;
-      if (k < 0 || k >= slices.length) return pad;
-      const [start, end] = slices[k];
-      return { ...pad, sampleId, name: `${base} ${k + 1}`, start, end, decay: DECAY_MAX, mode: "oneshot", reverse: false };
-    }),
+  updatePads((pads) => pads.map((pad, i) => {
+    const k = i - firstPad;
+    if (k < 0 || k >= slices.length) return pad;
+    const [start, end] = slices[k];
+    return { ...pad, sampleId, name: `${base} ${k + 1}`, start, end, decay: DECAY_MAX, mode: "oneshot", reverse: false };
   }));
   return slices.length;
 }
@@ -178,21 +180,18 @@ export function slicesToPads(sampleId: string, markers: number[], firstPad: numb
 /** Chop the selected pad's sample across pads starting at the selected pad. */
 export function chopSelected(mode: "equal" | "transient", count: number) {
   const s = get();
-  const src = s.project.pads[s.selectedPad];
+  const src = drumPads(s)[s.selectedPad];
   if (!src.sampleId) return;
   const buf = engine.buffer(src.sampleId);
   if (!buf) return;
   const markers = autoMarkers(buf, [src.start, src.end], mode, count);
   const start = s.selectedPad;
   const slices = slicesFromMarkers(markers);
-  updateProject((p) => ({
-    ...p,
-    pads: p.pads.map((pad, i) => {
-      const k = i - start;
-      if (k < 0 || k >= slices.length) return pad;
-      const [s0, s1] = slices[k];
-      return { ...src, color: pad.color, name: `${src.name} ${k + 1}`, start: s0, end: s1, decay: 2 };
-    }),
+  updatePads((pads) => pads.map((pad, i) => {
+    const k = i - start;
+    if (k < 0 || k >= slices.length) return pad;
+    const [s0, s1] = slices[k];
+    return { ...src, color: pad.color, name: `${src.name} ${k + 1}`, start: s0, end: s1, decay: 2 };
   }));
   set({ status: `Chopped into ${slices.length} slices` });
 }
@@ -200,15 +199,18 @@ export function chopSelected(mode: "equal" | "transient", count: number) {
 /** Open the selected pad's sample in the chop editor, its region as the outer bounds. */
 export function openInChop() {
   const s = get();
-  const pad = s.project.pads[s.selectedPad];
+  const pad = drumPads(s)[s.selectedPad];
   if (!pad.sampleId) return set({ status: "Selected pad has no sample" });
   set({ chop: newChop(pad.sampleId, [Math.min(pad.start, pad.end), Math.max(pad.start, pad.end)]), tab: "Chop" });
 }
 
-/** Pads and Keys zones using a sample. */
+/** Pads and Keys zones using a sample, on every track. */
 export function sampleUsers(id: string) {
-  const p = get().project;
-  return { pads: p.pads.filter((pad) => pad.sampleId === id).length, zones: p.keys.zones.filter((z) => z.sampleId === id).length };
+  const tracks = get().project.tracks;
+  return {
+    pads: tracks.reduce((n, t) => n + t.pads.filter((pad) => pad.sampleId === id).length, 0),
+    zones: tracks.reduce((n, t) => n + (t.keys?.zones.filter((z) => z.sampleId === id).length ?? 0), 0),
+  };
 }
 
 /**
@@ -223,8 +225,11 @@ export async function deleteSampleEverywhere(id: string) {
   }
   const strip = (p: Project): Project => ({
     ...p,
-    pads: p.pads.map((pad, i) => (pad.sampleId === id ? { ...pad, sampleId: null, name: `Pad ${i + 1}`, start: 0, end: 1 } : pad)),
-    keys: { ...p.keys, zones: p.keys.zones.filter((z) => z.sampleId !== id) },
+    tracks: p.tracks.map((t) => ({
+      ...t,
+      pads: t.pads.map((pad, i) => (pad.sampleId === id ? { ...pad, sampleId: null, name: `Pad ${i + 1}`, start: 0, end: 1 } : pad)),
+      keys: t.keys && { ...t.keys, zones: t.keys.zones.filter((z) => z.sampleId !== id) },
+    })),
   });
   updateProject(strip, false);
   // Undo must not bring back pads pointing at audio that no longer exists.
@@ -255,7 +260,7 @@ export async function cropSample(id: string, start: number, end: number): Promis
 
 export async function loadFilesToPads(files: File[], firstPad: number) {
   const audio = files.filter((f) => /^audio\//.test(f.type) || /\.(wav|aiff?|mp3|ogg|flac|m4a)$/i.test(f.name));
-  for (let k = 0; k < audio.length && firstPad + k < 16; k++) {
+  for (let k = 0; k < audio.length && firstPad + k < PAD_COUNT; k++) {
     const id = await engine.addFile(audio[k]);
     updatePad(firstPad + k, { sampleId: id, name: audio[k].name.replace(/\.[^.]+$/, "").slice(0, 12), start: 0, end: 1 }, true);
   }

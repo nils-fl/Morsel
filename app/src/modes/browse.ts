@@ -3,7 +3,7 @@ import { engine } from "../audio/engine";
 import { Cursor, KITS, fitLine, fitName, jumpLetter, listDir, type Entry } from "../browse/tree";
 import { COLOR, type LedMode } from "../midi/protocol";
 import { listKits, loadKit } from "../state/persist";
-import { get, updatePad, updateProject } from "../state/store";
+import { drumPads, get, updatePad, updateProject } from "../state/store";
 import { showTemp } from "./notify";
 
 const PREVIEW_DELAY_MS = 150;
@@ -110,7 +110,7 @@ export function browseCan() {
 
 export function browseLeds(): { color: number; mode?: LedMode }[] {
   const s = get();
-  return s.project.pads.map((pad, i) =>
+  return drumPads(s).map((pad, i) =>
     i === s.selectedPad ? { color: COLOR.white, mode: "flash" as const } : { color: pad.sampleId ? COLOR.dimWhite : COLOR.off },
   );
 }

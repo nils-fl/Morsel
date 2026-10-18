@@ -6,7 +6,7 @@ import { addMarker, clampView, moveMarker, removeMarker, slicesFromMarkers, zero
 import { engine } from "../audio/engine";
 import { chopPlay, chopPlayhead, chopPlaying, chopPlaySlice, chopStop, minSpan, newChop, updateChop } from "../modes/chop";
 import { enterChopHw, exitChopHw } from "../modes/controller";
-import { get, set, useApp } from "../state/store";
+import { drumPads, get, set, useApp } from "../state/store";
 import { PAD_COUNT, type ChopSession } from "../state/types";
 import { Field, Section } from "./controls";
 import { paletteCss } from "./palette";
@@ -27,7 +27,7 @@ export function ChopEditor() {
   const chop = useApp((s) => s.chop);
   const samples = useApp((s) => s.samples);
   const selectedPad = useApp((s) => s.selectedPad);
-  const padHasSample = useApp((s) => !!s.project.pads[s.selectedPad].sampleId);
+  const padHasSample = useApp((s) => !!drumPads(s)[s.selectedPad].sampleId);
   const buffer = chop ? engine.buffer(chop.sampleId) : undefined;
   const active = !!buffer;
 
@@ -64,7 +64,7 @@ export function ChopEditor() {
 function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: AudioBuffer; source: React.ReactNode }) {
   const { sampleId, markers, view, sel, firstPad } = chop;
   const name = useApp((s) => s.samples[sampleId]?.name ?? "Sample");
-  const pads = useApp((s) => s.project.pads);
+  const pads = useApp(drumPads);
   const theme = useApp((s) => s.theme); // canvas colours come from CSS variables: redraw when they change
   const [count, setCount] = useState(16);
   const [sens, setSens] = useState(0.5);

@@ -5,21 +5,23 @@ import { ScreenPreview } from "./ui/ScreenPreview";
 import { toggleTheme } from "./ui/theme";
 import { sequencer } from "./seq/sequencer";
 import { QUANTIZE_OPTIONS } from "./seq/timing";
-import { set, undo, updateProject, useApp } from "./state/store";
+import { patternHasNotes, set, undo, updateProject, useApp } from "./state/store";
 import { TABS, type HwMode, type Tab } from "./state/types";
 import { ChopEditor } from "./ui/ChopEditor";
 import { EncoderStrip } from "./ui/EncoderStrip";
 import { Guide, GuideOverlay } from "./ui/Guide";
 import { KeysPanel } from "./ui/KeysPanel";
+import { Mixer } from "./ui/Mixer";
 import { Lab } from "./ui/Lab";
 import { PadEditor } from "./ui/PadEditor";
 import { PadGrid } from "./ui/PadGrid";
 import { SeqGrid } from "./ui/SeqGrid";
 import { SongPanel } from "./ui/SongPanel";
+import { TrackStrip } from "./ui/TrackStrip";
 
 // Each page has its own colour, like the page LEDs on an Elektron box.
 const TAB_COLOR: Record<Tab, string> = {
-  Pads: "var(--amber)", Chop: "var(--orange)", Sequencer: "var(--cyan)", Keys: "var(--violet)", Song: "var(--lime)", Help: "var(--white)", Lab: "var(--magenta)",
+  Pads: "var(--amber)", Chop: "var(--orange)", Sequencer: "var(--cyan)", Keys: "var(--violet)", Mixer: "var(--yellow)", Song: "var(--lime)", Help: "var(--white)", Lab: "var(--magenta)",
 };
 
 export default function App() {
@@ -51,6 +53,7 @@ export default function App() {
         {tab === "Chop" && <ChopEditor />}
         {tab === "Sequencer" && <SeqGrid />}
         {tab === "Keys" && <KeysPanel />}
+        {tab === "Mixer" && <Mixer />}
         {tab === "Song" && <SongPanel />}
         {tab === "Help" && <Guide />}
         {tab === "Lab" && <Lab />}
@@ -119,13 +122,14 @@ function TopBar({ onGuide }: { onGuide: () => void }) {
         {p.patterns.map((pat, i) => (
           <button
             key={i}
-            className={`pat ${i === s.currentPattern ? "on" : ""} ${i === s.queuedPattern ? "queued" : ""} ${pat.events.length ? "used" : ""}`}
+            className={`pat ${i === s.currentPattern ? "on" : ""} ${i === s.queuedPattern ? "queued" : ""} ${patternHasNotes(pat) ? "used" : ""}`}
             onClick={() => sequencer.selectPattern(i)}
           >{i + 1}</button>
         ))}
       </div>
+      <TrackStrip />
       <div className="hw">
-        {(["play", "step", "mixer", "pattern", "browse"] as HwMode[]).map((m) => (
+        {(["play", "step", "track", "mixer", "pattern", "browse"] as HwMode[]).map((m) => (
           <button key={m} className={s.hwMode === m ? "on" : ""} onClick={() => setHwMode(m)}>{m}</button>
         ))}
         <EncoderStrip />

@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { chopSelected, confirmDeleteSample, loadFilesToPads, openInChop, samplingLevel, shareTab, toggleSampling, unshareTab } from "../actions";
 import { DECAY_MAX } from "../audio/dsp";
-import { DUCK_PAGE, DUCK_TARGETS, hz, setDuck, trackLabel } from "../params";
+import { DUCK_PAGE, duckSourceLabel, duckTargetLabel, duckTargets, hz, padLabel, setDuck } from "../params";
 import { engine } from "../audio/engine";
 import { listKits, loadKit, saveKit } from "../state/persist";
 import { importKit } from "../state/projectFile";
-import { get, set, updatePad, updateProject, useApp } from "../state/store";
+import { drumPads, drumTrack, get, set, updatePad, updatePads, useApp } from "../state/store";
 import { DUCK_ALL, PAD_COUNT, type SampleSource, type TabTarget } from "../state/types";
 import { Field, Section, Slider } from "./controls";
 import { PALETTE_CHOICES, paletteCss } from "./palette";
@@ -16,13 +16,14 @@ const ms = (v: number) => (v >= 1 ? `${v.toFixed(2)} s` : `${Math.round(v * 1000
 
 export function PadEditor() {
   const i = useApp((s) => s.selectedPad);
-  const pad = useApp((s) => s.project.pads[s.selectedPad]);
+  const pad = useApp((s) => drumPads(s)[s.selectedPad]);
+  const trackName = useApp((s) => drumTrack(s).name);
   const samples = useApp((s) => s.samples);
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const buffer = pad.sampleId ? engine.buffer(pad.sampleId) : undefined;
   // Other pads cut from the same sample, drawn as thin markers.
-  const slices = useApp((s) => s.project.pads)
+  const slices = useApp(drumPads)
     .filter((p, j) => j !== i && p.sampleId && p.sampleId === pad.sampleId)
     .flatMap((p) => [p.start, p.end]);
   const up = (patch: Parameters<typeof updatePad>[1]) => updatePad(i, patch);
@@ -30,7 +31,7 @@ export function PadEditor() {
   return (
     <div className="pad-editor">
       <Section
-        title={`Pad ${i + 1} · ${pad.name}`}
+        title={`${trackName} · Pad ${i + 1} · ${pad.name}`}
         color={paletteCss(pad.color)}
         actions={
           <>
@@ -156,7 +157,7 @@ function SamplingPanel() {
 
 function SidechainPanel() {
   const duck = useApp((s) => s.project.duck);
-  useApp((s) => s.project.pads); // pad names in the labels
+  useApp((s) => s.project.tracks); // track and pad names in the labels
   const onDuckPage = useApp((s) => s.encPage === DUCK_PAGE);
   const [level, setLevel] = useState(1);
   useEffect(() => {
@@ -179,13 +180,20 @@ function SidechainPanel() {
       </p>
       <div className="row wrap">
         <Field label="Input">
-          <select value={duck.source} onChange={(e) => setDuck({ source: Number(e.target.value) })}>
-            {Array.from({ length: PAD_COUNT }, (_, i) => <option key={i} value={i}>{trackLabel(i)}</option>)}
+          <select value={`${duck.sourceTrack}:${duck.sourcePad}`} title={duckSourceLabel()} onChange={(e) => {
+            const [track, pad] = e.target.value.split(":");
+            setDuck({ sourceTrack: track, sourcePad: Number(pad) });
+          }}>
+            {get().project.tracks.filter((t) => t.kind === "drum").map((t) => (
+              <optgroup key={t.id} label={t.name}>
+                {Array.from({ length: PAD_COUNT }, (_, i) => <option key={i} value={`${t.id}:${i}`}>{padLabel(t.id, i)}</option>)}
+              </optgroup>
+            ))}
           </select>
         </Field>
         <Field label="Target">
-          <select value={duck.target} onChange={(e) => setDuck({ target: Number(e.target.value) })}>
-            {DUCK_TARGETS.map((t) => <option key={t} value={t}>{t === DUCK_ALL ? "All others" : trackLabel(t)}</option>)}
+          <select value={duck.target} onChange={(e) => setDuck({ target: e.target.value })}>
+            {duckTargets().map((t) => <option key={t} value={t}>{t === DUCK_ALL ? "All others" : duckTargetLabel(t)}</option>)}
           </select>
         </Field>
       </div>
@@ -236,13 +244,13 @@ function KitPanel() {
       }} />
       <div className="row">
         <input placeholder="Kit name" value={name} onChange={(e) => setName(e.target.value)} />
-        <button disabled={!name} onClick={async () => { await saveKit(name, get().project.pads); setKits(await listKits()); }}>Save</button>
+        <button disabled={!name} onClick={async () => { await saveKit(name, drumPads()); setKits(await listKits()); }}>Save</button>
       </div>
       <div className="row wrap">
         {kits.map((k) => (
           <button key={k} onClick={async () => {
             const pads = await loadKit(k);
-            if (pads) updateProject((p) => ({ ...p, pads }));
+            if (pads) updatePads(() => pads);
           }}>{k}</button>
         ))}
         {!kits.length && <span className="hint">No saved kits yet.</span>}

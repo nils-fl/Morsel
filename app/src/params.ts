@@ -1,10 +1,9 @@
 // Encoder pages: what each of the 8 encoders edits, with formatting.
 import { DECAY_MAX, cutoffHz, padQDb, synthQDb } from "./audio/dsp";
 import type { Visual } from "./modes/notify";
-import { engine } from "./audio/engine";
 import { QUANTIZE_OPTIONS, REPEAT_OPTIONS } from "./seq/timing";
-import { get, set, updateKeys, updatePad, updateProject } from "./state/store";
-import { DUCK_ALL, KEYS_TRACK, PAD_COUNT, type DuckSettings, type Pad, type SynthParams, type Wave } from "./state/types";
+import { drumPads, get, keysTrack, parseDuckTarget, selectedTrack, set, trackById, updateKeys, updatePad, updateProject, updateTrack } from "./state/store";
+import { DUCK_ALL, MAX_TRACKS, PAD_COUNT, type DuckSettings, type DuckTarget, type Pad, type SynthParams, type TrackFx, type Wave } from "./state/types";
 import { allPresets, applyPreset } from "./actions";
 import { presetEdited } from "./audio/synthPresets";
 
@@ -24,7 +23,7 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v
 
 function padParam(name: string, key: keyof Pad & ("start" | "end" | "pitch" | "attack" | "decay" | "cutoff" | "hpCutoff" | "resonance" | "pan" | "volume"),
   lo: number, hi: number, step: number, fmt: (v: number) => string): Param {
-  const cur = () => get().project.pads[get().selectedPad][key] as number;
+  const cur = () => drumPads()[get().selectedPad][key] as number;
   return {
     name,
     value: cur,
@@ -37,12 +36,12 @@ function padParam(name: string, key: keyof Pad & ("start" | "end" | "pitch" | "a
 type SynthNumKey = { [K in keyof SynthParams]: SynthParams[K] extends number ? K : never }[keyof SynthParams];
 
 function synthParam(name: string, key: SynthNumKey, lo: number, hi: number, step: number, fmt: (v: number) => string): Param {
-  const cur = () => get().project.keys.synth[key] as number;
+  const cur = () => keysNow().synth[key] as number;
   return {
     name,
     value: cur,
     range: [lo, hi],
-    nudge: (d, fine) => updateKeys({ synth: { ...get().project.keys.synth, [key]: clamp(cur() + d * step * (fine ? 0.1 : 1), lo, hi) } }),
+    nudge: (d, fine) => updateKeys({ synth: { ...keysNow().synth, [key]: clamp(cur() + d * step * (fine ? 0.1 : 1), lo, hi) } }),
     format: () => fmt(cur()),
   };
 }
@@ -53,7 +52,7 @@ export const hz = (c: number) => {
   return f >= 1000 ? `${(f / 1000).toFixed(f >= 10000 ? 1 : 2)} kHz` : `${Math.round(f)} Hz`;
 };
 const padFilterVisual = (): Visual => {
-  const pad = get().project.pads[get().selectedPad];
+  const pad = padNow();
   return {
     kind: "filter",
     lpHz: pad.cutoff >= 1 ? null : cutoffHz(pad.cutoff),
@@ -62,7 +61,7 @@ const padFilterVisual = (): Visual => {
   };
 };
 const synthFilterVisual = (): Visual => {
-  const s = get().project.keys.synth;
+  const s = keysNow().synth;
   return { kind: "filter", lpHz: cutoffHz(s.cutoff), hpHz: null, qDb: synthQDb(s.resonance) };
 };
 const ms = (v: number) => (v >= 1 ? `${v.toFixed(2)} s` : `${Math.round(v * 1000)} ms`);
@@ -88,13 +87,13 @@ export interface Page {
 }
 
 const panText = (v: number) => (Math.abs(v) < 0.01 ? "C" : v < 0 ? `L${Math.round(-v * 100)}` : `R${Math.round(v * 100)}`);
-const padNow = () => get().project.pads[get().selectedPad];
+const padNow = () => drumPads()[get().selectedPad];
 
 // ---------- keys synth ----------
 
 const WAVES: Wave[] = ["sawtooth", "square", "triangle", "sine"];
 const WAVE_SHORT: Record<Wave, string> = { sawtooth: "Saw", square: "Sqr", triangle: "Tri", sine: "Sin" };
-const keysNow = () => get().project.keys;
+const keysNow = () => keysTrack().keys!;
 const presetIndex = () => Math.max(0, allPresets().findIndex((p) => p.name === keysNow().preset));
 
 /** "Warm Pad", with a * once edited (or "Pad sample" / "Multisample" when Keys isn't the synth). */
@@ -109,15 +108,40 @@ const cents = (v: number) => `${v > 0 ? "+" : ""}${Math.round(v)} ct`;
 
 // ---------- sidechain ducker ----------
 
-/** "P1 Kick", "Keys" or "All" for a duck source / target. */
-export function trackLabel(t: number) {
-  if (t === DUCK_ALL) return "All";
-  if (t === KEYS_TRACK) return "Keys";
-  return `P${t + 1} ${get().project.pads[t]?.name ?? ""}`.trim();
+/** "P1 Kick" for a pad of a drum track; with `withTrack`, "Drums P1 Kick". */
+export function padLabel(trackId: string, pad: number, withTrack = false) {
+  const t = trackById(get().project, trackId);
+  return `${withTrack && t ? `${t.name} ` : ""}P${pad + 1} ${t?.pads[pad]?.name ?? ""}`.trim();
 }
 
-/** Targets in encoder order: all others, pads 1-16, Keys. */
-export const DUCK_TARGETS = [DUCK_ALL, ...Array.from({ length: PAD_COUNT }, (_, i) => i), KEYS_TRACK];
+/** "All", a track name, or "Drums P1 Kick" for a duck target. */
+export function duckTargetLabel(target: DuckTarget) {
+  const parsed = parseDuckTarget(target);
+  if (!parsed) return "All";
+  if (parsed.pad !== null) return padLabel(parsed.track, parsed.pad, get().project.tracks.filter((t) => t.kind === "drum").length > 1);
+  return trackById(get().project, parsed.track)?.name ?? "?";
+}
+
+/** Short form for the screen footer: "All", "T2" or "T1P3". */
+function duckTargetShort(target: DuckTarget) {
+  const parsed = parseDuckTarget(target);
+  if (!parsed) return "All";
+  const n = get().project.tracks.findIndex((t) => t.id === parsed.track) + 1;
+  return parsed.pad === null ? `T${n}` : `T${n}P${parsed.pad + 1}`;
+}
+
+export const duckSourceLabel = () => padLabel(duckNow().sourceTrack, duckNow().sourcePad, get().project.tracks.filter((t) => t.kind === "drum").length > 1);
+
+/** Targets in encoder order: all others, each whole track, then each pad of each drum track. */
+export function duckTargets(): DuckTarget[] {
+  const tracks = get().project.tracks;
+  return [DUCK_ALL, ...tracks.map((t) => t.id), ...tracks.filter((t) => t.kind === "drum").flatMap((t) => Array.from({ length: PAD_COUNT }, (_, i) => `${t.id}:${i}`))];
+}
+
+/** Duck sources in encoder order: each pad of each drum track. */
+function duckSources() {
+  return get().project.tracks.filter((t) => t.kind === "drum").flatMap((t) => Array.from({ length: PAD_COUNT }, (_, pad) => ({ track: t.id, pad })));
+}
 
 const duckNow = () => get().project.duck;
 export const setDuck = (patch: Partial<DuckSettings>) => updateProject((p) => ({ ...p, duck: { ...p.duck, ...patch } }), false);
@@ -135,6 +159,28 @@ function duckParam(name: string, key: "depth" | "attack" | "hold" | "release", l
     nudge: (d, fine) => setDuck({ [key]: clamp(cur() + d * step * (fine ? 0.1 : 1), lo, hi) }),
     format: () => fmt(cur()),
     visual: duckVisual,
+  };
+}
+
+const sourceIndex = () => Math.max(0, duckSources().findIndex((x) => x.track === duckNow().sourceTrack && x.pad === duckNow().sourcePad));
+
+// ---------- track FX (selected track) ----------
+
+const FX_FILTERS: TrackFx["filter"][] = ["off", "lp", "hp", "bp"];
+export const FX_FILTER_NAMES: Record<TrackFx["filter"], string> = { off: "Off", lp: "Lowpass", hp: "Highpass", bp: "Bandpass" };
+const fxNow = () => selectedTrack().fx;
+export const setFx = (patch: Partial<TrackFx>, trackId = selectedTrack().id) => updateTrack(trackId, (t) => ({ ...t, fx: { ...t.fx, ...patch } }));
+const db = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)} dB`;
+
+type FxNumKey = Exclude<keyof TrackFx, "filter">;
+function fxParam(name: string, key: FxNumKey, lo: number, hi: number, step: number, fmt: (v: number) => string): Param {
+  const cur = () => fxNow()[key];
+  return {
+    name,
+    value: cur,
+    range: [lo, hi],
+    nudge: (d, fine) => setFx({ [key]: clamp(cur() + d * step * (fine ? 0.1 : 1), lo, hi) }),
+    format: () => fmt(cur()),
   };
 }
 
@@ -208,6 +254,51 @@ export const PAGES: Page[] = [
     ],
   },
   {
+    name: "Track FX",
+    tag: "FX",
+    summary: () => {
+      const t = selectedTrack();
+      return `${t.name} ${t.fx.filter === "off" ? "" : t.fx.filter.toUpperCase() + " "}Dr${pct(t.fx.drive)}`;
+    },
+    params: [
+      {
+        name: "Filter",
+        value: () => FX_FILTERS.indexOf(fxNow().filter),
+        range: [0, FX_FILTERS.length - 1],
+        nudge: (d) => setFx({ filter: FX_FILTERS[clamp(FX_FILTERS.indexOf(fxNow().filter) + Math.sign(d), 0, FX_FILTERS.length - 1)] }),
+        format: () => FX_FILTER_NAMES[fxNow().filter],
+      },
+      fxParam("Cutoff", "cutoff", 0, 1, 0.01, hz),
+      fxParam("Reso", "resonance", 0, 1, 0.01, pct),
+      fxParam("Low", "eqLow", -15, 15, 0.5, db),
+      fxParam("Mid", "eqMid", -15, 15, 0.5, db),
+      fxParam("High", "eqHigh", -15, 15, 0.5, db),
+      fxParam("Drive", "drive", 0, 1, 0.01, pct),
+      fxParam("Comp", "comp", 0, 1, 0.01, (v) => (v <= 0 ? "Off" : pct(v))),
+    ],
+  },
+  {
+    name: "Mix",
+    tag: "MIX",
+    summary: () => get().project.tracks.map((t) => Math.round(t.level * 9)).join(""),
+    // Encoders 1-8 = track levels 1-8.
+    params: Array.from({ length: MAX_TRACKS }, (_, i): Param => {
+      const t = () => get().project.tracks[i];
+      return {
+        get name() {
+          return t()?.name ?? `Track ${i + 1}`;
+        },
+        value: () => t()?.level ?? 0,
+        range: [0, 1],
+        nudge: (d, fine) => {
+          const tr = t();
+          if (tr) updateTrack(tr.id, { level: clamp(tr.level + d * (fine ? 0.002 : 0.02), 0, 1) });
+        },
+        format: () => (t() ? pct(t().level) : "-"),
+      };
+    }),
+  },
+  {
     name: "Global",
     tag: "GLB",
     summary: () => `${get().project.bpm}BPM Sw${get().project.swing}`,
@@ -233,10 +324,10 @@ export const PAGES: Page[] = [
       synthParam("Keys Env", "envAmount", 0, 1, 0.01, pct),
       {
         name: "Keys Vol",
-        value: () => get().project.keys.volume,
+        value: () => keysNow().volume,
         range: [0, 1],
-        nudge: (d, fine) => updateKeys({ volume: clamp(get().project.keys.volume + d * (fine ? 0.001 : 0.01), 0, 1) }),
-        format: () => pct(get().project.keys.volume),
+        nudge: (d, fine) => updateKeys({ volume: clamp(keysNow().volume + d * (fine ? 0.001 : 0.01), 0, 1) }),
+        format: () => pct(keysNow().volume),
       },
     ],
   },
@@ -245,7 +336,8 @@ export const PAGES: Page[] = [
     tag: "DUCK",
     summary: () => {
       const d = duckNow();
-      return d.on ? `P${d.source + 1}>${d.target === DUCK_ALL ? "All" : d.target === KEYS_TRACK ? "Keys" : `P${d.target + 1}`} ${pct(d.depth)}` : "Off";
+      const n = get().project.tracks.findIndex((t) => t.id === d.sourceTrack) + 1;
+      return d.on ? `T${n}P${d.sourcePad + 1}>${duckTargetShort(d.target)} ${pct(d.depth)}` : "Off";
     },
     params: [
       {
@@ -257,17 +349,28 @@ export const PAGES: Page[] = [
       },
       {
         name: "Input",
-        value: () => duckNow().source,
-        range: [0, PAD_COUNT - 1],
-        nudge: (d) => setDuck({ source: clamp(duckNow().source + Math.sign(d), 0, PAD_COUNT - 1) }),
-        format: () => trackLabel(duckNow().source),
+        value: sourceIndex,
+        get range(): [number, number] {
+          return [0, duckSources().length - 1];
+        },
+        nudge: (d) => {
+          const list = duckSources();
+          const next = list[clamp(sourceIndex() + Math.sign(d), 0, list.length - 1)];
+          setDuck({ sourceTrack: next.track, sourcePad: next.pad });
+        },
+        format: duckSourceLabel,
       },
       {
         name: "Target",
-        value: () => DUCK_TARGETS.indexOf(duckNow().target),
-        range: [0, DUCK_TARGETS.length - 1],
-        nudge: (d) => setDuck({ target: DUCK_TARGETS[clamp(DUCK_TARGETS.indexOf(duckNow().target) + Math.sign(d), 0, DUCK_TARGETS.length - 1)] }),
-        format: () => trackLabel(duckNow().target),
+        value: () => duckTargets().indexOf(duckNow().target),
+        get range(): [number, number] {
+          return [0, duckTargets().length - 1];
+        },
+        nudge: (d) => {
+          const list = duckTargets();
+          setDuck({ target: list[clamp(list.indexOf(duckNow().target) + Math.sign(d), 0, list.length - 1)] });
+        },
+        format: () => duckTargetLabel(duckNow().target),
       },
       duckParam("Depth", "depth", 0, 1, 0.02, pct),
       duckParam("Attack", "attack", 0, 0.05, 0.001, ms),
@@ -278,13 +381,14 @@ export const PAGES: Page[] = [
 ];
 export const DUCK_PAGE = PAGES.findIndex((p) => p.tag === "DUCK");
 export const KEYS_PAGE = PAGES.findIndex((p) => p.tag === "KEYS");
+export const FX_PAGE = PAGES.findIndex((p) => p.tag === "FX");
+export const MIX_PAGE = PAGES.findIndex((p) => p.tag === "MIX");
 
 
-/** Apply an encoder move and refresh the mixer (levels may change). */
+/** Apply an encoder move (the mixer follows the project through the store subscription in boot.ts). */
 export function turnEncoder(page: number, index: number, delta: number, fine: boolean) {
   const p = PAGES[page]?.params[index];
   if (!p) return null;
   p.nudge(delta, fine);
-  engine.voices.updateMix();
   return p;
 }

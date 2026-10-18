@@ -1,7 +1,7 @@
 // Single-file project export: project JSON plus all referenced samples (16-bit PCM, base64).
 import type { engine as Engine } from "../audio/engine";
 import { engine } from "../audio/engine";
-import { PROJECT_VERSION, get, normalizePads, normalizeProject, set, updateProject } from "./store";
+import { PROJECT_VERSION, drumTrack, get, normalizePads, normalizeProject, set, updatePads } from "./store";
 import { sequencer } from "../seq/sequencer";
 import { listKits, saveKit } from "./persist";
 import type { Pad, Project } from "./types";
@@ -11,8 +11,10 @@ interface ProjectFile { format: "launchkit"; version: number; project: Project; 
 
 function usedSampleIds(p: Project) {
   const ids = new Set<string>();
-  p.pads.forEach((pad) => pad.sampleId && ids.add(pad.sampleId));
-  p.keys.zones.forEach((z) => ids.add(z.sampleId));
+  for (const t of p.tracks) {
+    t.pads.forEach((pad) => pad.sampleId && ids.add(pad.sampleId));
+    t.keys?.zones.forEach((z) => ids.add(z.sampleId));
+  }
   return ids;
 }
 
@@ -115,7 +117,7 @@ async function freeKitName(name: string) {
   return n;
 }
 
-/** Load a kit file onto the pads, add its samples to the library and save it under its name. Returns the name. */
+/** Load a kit file onto the selected drum track's pads, add its samples to the library and save it under its name. Returns the name. */
 export async function importKit(f: File, eng: typeof Engine) {
   const file = await readJson(f);
   if (file.format !== "launchkit-kit") throw new Error("Not a LaunchKit kit");
@@ -128,8 +130,8 @@ export async function importKit(f: File, eng: typeof Engine) {
     .map((pad) => ({ ...pad, sampleId: pad.sampleId ? idMap.get(pad.sampleId) ?? null : null }));
   const name = await freeKitName(typeof file.name === "string" && file.name.trim() ? file.name.trim() : f.name.replace(/\..*$/, ""));
   await saveKit(name, pads);
-  updateProject((p) => ({ ...p, pads }));
-  set({ status: `Loaded kit ${name}` });
+  updatePads(() => pads);
+  set({ status: `Loaded kit ${name} on ${drumTrack().name}` });
   return name;
 }
 
@@ -141,8 +143,13 @@ export async function importProject(f: File, eng: typeof Engine) {
   const decoded = decodeSamples(file.samples);
   const p = normalizeProject(file.project);
   const idMap = await addSamples(eng, decoded);
-  p.pads = p.pads.map((pad) => ({ ...pad, sampleId: pad.sampleId ? idMap.get(pad.sampleId) ?? null : null }));
-  p.keys = { ...p.keys, zones: p.keys.zones.flatMap((z) => (idMap.has(z.sampleId) ? [{ ...z, sampleId: idMap.get(z.sampleId)! }] : [])) };
+  p.tracks = p.tracks.map((t) => ({
+    ...t,
+    pads: t.pads.map((pad) => ({ ...pad, sampleId: pad.sampleId ? idMap.get(pad.sampleId) ?? null : null })),
+    keys: t.keys && { ...t.keys, zones: t.keys.zones.flatMap((z) => (idMap.has(z.sampleId) ? [{ ...z, sampleId: idMap.get(z.sampleId)! }] : [])) },
+  }));
   if (get().playing) sequencer.stop();
-  set({ project: p, undo: [], status: `Imported ${p.name}` });
+  const drums = p.tracks.find((t) => t.kind === "drum")!.id;
+  const keys = p.tracks.find((t) => t.kind === "keys")!.id;
+  set({ project: p, undo: [], selectedTrack: drums, drumTrack: drums, keysTrack: keys, status: `Imported ${p.name}` });
 }

@@ -4,7 +4,7 @@ import { clampView, slicesFromMarkers, zeroCrossing } from "../audio/chop";
 import { engine } from "../audio/engine";
 import { computePeaks, type Peaks } from "../display/widgets";
 import { COLOR } from "../midi/protocol";
-import { get, set } from "../state/store";
+import { drumPads, get, set } from "../state/store";
 import { PAD_COUNT, type ChopSession } from "../state/types";
 import { showTemp } from "./notify";
 
@@ -152,7 +152,7 @@ export function chopPadLeds(held: Set<number>) {
     if (!c || i >= count) return { color: COLOR.off as number };
     if (held.has(i)) return { color: COLOR.white as number };
     const target = c.firstPad + i;
-    const color = target < PAD_COUNT ? s.project.pads[target].color : COLOR.dimWhite;
+    const color = target < PAD_COUNT ? drumPads(s)[target].color : COLOR.dimWhite;
     return { color, mode: i === c.sel ? ("pulse" as const) : ("static" as const) };
   });
 }

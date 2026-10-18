@@ -14,7 +14,7 @@ class Engine {
 
   init() {
     this.ctx = new AudioContext({ latencyHint: "interactive" });
-    this.voices = new Voices(this.ctx, this.ctx.destination, () => get().project, (id) => this.buffers.get(id));
+    this.voices = new Voices(this.ctx, this.ctx.destination, () => get().project, (id) => this.buffers.get(id), true);
     this.masterTap = this.ctx.createMediaStreamDestination();
     this.voices.master.connect(this.masterTap);
     this.clickOut = this.ctx.createGain();
