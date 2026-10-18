@@ -9,6 +9,7 @@ import { enterChopHw } from "../modes/controller";
 import { canAddTrack, drumPads, drumTrack, get, set, useApp } from "../state/store";
 import { PAD_COUNT, type ChopSession } from "../state/types";
 import { Field, Section } from "./controls";
+import { SamplePicker } from "./SamplePicker";
 import { paletteCss } from "./palette";
 import { drawPeaks, drawWaveBg } from "./wave";
 
@@ -25,7 +26,7 @@ const padColor = (pads: { color: number }[], firstPad: number, k: number) => (fi
 
 export function ChopEditor() {
   const chop = useApp((s) => s.chop);
-  const samples = useApp((s) => s.samples);
+  useApp((s) => s.bufferTick); // the editor opens once the sample's audio has loaded
   const selectedPad = useApp((s) => s.selectedPad);
   const padHasSample = useApp((s) => !!drumPads(s)[s.selectedPad].sampleId);
   const buffer = chop ? engine.buffer(chop.sampleId) : undefined;
@@ -39,10 +40,7 @@ export function ChopEditor() {
   }, [active]);
 
   const source = (
-    <select value={chop?.sampleId ?? ""} onChange={(e) => set({ chop: e.target.value ? newChop(e.target.value) : null })}>
-      <option value="">— pick a sample —</option>
-      {Object.values(samples).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-    </select>
+    <SamplePicker value={chop?.sampleId ?? null} placeholder="Pick a sample…" allowNone onPick={(id) => set({ chop: id ? newChop(id) : null })} />
   );
 
   if (!chop || !buffer) {

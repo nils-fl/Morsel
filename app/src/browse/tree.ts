@@ -4,13 +4,15 @@ import { FACTORY_KIT, type SampleInfo } from "../state/types";
 export type Entry =
   | { kind: "folder"; name: string; path: string }
   | { kind: "sample"; id: string; name: string }
+  /** An audio file in a connected folder (browse/disk.ts). */
+  | { kind: "file"; name: string; path: string }
   | { kind: "kit"; name: string };
 
 export const ROOT = "";
 export const SAMPLES = "Samples";
 export const KITS = "Kits";
 
-const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
+export const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
 
 export function parentOf(path: string): string {
   const i = path.lastIndexOf("/");

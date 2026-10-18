@@ -382,7 +382,7 @@ function onButton(button: string, down: boolean) {
     if (button === "scene" || (button === "padUp" && !s.shift)) return browseUp();
     if (button === "encPageUp" || button === "encPageDown") return browseEncoder(0, button === "encPageUp" ? -1 : 1, false);
   }
-  if (s.hwMode === "browse" && down && button === "func" && s.shift) return browseFolderToPads();
+  if (s.hwMode === "browse" && down && button === "func" && s.shift) return void browseFolderToPads();
   // Scene let go: note repeat (and the held popup) end, in every mode.
   if (button === "scene" && !down) {
     sequencer.repeatOn = false;

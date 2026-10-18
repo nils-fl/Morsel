@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { engine } from "../audio/engine";
+import { removeUnusedSamples } from "../actions";
 import { arrangement, download, encodeWav, renderToBuffer } from "../seq/render";
 import { exportProject, importProject } from "../state/projectFile";
 import { get, patternHasNotes, set, updateProject, useApp } from "../state/store";
@@ -91,6 +92,35 @@ export function SongPanel() {
         </div>
         <p className="hint">Projects autosave in this browser. Export saves the patterns and every sample in one file.</p>
       </Section>
+
+      <LibraryPanel />
     </div>
+  );
+}
+
+const gb = (bytes: number) => (bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.round(bytes / 1e6)} MB`);
+
+/** The sample library in this browser: how big it is, and clearing out what nothing uses. */
+function LibraryPanel() {
+  const count = useApp((s) => Object.keys(s.samples).length);
+  const [usage, setUsage] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    // Whole site: samples, projects, kits. Unavailable in some browsers.
+    navigator.storage?.estimate?.().then((e) => setUsage(e.usage ?? null), () => undefined);
+  }, [count]);
+  return (
+    <Section title="Library" actions={
+      <button disabled={busy || !count} title="Delete samples no track, undo step or saved kit uses" onClick={async () => {
+        setBusy(true);
+        await removeUnusedSamples().finally(() => setBusy(false));
+      }}>Remove unused samples…</button>
+    }>
+      <p className="hint">
+        {count} sample{count === 1 ? "" : "s"}{usage !== null && ` · ${gb(usage)} of browser storage`}. Samples live in this browser:
+        clearing the site's data deletes them along with the autosaved project, so export projects you want to keep.
+        For big sample packs, Connect folder instead of importing.
+      </p>
+    </Section>
   );
 }

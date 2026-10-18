@@ -6,6 +6,7 @@ import { engine } from "../audio/engine";
 import { keysTrack, updateKeys, useApp } from "../state/store";
 import type { KeysLfo, KeysSample, SynthParams, Wave, Zone } from "../state/types";
 import { Field, Section, Slider } from "./controls";
+import { SamplePicker } from "./SamplePicker";
 import { noteName, rootFromName } from "./notes";
 
 const WAVES: Wave[] = ["sawtooth", "square", "triangle", "sine"];
@@ -18,7 +19,6 @@ export function KeysPanel() {
   const drumTracks = useApp((s) => s.project.tracks).filter((t) => t.kind === "drum");
   const dirInput = useRef<HTMLInputElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const samples = useApp((s) => s.samples);
   const synth = keys.synth;
   const upSynth = (patch: Partial<SynthParams>) => updateKeys({ synth: { ...synth, ...patch } });
   const upSample = (patch: Partial<KeysSample>) => updateKeys({ sample: { ...keys.sample, ...patch } });
@@ -101,10 +101,7 @@ export function KeysPanel() {
           </p>
           <div className="row wrap">
             <Field label="Sample">
-              <select value={keys.sample.sampleId ?? ""} onChange={(e) => upSample({ sampleId: e.target.value || null })}>
-                <option value="">—</option>
-                {Object.values(samples).map((s) => <option key={s.id} value={s.id}>{s.folder ? `${s.folder} / ` : ""}{s.name}</option>)}
-              </select>
+              <SamplePicker value={keys.sample.sampleId} allowNone onPick={(id) => upSample({ sampleId: id })} />
             </Field>
             <Field label="Root note">
               <select value={keys.sample.root} onChange={(e) => upSample({ root: Number(e.target.value) })} title="The key that plays the sample at its original pitch">

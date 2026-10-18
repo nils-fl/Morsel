@@ -2,13 +2,15 @@ import { engine } from "./audio/engine";
 import { factoryPads, refreshKits } from "./actions";
 import { launchkey } from "./midi/launchkey";
 import { initController } from "./modes/controller";
-import { loadProject, loadSynthPresets, saveProject } from "./state/persist";
-import { DRUMS_ID, defaultProject, fixSelection, get, normalizeProject, set, store, updateTrack } from "./state/store";
+import { initDisk } from "./browse/disk";
+import { loadProject, loadSynthPresets, saveProject, saveSampleIndex } from "./state/persist";
+import { DRUMS_ID, defaultProject, fixSelection, get, normalizeProject, set, store, updateTrack, usedSampleIds } from "./state/store";
 import { FACTORY_KIT } from "./state/types";
 
 export async function boot() {
   engine.init();
-  await engine.loadAllSamples();
+  await engine.loadLibrary();
+  await initDisk();
   set({ userPresets: (await loadSynthPresets()).map((p) => ({ ...p, user: true })) });
   await refreshKits();
 
@@ -20,6 +22,8 @@ export async function boot() {
     set({ project: defaultProject() });
     updateTrack(DRUMS_ID, { pads, kit: FACTORY_KIT });
   }
+  // Only the samples the project plays are read into memory; the rest of the library loads when used.
+  await engine.ensureAll(usedSampleIds(get().project));
   // The saved project may not have the track ids the session starts with.
   fixSelection();
   engine.voices.updateMix();
@@ -33,8 +37,21 @@ export async function boot() {
     dirty = false;
     saveProject(get().project).catch((err) => set({ status: `Couldn't save the project: ${(err as Error).message}` }));
   };
+  let indexTimer = 0;
+  const saveIndex = () => {
+    clearTimeout(indexTimer);
+    indexTimer = 0;
+    saveSampleIndex(get().samples).catch((err) => set({ status: `Couldn't save the sample list: ${(err as Error).message}` }));
+  };
   store.subscribe((s, prev) => {
+    if (s.samples !== prev.samples) {
+      clearTimeout(indexTimer);
+      indexTimer = window.setTimeout(saveIndex, 1000);
+    }
+    // Whatever puts a sample on a pad, a zone or the chop editor (undo, kits, imports), its audio gets loaded.
+    if (s.chop?.sampleId !== prev.chop?.sampleId && s.chop) void engine.ensure(s.chop.sampleId);
     if (s.project === prev.project) return;
+    if (s.project.tracks !== prev.project.tracks) void engine.ensureAll(usedSampleIds(s.project));
     const p = s.project, q = prev.project;
     if (p.tracks !== q.tracks) fixSelection();
     if (p.tracks !== q.tracks || p.returns !== q.returns || p.bpm !== q.bpm) engine.voices.updateMix();
@@ -45,8 +62,14 @@ export async function boot() {
   // The debounce must not lose the last edits when the tab closes or is put away.
   window.addEventListener("pagehide", save);
   document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && save());
+  // A sample missing from the index is found and indexed at the next start, so losing this save costs only time.
+  window.addEventListener("pagehide", () => indexTimer && saveIndex());
 
   initController();
+  // Preview copies from a dev build that never shipped: remove the database if it was ever made.
+  indexedDB.deleteDatabase("morsel-proxies");
+  // Samples stored before 16-bit storage get rewritten at half the size, in the background.
+  window.setTimeout(() => void engine.compactLibrary(), 5000);
   // Not awaited: the MIDI permission prompt must not block the UI.
   launchkey.init().catch((err) => set({ status: `MIDI unavailable: ${(err as Error).message}. Use Chrome and allow MIDI + SysEx.` }));
 }

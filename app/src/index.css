@@ -105,6 +105,39 @@ button.primary:not(:disabled) { color: var(--page); border-color: var(--page); }
 button.rec { --page: var(--rec); }
 .kit-chip { display: inline-flex; }
 .kit-chip button + button { margin-left: -1px; padding-inline: 6px; }
+
+/* ---------- sample picker (ui/SamplePicker.tsx) ---------- */
+/* Fixed width, so a long name never makes the row jump. */
+button.sample-pick {
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 6px; width: 200px; max-width: 100%;
+  text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 12px; text-align: left;
+}
+.sample-pick span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sample-pick span:last-child { color: var(--muted); }
+.picker {
+  position: fixed; z-index: 50; width: 320px; max-width: calc(100vw - 16px); height: 380px;
+  display: flex; flex-direction: column; gap: 6px; padding: 8px;
+  background: var(--panel); border: 1px solid var(--line-hi); border-radius: 3px; box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+  font-size: 12px; color: var(--text);
+}
+.picker-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.picker-head button { padding-inline: 8px; }
+/* Long paths lose their start, not the folder you're in. */
+.picker-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; color: var(--muted); }
+.picker-filter { width: 100%; }
+.picker-list { flex: 1; min-height: 0; overflow-y: auto; margin: 0; padding: 0; list-style: none; border: 1px solid var(--line); background: var(--bg); }
+.picker-list li { display: flex; align-items: center; gap: 6px; padding: 3px 6px; cursor: pointer; white-space: nowrap; }
+.picker-list li:hover { background: color-mix(in srgb, var(--page) 10%, transparent); }
+.picker-list li[aria-selected="true"] { background: color-mix(in srgb, var(--page) var(--tint), transparent); color: var(--page); }
+.picker-list li.folder .picker-name { font-weight: 600; }
+.picker-list li.picker-note { color: var(--muted); cursor: default; }
+.picker-list li button { padding: 0 6px; height: 18px; line-height: 16px; font-size: 10px; }
+.picker-list li .picker-x { visibility: hidden; }
+.picker-list li:hover .picker-x { visibility: visible; }
+.picker-icon { width: 10px; color: var(--muted); flex: none; }
+.picker-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.picker-foot { display: flex; align-items: center; gap: 6px; }
+.picker-spacer { flex: 1; }
 button.rec.on { --tint: 30%; }
 input:focus, select:focus, button:focus-visible { outline: 1px solid var(--page); outline-offset: 1px; }
 input[type="number"] { width: 64px; font-variant-numeric: tabular-nums; }

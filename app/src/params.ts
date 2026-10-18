@@ -3,7 +3,7 @@ import { DECAY_MAX, cutoffHz, padQDb, synthQDb } from "./audio/dsp";
 import type { Visual } from "./modes/notify";
 import { QUANTIZE_OPTIONS, REPEAT_OPTIONS } from "./seq/timing";
 import { drumPads, get, keysTrack, setPatternBars, parseDuckTarget, selectedTrack, set, trackById, updateKeys, updatePad, updateProject, updateTrack } from "./state/store";
-import { DUCK_ALL, MAX_TRACKS, PAD_COUNT, type DuckSettings, type DuckTarget, type KeysLfo, type Pad, type SynthParams, type TrackFx, type TrackKind, type Wave } from "./state/types";
+import { DUCK_ALL, MAX_TRACKS, PAD_COUNT, type DuckSettings, type DuckTarget, type KeysLfo, type Pad, type SampleInfo, type SynthParams, type TrackFx, type TrackKind, type Wave } from "./state/types";
 import { allPresets, applyPreset, currentKit, kitNames, stepKit } from "./actions";
 import { presetEdited } from "./audio/synthPresets";
 import { noteName } from "./ui/notes";
@@ -242,9 +242,19 @@ const SYNTH_PARAMS: Param[] = [
   synthParam("Release", "release", 0.01, 3, 0.02, ms),
 ];
 
+// Sorted once per library change: the screen asks for it on every redraw.
+let sortedFor: object | null = null;
+let sorted: SampleInfo[] = [];
+
 /** Library samples in the order the Keys sample picker steps through them. */
-export const keysSampleList = () =>
-  Object.values(get().samples).sort((a, b) => `${a.folder ?? ""}/${a.name}`.localeCompare(`${b.folder ?? ""}/${b.name}`, undefined, { numeric: true }));
+export function keysSampleList() {
+  const samples = get().samples;
+  if (sortedFor !== samples) {
+    sortedFor = samples;
+    sorted = Object.values(samples).sort((a, b) => `${a.folder ?? ""}/${a.name}`.localeCompare(`${b.folder ?? ""}/${b.name}`, undefined, { numeric: true }));
+  }
+  return sorted;
+}
 const keysSampleName = () => {
   const id = keysNow().sample.sampleId;
   return id ? (get().samples[id]?.name ?? "Sample") : "No sample";

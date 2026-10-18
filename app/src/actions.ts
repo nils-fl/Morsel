@@ -6,7 +6,7 @@ import { FACTORY_SOUNDS, renderFactoryKit } from "./audio/kit";
 import { autoMarkers, chopStop, newChop, takeMarkers } from "./modes/chop";
 import { showTemp } from "./modes/notify";
 import { sequencer } from "./seq/sequencer";
-import { addTrack, defaultPad, drumPads, drumTrack, get, keysTrack, set, updateKeys, updateProject, updateTrack } from "./state/store";
+import { addTrack, defaultPad, drumPads, drumTrack, get, keysTrack, set, updateKeys, updateProject, updateTrack, usedSampleIds } from "./state/store";
 import { deleteKit, deleteSynthPreset, listKits, loadKit, renameKit, saveKit, saveSynthPreset } from "./state/persist";
 import { padsFromSamples, slicePads } from "./state/pads";
 import { FACTORY_PRESETS, type SynthPreset } from "./audio/synthPresets";
@@ -308,6 +308,31 @@ export function confirmDeleteSample(id: string) {
   void deleteSampleEverywhere(id);
 }
 
+/** Samples something still needs: the project and its undo steps, the chop editor, saved kits and the factory kit. */
+async function samplesInUse() {
+  const s = get();
+  const ids = new Set(usedSampleIds(s.project));
+  for (const p of s.undo) for (const id of usedSampleIds(p)) ids.add(id);
+  if (s.chop) ids.add(s.chop.sampleId);
+  for (const name of s.kits) (await loadKit(name))?.forEach((pad) => pad.sampleId && ids.add(pad.sampleId));
+  for (const x of Object.values(s.samples)) if (x.folder === FACTORY_KIT) ids.add(x.id);
+  return ids;
+}
+
+/** Ask, then delete every library sample nothing uses (a pack imported whole, old takes). */
+export async function removeUnusedSamples() {
+  const used = await samplesInUse();
+  const all = Object.keys(get().samples);
+  const unused = all.filter((id) => !used.has(id));
+  if (!unused.length) return set({ status: "Every sample in the library is in use" });
+  if (!window.confirm(
+    `Remove ${unused.length} of ${all.length} samples that no track, undo step or saved kit uses?\n\n` +
+    "Exported project and kit files keep their own copies, and connected folders aren't touched. This can't be undone.",
+  )) return;
+  await engine.removeSamples(unused);
+  set({ status: `Removed ${unused.length} unused sample${unused.length === 1 ? "" : "s"}` });
+}
+
 /** Copy a region of a sample into a new library sample; returns its id. */
 export async function cropSample(id: string, start: number, end: number): Promise<string | undefined> {
   const buf = engine.buffer(id);
@@ -344,23 +369,31 @@ export function samplesToPads(samples: { id: string; name: string }[], kit = "")
   return Math.min(samples.length, PAD_COUNT);
 }
 
+/** Copy picked files into the library (Import folder…), with progress in the status line. */
+export async function importToLibrary(files: File[]) {
+  const audio = files.filter(isAudioFile).sort(byPath);
+  const added = await engine.importFiles(audio, (done, total) => done % 20 === 0 && set({ status: `Importing… ${done}/${total}` }));
+  set({ status: audio.length ? `Imported ${added.length} samples into the library` : "No audio files in that folder" });
+  return added;
+}
+
 /** Import a picked folder into the library and make its first 16 samples (by path) the current drum track's kit. */
 export async function loadFolderToPads(files: File[]) {
-  const audio = files.filter(isAudioFile).sort(byPath);
-  const loaded: SampleInfo[] = [];
-  for (const f of audio) {
-    const id = await engine.addFile(f).catch(() => undefined);
-    if (id) loaded.push(get().samples[id]);
-  }
-  if (!loaded.length) return set({ status: "No audio files in that folder" });
-  const n = samplesToPads(loaded.slice(0, PAD_COUNT), audio[0].webkitRelativePath.split("/")[0] ?? "");
+  const loaded = await importToLibrary(files);
+  if (!loaded.length) return;
+  const kit = loaded.slice(0, PAD_COUNT);
+  await engine.ensureAll(kit.map((s) => s.id));
+  const n = samplesToPads(kit, files[0].webkitRelativePath.split("/")[0] ?? "");
   set({ status: `Imported ${loaded.length} samples · ${n} on ${drumTrack().name} pads 1–${n}` });
 }
 
 /** The factory kit's pads. Reuses its samples in the library and renders any that were deleted. */
 export async function factoryPads(): Promise<Pad[]> {
-  const lib = Object.values(get().samples).filter((s) => s.folder === FACTORY_KIT && engine.buffer(s.id));
-  const found = FACTORY_SOUNDS.map((name) => lib.find((s) => s.name === name)?.id);
+  const lib = Object.values(get().samples).filter((s) => s.folder === FACTORY_KIT);
+  const found = await Promise.all(FACTORY_SOUNDS.map(async (name) => {
+    const id = lib.find((s) => s.name === name)?.id;
+    return id && (await engine.ensure(id)) ? id : undefined;
+  }));
   const ids = found.every(Boolean)
     ? (found as string[])
     : await renderFactoryKit().then((kit) => Promise.all(kit.map(({ name, buffer }, i) => found[i] ?? engine.addBuffer(name, buffer, FACTORY_KIT))));
@@ -395,6 +428,7 @@ export async function loadNamedKit(name: string, undoable = true) {
   let pads: Pad[] | undefined;
   try {
     pads = name === FACTORY_KIT ? await factoryPads() : await loadKit(name);
+    await engine.ensureAll(pads?.flatMap((pad) => (pad.sampleId ? [pad.sampleId] : [])) ?? []);
   } catch (err) {
     if (req === kitRequest) pendingKit = null;
     set({ status: `Kit ${name} couldn't be loaded: ${(err as Error).message}` });

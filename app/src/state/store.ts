@@ -374,9 +374,18 @@ export function normalizeProject(input: unknown): Project {
   };
 }
 
+/** granted: readable. prompt: needs a click (Reconnect) after a browser restart. missing: moved or deleted. */
+export type FolderAccess = "granted" | "prompt" | "denied" | "missing";
+
 export interface AppState {
   project: Project;
   samples: Record<string, SampleInfo>;
+  /** Bumped when sample audio finishes loading (engine.ensure), so waveforms redraw. */
+  bufferTick: number;
+  /** Connected folders (browse/disk.ts) and whether the browser lets us read them right now. */
+  folders: { name: string; access: FolderAccess }[];
+  /** Bumped when a connected folder's listing arrives. */
+  diskTick: number;
   /** The user's saved Keys synth presets (factory ones live in audio/synthPresets.ts). */
   userPresets: SynthPreset[];
   // transport
@@ -427,6 +436,9 @@ export interface AppState {
 export const store = createStore<AppState>(() => ({
   project: defaultProject(),
   samples: {},
+  bufferTick: 0,
+  folders: [],
+  diskTick: 0,
   userPresets: [],
   playing: false,
   recording: false,
@@ -463,6 +475,17 @@ export const store = createStore<AppState>(() => ({
 export const useApp = <T,>(sel: (s: AppState) => T) => useStore(store, sel);
 export const get = () => store.getState();
 export const set = (p: Partial<AppState>) => store.setState(p);
+
+/** Samples a project plays: they must be loaded (engine.ensure) and go into its file. */
+export function usedSampleIds(p: Project) {
+  const ids = new Set<string>();
+  for (const t of p.tracks) {
+    t.pads.forEach((pad) => pad.sampleId && ids.add(pad.sampleId));
+    t.keys?.zones.forEach((z) => ids.add(z.sampleId));
+    if (t.keys?.sample.sampleId) ids.add(t.keys.sample.sampleId);
+  }
+  return ids;
+}
 
 // ---------- project mutations ----------
 

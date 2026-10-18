@@ -1,10 +1,11 @@
 // MPC-style BROWSE mode on the Launchkey display: pick samples/kits for the selected pad.
-import { engine } from "../audio/engine";
-import { Cursor, KITS, SAMPLES, fitLine, fitName, jumpLetter, listDir, type Entry } from "../browse/tree";
+import { Cursor, KITS, SAMPLES, fitLine, fitName, jumpLetter, type Entry } from "../browse/tree";
+import { listDiskNow, isDiskPath } from "../browse/disk";
+import { entrySample, folderLabel, listAt, previewEntry, stopPreview, type Listing } from "../browse/source";
 import { COLOR, type LedMode } from "../midi/protocol";
 import { loadNamedKit, samplesToPads } from "../actions";
 import { listKits } from "../state/persist";
-import { drumPads, drumTrack, get, updatePad } from "../state/store";
+import { drumPads, drumTrack, get, set, updatePad } from "../state/store";
 import { showTemp } from "./notify";
 
 const PREVIEW_DELAY_MS = 150;
@@ -15,16 +16,18 @@ let kits: string[] = [];
 let previewTimer = 0;
 
 // The screen redraws every 33 ms and asks for the list several times per frame; only rebuild
-// (filter + sort the whole library) when the folder, the library or the kit list changes.
-let cache: { path: string; samples: object; kits: string[]; list: Entry[] } | null = null;
+// (filter + sort the whole library) when the folder, the library, the kits or a connected folder changes.
+let cache: { path: string; samples: object; kits: string[]; disk: number; folders: object; listing: Listing } | null = null;
 
-function entries(): Entry[] {
-  const samples = get().samples;
-  if (!cache || cache.path !== cursor.path || cache.samples !== samples || cache.kits !== kits) {
-    cache = { path: cursor.path, samples, kits, list: listDir(cursor.path, Object.values(samples), kits) };
+function listing(): Listing {
+  const { samples, diskTick: disk, folders } = get();
+  if (!cache || cache.path !== cursor.path || cache.samples !== samples || cache.kits !== kits || cache.disk !== disk || cache.folders !== folders) {
+    cache = { path: cursor.path, samples, kits, disk, folders, listing: listAt(cursor.path, kits) };
   }
-  return cache.list;
+  return cache.listing;
 }
+
+const entries = () => listing().entries;
 
 function current(): Entry | undefined {
   return entries()[cursor.index];
@@ -32,9 +35,9 @@ function current(): Entry | undefined {
 
 function schedulePreview() {
   clearTimeout(previewTimer);
-  engine.stopPreview();
+  stopPreview();
   const e = current();
-  if (e?.kind === "sample") previewTimer = window.setTimeout(() => engine.preview(e.id), PREVIEW_DELAY_MS);
+  if (e?.kind === "sample" || e?.kind === "file") previewTimer = window.setTimeout(() => previewEntry(e), PREVIEW_DELAY_MS);
 }
 
 export async function enterBrowse() {
@@ -45,7 +48,7 @@ export async function enterBrowse() {
 
 export function exitBrowse() {
   clearTimeout(previewTimer);
-  engine.stopPreview();
+  stopPreview();
 }
 
 /** Encoders 1 and 8 scroll, 2 and 7 jump by letter, so either hand can browse. */
@@ -71,8 +74,15 @@ export async function browseEnter() {
     return;
   }
   const pad = get().selectedPad;
-  if (e.kind === "sample") {
-    updatePad(pad, { sampleId: e.id, name: fitName(e.name, 12), start: 0, end: 1, reverse: false }, true);
+  if (e.kind === "sample" || e.kind === "file") {
+    let sampleId: string;
+    try {
+      sampleId = await entrySample(e);
+    } catch (err) {
+      set({ status: `${e.name}: ${(err as Error).message}` });
+      return showTemp("Can't load", fitName(e.name));
+    }
+    updatePad(pad, { sampleId, name: fitName(e.name, 12), start: 0, end: 1, reverse: false }, true);
     showTemp(`LOADED > PAD ${pad + 1}`, fitName(e.name));
   } else if (await loadNamedKit(e.name)) {
     showTemp("KIT LOADED", fitName(e.name));
@@ -80,12 +90,15 @@ export async function browseEnter() {
 }
 
 /** Shift + Function on a sample folder: its first 16 samples become the drum track's kit. */
-export function browseFolderToPads() {
+export async function browseFolderToPads() {
   const e = current();
-  if (e?.kind !== "folder" || !e.path.startsWith(SAMPLES + "/")) return showTemp("Browse", "Pick a folder");
-  const samples = listDir(e.path, Object.values(get().samples), kits).filter((x) => x.kind === "sample");
-  if (!samples.length) return showTemp(fitName(e.name), "No samples");
-  const n = samplesToPads(samples, e.name);
+  if (e?.kind !== "folder" || !(isDiskPath(e.path) || e.path.startsWith(SAMPLES + "/"))) return showTemp("Browse", "Pick a folder");
+  const list = isDiskPath(e.path) ? await listDiskNow(e.path) : listAt(e.path, kits).entries;
+  const items = list.filter((x) => x.kind === "sample" || x.kind === "file").slice(0, 16);
+  if (!items.length) return showTemp(fitName(e.name), "No samples");
+  showTemp("Loading", fitName(e.name));
+  const loaded = await Promise.all(items.map((x) => entrySample(x).then((id) => ({ id, name: x.name }), () => null)));
+  const n = samplesToPads(loaded.filter((x) => x !== null), e.name);
   showTemp(`FOLDER > PADS 1-${n}`, fitName(drumTrack().name));
 }
 
@@ -95,18 +108,19 @@ export function browseUp() {
 }
 
 export function browseDisplay(): [string, string] {
-  const list = entries();
-  const name = cursor.path || "Browse";
-  if (!list.length) return [fitLine(name, "0/0"), "(empty)"];
+  const { entries: list, note } = listing();
+  const name = folderLabel(cursor.path) || "Browse";
+  if (!list.length) return [fitLine(name, "0/0"), note ?? "(empty)"];
   const e = list[cursor.index];
-  return [fitLine(name.split("/").pop()!, `${cursor.index + 1}/${list.length}`), e.kind === "folder" ? fitName(">" + e.name) : fitName(e.name)];
+  return [fitLine(name, `${cursor.index + 1}/${list.length}`), e.kind === "folder" ? fitName(">" + e.name) : fitName(e.name)];
 }
 
 export function browseView() {
+  const { entries: list, note } = listing();
   return {
-    folder: cursor.path.split("/").pop() ?? "",
+    folder: folderLabel(cursor.path),
     index: cursor.index,
-    items: entries().map((e) => ({ label: e.name, folder: e.kind === "folder" })),
+    items: list.length || !note ? list.map((e) => ({ label: e.name, folder: e.kind === "folder" })) : [{ label: note, folder: false }],
   };
 }
 
@@ -124,6 +138,5 @@ export function browseLeds(): { color: number; mode?: LedMode }[] {
 
 /** Pad press in browse (after selecting the pad): audition the highlighted sample. */
 export function browsePad() {
-  const e = current();
-  if (e?.kind === "sample") engine.preview(e.id);
+  previewEntry(current());
 }

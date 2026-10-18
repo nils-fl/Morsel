@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  chopSelected, confirmDeleteSample, deleteSavedKit, stepKit, renameSavedKit, isAudioFile, loadFilesToPads, loadFolderToPads, loadNamedKit, openInChop, saveCurrentKit, samplingLevel, shareTab,
+  chopSelected, confirmDeleteSample, deleteSavedKit, stepKit, renameSavedKit, importToLibrary, loadFilesToPads, loadFolderToPads, loadNamedKit, openInChop, saveCurrentKit, samplingLevel, shareTab,
   toggleSampling, unshareTab,
 } from "../actions";
 import { DECAY_MAX } from "../audio/dsp";
@@ -13,6 +13,8 @@ import { DUCK_ALL, FACTORY_KIT, PAD_COUNT, type SampleSource, type SampleTarget 
 import { Field, Section, Slider } from "./controls";
 import { PALETTE_CHOICES, paletteCss } from "./palette";
 import { Waveform } from "./Waveform";
+import { SamplePicker } from "./SamplePicker";
+import { connectFolder, diskSupported } from "../browse/disk";
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 const ms = (v: number) => (v >= 1 ? `${v.toFixed(2)} s` : `${Math.round(v * 1000)} ms`);
@@ -21,7 +23,7 @@ export function PadEditor() {
   const i = useApp((s) => s.selectedPad);
   const pad = useApp((s) => drumPads(s)[s.selectedPad]);
   const trackName = useApp((s) => drumTrack(s).name);
-  const samples = useApp((s) => s.samples);
+  useApp((s) => s.bufferTick); // the waveform appears once the sample's audio has loaded
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const kitFolderInput = useRef<HTMLInputElement>(null);
@@ -48,13 +50,13 @@ export function PadEditor() {
               e.target.value = "";
               void loadFolderToPads(files);
             }} />
-            <button onClick={() => folderInput.current?.click()} title="Adds a folder of samples to the library (browse it on the Launchkey with Shift + Encoder ⌃)">Import folder…</button>
-            <input ref={folderInput} type="file" hidden multiple {...{ webkitdirectory: "" }} onChange={async (e) => {
-              const files = [...(e.target.files ?? [])].filter(isAudioFile);
+            <button onClick={() => folderInput.current?.click()} title="Copies a folder of samples into this browser's library. For big sample packs, use Connect folder">Import folder…</button>
+            <input ref={folderInput} type="file" hidden multiple {...{ webkitdirectory: "" }} onChange={(e) => {
+              const files = [...(e.target.files ?? [])];
               e.target.value = "";
-              for (const f of files) await engine.addFile(f).catch(() => undefined);
-              set({ status: `Imported ${files.length} samples into the library` });
+              void importToLibrary(files);
             }} />
+            {diskSupported() && <button onClick={() => void connectFolder()} title="Browse a folder on this computer in place (Sample ▾ or Browse on the Launchkey); a sample is copied in only when you use it">Connect folder…</button>}
             <button onClick={() => updatePad(i, { sampleId: null, name: `Pad ${i + 1}` }, true)} title="Empty this pad (the sample stays in the library)">Clear</button>
             <button disabled={!pad.sampleId} onClick={() => pad.sampleId && confirmDeleteSample(pad.sampleId)} title="Delete this pad's sample from the library and every pad using it">Delete sample</button>
           </>
@@ -66,12 +68,7 @@ export function PadEditor() {
             <input value={pad.name} maxLength={12} onChange={(e) => up({ name: e.target.value })} />
           </Field>
           <Field label="Sample">
-            <select value={pad.sampleId ?? ""} onChange={(e) => up({ sampleId: e.target.value || null, start: 0, end: 1 })}>
-              <option value="">—</option>
-              {Object.values(samples).map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
+            <SamplePicker value={pad.sampleId} onPick={(id) => up({ sampleId: id, start: 0, end: 1 })} />
           </Field>
           <Field label="Mode">
             <select value={pad.mode} onChange={(e) => up({ mode: e.target.value as "oneshot" | "gate" })}>
@@ -270,7 +267,7 @@ function KitPanel() {
       <>
         <button onClick={() => kitInput.current?.click()} title="Import one or more .morsel-kit.json files">Import kits…</button>
         <button disabled={!name.trim()} title="Save the pads as a kit file with their samples, to share or keep" onClick={() => {
-          download(exportKit(name.trim(), drumPads()), `${name.trim()}.morsel-kit.json`);
+          void exportKit(name.trim(), drumPads()).then((blob) => download(blob, `${name.trim()}.morsel-kit.json`));
         }}>Export kit…</button>
       </>
     }>

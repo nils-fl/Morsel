@@ -208,4 +208,8 @@ export interface SampleInfo {
   name: string;
   /** Virtual folder, e.g. "Drums/Kicks" ("" or missing = top level). */
   folder?: string;
+  /** Where it came from in a connected folder (browse/disk.ts path), so loading the same file again reuses it. */
+  src?: string;
+  /** Stored as 16-bit (audio/pcm.ts). Older samples are 32-bit float until the library is compacted. */
+  pcm16?: true;
 }

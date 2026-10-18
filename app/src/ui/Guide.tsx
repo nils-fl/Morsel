@@ -104,7 +104,7 @@ export function Guide() {
     { name: "Track", color: "var(--yellow)", leds: trackLeds(), how: "Func ×2", pads: "Top row = select track 1–8 (pulsing = selected). Bottom row = mute track 1–8 (red), double-tap = solo.", enc: "Same pages (Mix: 8 track levels)", keys: "Keys track" },
     { name: "Mixer", color: "var(--lime)", leds: mixerLeds(), how: "Func ×3", pads: "Pads of the drum track (the last one picked, also from a keys track). Tap = mute (red), double-tap = solo (yellow).", enc: "Same pages", keys: "Keys track" },
     { name: "Pattern", color: "var(--violet)", leds: patternLeds(), how: "Func ×4", pads: "Pick a pattern (green). Blue = has notes. While playing the switch is queued (flashing) until the loop ends.", enc: "Same pages", keys: "Keys track" },
-    { name: "Browse", color: "var(--white)", leds: browseLeds, how: "Shift + Enc page ⌃", pads: "Target a pad (flashes white) and audition it. Pad ⌄ / Func = open or load (Kits → Factory is always there), Shift + Func on a folder = its samples on pads 1–16, Pad ⌃ / › = up a folder.", enc: "1 or 8 = scroll (auto-preview), 2 or 7 = jump by letter (Shift: by 8). ⌃ / ⌄ arrows = one item", keys: "Keys track" },
+    { name: "Browse", color: "var(--white)", leds: browseLeds, how: "Shift + Enc page ⌃", pads: "Target a pad (flashes white) and audition it. Pad ⌄ / Func = open or load (Kits → Factory is always there; connected folders are listed at the top), Shift + Func on a folder = its samples on pads 1–16, Pad ⌃ / › = up a folder.", enc: "1 or 8 = scroll (auto-preview), 2 or 7 = jump by letter (Shift: by 8). ⌃ / ⌄ arrows = one item", keys: "Keys track" },
     { name: "Chop", color: "var(--magenta)", leds: chopLeds, how: "After a take, or Shift + Enc page ⌄", pads: "Play slices 1–16 and select their markers. Play = play from the marker, › = add a marker at the playhead (Shift: remove), Func = new drum rack.", enc: "1 scroll, 2 zoom, 3 pick marker, 4 move it (Shift: fine), 5 max slices, 6 sensitivity", keys: "Keys track" },
   ];
 
@@ -225,7 +225,8 @@ export function Guide() {
             <li>Everything follows the selected track: Shift + Pad ⌃ / ⌄ steps through them, and the Track tab, the on-screen pads, the encoder pages and the Launchkey screen show only that track.</li>
             <li>Close Ableton Live first: Morsel puts the Launchkey in DAW mode and takes over its pads, encoders, buttons and screen.</li>
             <li>Everything autosaves in this browser. Song tab → Export project to keep a copy with all samples.</li>
-            <li>Drop audio files on an on-screen pad to load them. Folder → pads makes a folder the kit; Import folder only adds it to the browser.</li>
+            <li>Drop audio files on an on-screen pad to load them. Folder → pads makes a folder the kit; Import folder copies a folder into the browser's library.</li>
+            <li>For big sample packs use Connect folder (Chrome / Edge): the folder is browsed in place, from Sample ▾ or Browse on the Launchkey, and a sample is copied in only when you use it. After a browser restart, click Reconnect next to it in Sample ▾.</li>
             <li>New drum tracks start with the Factory kit. The kit bar (Track tab), the Kit encoder page or Browse → Kits loads a kit; the Kits panel saves, renames, exports, imports (several at once) and deletes them.</li>
             <li>Keys tracks: Synth, Sample (one sound with a root note), Pad sample or Multisample, plus a vibrato and a filter LFO (encoder page LFO).</li>
             <li>Record → chop → drum rack: Shift + Record, play, Shift + Record, then Func. The take opens in Chop with its hits marked; adjust with pads, encoders and ›.</li>

@@ -1,12 +1,14 @@
-import { del, get as idbGet, keys, set as idbSet } from "idb-keyval";
-import type { Pad, Project, SynthParams } from "./types";
+import { del, delMany, get as idbGet, keys, set as idbSet } from "idb-keyval";
+import type { Pad, Project, SampleInfo, SynthParams } from "./types";
 import { normalizePads, normalizeSynth } from "./store";
 
 export interface StoredSample {
   name: string;
   folder?: string;
+  src?: string;
   sampleRate: number;
-  channels: Float32Array[];
+  /** 16-bit (audio/pcm.ts); 32-bit float in samples stored before that. */
+  channels: (Int16Array | Float32Array)[];
 }
 
 const PROJECT_KEY = "project:current";
@@ -29,6 +31,32 @@ export async function loadSample(id: string): Promise<StoredSample | undefined> 
 
 export async function deleteSample(id: string) {
   await del(`sample:${id}`);
+}
+
+export async function deleteSamples(ids: string[]) {
+  await delMany(ids.map((id) => `sample:${id}`));
+}
+
+// Names and folders of every sample, so startup lists the library without reading its audio.
+const INDEX_KEY = "sampleIndex";
+
+export async function saveSampleIndex(samples: Record<string, SampleInfo>) {
+  await idbSet(INDEX_KEY, samples);
+}
+
+export async function loadSampleIndex(): Promise<Record<string, SampleInfo> | undefined> {
+  return idbGet(INDEX_KEY);
+}
+
+// Connected folders: the browser keeps the handle, the permission is asked again after a restart.
+export interface StoredFolder { name: string; handle: FileSystemDirectoryHandle }
+
+export async function saveFolders(folders: StoredFolder[]) {
+  await idbSet("folders", folders);
+}
+
+export async function loadFolders(): Promise<StoredFolder[]> {
+  return (await idbGet<StoredFolder[]>("folders")) ?? [];
 }
 
 export async function listSampleIds(): Promise<string[]> {

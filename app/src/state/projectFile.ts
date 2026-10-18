@@ -1,7 +1,8 @@
 // Single-file project export: project JSON plus all referenced samples (16-bit PCM, base64).
 import type { engine as Engine } from "../audio/engine";
 import { engine } from "../audio/engine";
-import { PROJECT_VERSION, drumTrack, get, normalizePads, normalizeProject, resetSession, set, updateTrack } from "./store";
+import { toInt16 } from "../audio/pcm";
+import { PROJECT_VERSION, drumTrack, get, usedSampleIds, normalizePads, normalizeProject, resetSession, set, updateTrack } from "./store";
 import { sequencer } from "../seq/sequencer";
 import { cancelKitLoad } from "../actions";
 import { releaseAll, setHwMode } from "../modes/controller";
@@ -12,20 +13,8 @@ import { KIT_FORMAT, PROJECT_FORMAT, isKitFormat, isProjectFormat } from "./file
 interface FileSample { name: string; sampleRate: number; channels: string[] }
 interface ProjectFile { format: typeof PROJECT_FORMAT; version: number; project: Project; samples: Record<string, FileSample> }
 
-function usedSampleIds(p: Project) {
-  const ids = new Set<string>();
-  for (const t of p.tracks) {
-    t.pads.forEach((pad) => pad.sampleId && ids.add(pad.sampleId));
-    t.keys?.zones.forEach((z) => ids.add(z.sampleId));
-    if (t.keys?.sample.sampleId) ids.add(t.keys.sample.sampleId);
-  }
-  return ids;
-}
-
 function toB64(data: Float32Array) {
-  const pcm = new Int16Array(data.length);
-  for (let i = 0; i < data.length; i++) pcm[i] = Math.max(-1, Math.min(1, data[i])) * 0x7fff;
-  const bytes = new Uint8Array(pcm.buffer);
+  const bytes = new Uint8Array(toInt16(data).buffer);
   let s = "";
   for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(s);
@@ -39,10 +28,10 @@ function fromB64(b64: string) {
   return Float32Array.from(pcm, (v) => v / 0x7fff);
 }
 
-function encodeSamples(ids: Iterable<string>) {
+async function encodeSamples(ids: Iterable<string>) {
   const samples: Record<string, FileSample> = {};
   for (const id of ids) {
-    const buf = engine.buffer(id);
+    const buf = await engine.ensure(id);
     if (!buf) continue;
     samples[id] = {
       name: get().samples[id]?.name ?? id,
@@ -55,14 +44,14 @@ function encodeSamples(ids: Iterable<string>) {
 
 export async function exportProject(): Promise<Blob> {
   const project = get().project;
-  const file: ProjectFile = { format: PROJECT_FORMAT, version: PROJECT_VERSION, project, samples: encodeSamples(usedSampleIds(project)) };
+  const file: ProjectFile = { format: PROJECT_FORMAT, version: PROJECT_VERSION, project, samples: await encodeSamples(usedSampleIds(project)) };
   return new Blob([JSON.stringify(file)], { type: "application/json" });
 }
 
 /** A kit file (the format importKit reads) with the pads and their samples. */
-export function exportKit(name: string, pads: Pad[]): Blob {
+export async function exportKit(name: string, pads: Pad[]): Promise<Blob> {
   const ids = new Set(pads.flatMap((pad) => (pad.sampleId ? [pad.sampleId] : [])));
-  const file = { format: KIT_FORMAT, version: 1, name, pads, samples: encodeSamples(ids) };
+  const file = { format: KIT_FORMAT, version: 1, name, pads, samples: await encodeSamples(ids) };
   return new Blob([JSON.stringify(file)], { type: "application/json" });
 }
 
@@ -104,11 +93,16 @@ async function addSamples(eng: typeof Engine, decoded: Map<string, { name: strin
   const idMap = new Map<string, string>();
   const library = Object.values(get().samples);
   for (const [oldId, { name, buffer }] of decoded) {
-    const existing = library.find((s) => {
-      const b = eng.buffer(s.id);
-      return s.name === name && s.folder === folder && !!b && sameAudio(b, buffer);
-    });
-    idMap.set(oldId, existing ? existing.id : await eng.addBuffer(name, buffer, folder));
+    let existing: string | undefined;
+    for (const s of library) {
+      if (s.name !== name || s.folder !== folder) continue;
+      const b = await eng.ensure(s.id);
+      if (b && sameAudio(b, buffer)) {
+        existing = s.id;
+        break;
+      }
+    }
+    idMap.set(oldId, existing ?? (await eng.addBuffer(name, buffer, folder)));
   }
   return idMap;
 }
