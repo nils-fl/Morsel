@@ -87,6 +87,8 @@ Run these inside `app/`:
 | `npm run lint` | Lint (Oxlint) |
 | `npm run kits -- "<packs folder>"` | Build kit files from a folder of sample packs into `kits/` (needs ffmpeg). Each pack's drum one-shots are sorted by name into kick, snare, clap, hats, … and laid out like the Factory kit; big packs get an A and a B kit. Import them with *Import kits…* |
 | `npm run boot-gif` | Re-render `docs/boot-animation.gif` from the start-up animation code (needs ffmpeg) |
+| `npm run deploy` | Build and deploy to Cloudflare as the `morsel` Worker (static assets, see `app/wrangler.jsonc`). Log in once with `npx wrangler login` |
+| `npm run preview:worker` | Build and serve it locally in the Worker runtime |
 
 ## Project layout
 

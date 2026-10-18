@@ -7,3 +7,4 @@ dist/
 # Kits embed third-party samples
 kits/*.morsel-kit.json
 kits/*.launchkit-kit.json
+.wrangler/

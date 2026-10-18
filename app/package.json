@@ -13,7 +13,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "boot-gif": "node scripts/boot-gif.mjs",
-    "kits": "node scripts/make-kits.mjs"
+    "kits": "node scripts/make-kits.mjs",
+    "deploy": "npm run build && wrangler deploy",
+    "preview:worker": "npm run build && wrangler dev"
   },
   "dependencies": {
     "idb-keyval": "^6.3.0",
@@ -29,6 +31,7 @@
     "oxlint": "^1.81.0",
     "typescript": "~6.0.2",
     "vite": "^8.3.0",
-    "vitest": "^5.0.5"
+    "vitest": "^5.0.5",
+    "wrangler": "^4.151.1"
   }
 }

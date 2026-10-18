@@ -1,0 +1,10 @@
+// Cloudflare Worker that serves the built app (dist/) as static assets. Deploy: npm run deploy
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "morsel",
+  "compatibility_date": "2026-10-18",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  }
+}
