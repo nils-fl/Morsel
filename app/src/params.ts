@@ -4,7 +4,9 @@ import type { Visual } from "./modes/notify";
 import { engine } from "./audio/engine";
 import { QUANTIZE_OPTIONS, REPEAT_OPTIONS } from "./seq/timing";
 import { get, set, updateKeys, updatePad, updateProject } from "./state/store";
-import { DUCK_ALL, KEYS_TRACK, PAD_COUNT, type DuckSettings, type Pad, type SynthParams } from "./state/types";
+import { DUCK_ALL, KEYS_TRACK, PAD_COUNT, type DuckSettings, type Pad, type SynthParams, type Wave } from "./state/types";
+import { allPresets, applyPreset } from "./actions";
+import { presetEdited } from "./audio/synthPresets";
 
 export interface Param {
   name: string;
@@ -32,7 +34,9 @@ function padParam(name: string, key: keyof Pad & ("start" | "end" | "pitch" | "a
   };
 }
 
-function synthParam(name: string, key: keyof SynthParams & ("cutoff" | "resonance" | "attack" | "release" | "envAmount"), lo: number, hi: number, step: number, fmt: (v: number) => string): Param {
+type SynthNumKey = { [K in keyof SynthParams]: SynthParams[K] extends number ? K : never }[keyof SynthParams];
+
+function synthParam(name: string, key: SynthNumKey, lo: number, hi: number, step: number, fmt: (v: number) => string): Param {
   const cur = () => get().project.keys.synth[key] as number;
   return {
     name,
@@ -85,6 +89,23 @@ export interface Page {
 
 const panText = (v: number) => (Math.abs(v) < 0.01 ? "C" : v < 0 ? `L${Math.round(-v * 100)}` : `R${Math.round(v * 100)}`);
 const padNow = () => get().project.pads[get().selectedPad];
+
+// ---------- keys synth ----------
+
+const WAVES: Wave[] = ["sawtooth", "square", "triangle", "sine"];
+const WAVE_SHORT: Record<Wave, string> = { sawtooth: "Saw", square: "Sqr", triangle: "Tri", sine: "Sin" };
+const keysNow = () => get().project.keys;
+const presetIndex = () => Math.max(0, allPresets().findIndex((p) => p.name === keysNow().preset));
+
+/** "Warm Pad", with a * once edited (or "Pad sample" / "Multisample" when Keys isn't the synth). */
+export function presetLabel() {
+  const k = keysNow();
+  if (k.type !== "synth") return k.type === "chromatic" ? "Pad sample" : "Multisample";
+  const p = allPresets().find((x) => x.name === k.preset);
+  return `${k.preset}${presetEdited(k.synth, p) ? "*" : ""}`;
+}
+
+const cents = (v: number) => `${v > 0 ? "+" : ""}${Math.round(v)} ct`;
 
 // ---------- sidechain ducker ----------
 
@@ -147,6 +168,43 @@ export const PAGES: Page[] = [
     params: [
       { ...padParam("Resonance", "resonance", 0, 1, 0.01, pct), visual: padFilterVisual },
       padParam("Pan", "pan", -1, 1, 0.02, panText),
+    ],
+  },
+  {
+    name: "Keys",
+    tag: "KEYS",
+    summary: presetLabel,
+    params: [
+      {
+        name: "Preset",
+        value: presetIndex,
+        // A getter: the list grows when you save presets.
+        get range(): [number, number] {
+          return [0, Math.max(1, allPresets().length - 1)];
+        },
+        nudge: (d) => {
+          const list = allPresets();
+          applyPreset(list[clamp(presetIndex() + Math.sign(d), 0, list.length - 1)]);
+        },
+        format: presetLabel,
+      },
+      {
+        name: "Waves",
+        value: () => WAVES.indexOf(keysNow().synth.wave) * 4 + WAVES.indexOf(keysNow().synth.wave2),
+        range: [0, 15],
+        nudge: (d) => {
+          const s = keysNow().synth;
+          const i = clamp(WAVES.indexOf(s.wave) * 4 + WAVES.indexOf(s.wave2) + Math.sign(d), 0, 15);
+          updateKeys({ synth: { ...s, wave: WAVES[Math.floor(i / 4)], wave2: WAVES[i % 4] } });
+        },
+        format: () => `${WAVE_SHORT[keysNow().synth.wave]}+${WAVE_SHORT[keysNow().synth.wave2]}`,
+      },
+      synthParam("Detune", "detune", -2400, 2400, 5, cents),
+      { ...synthParam("Cutoff", "cutoff", 0, 1, 0.01, hz), visual: synthFilterVisual },
+      { ...synthParam("Reso", "resonance", 0, 1, 0.01, pct), visual: synthFilterVisual },
+      synthParam("Env", "envAmount", 0, 1, 0.01, pct),
+      synthParam("Attack", "attack", 0.001, 2, 0.01, ms),
+      synthParam("Release", "release", 0.01, 3, 0.02, ms),
     ],
   },
   {
@@ -218,6 +276,7 @@ export const PAGES: Page[] = [
   },
 ];
 export const DUCK_PAGE = PAGES.findIndex((p) => p.tag === "DUCK");
+export const KEYS_PAGE = PAGES.findIndex((p) => p.tag === "KEYS");
 
 
 /** Apply an encoder move and refresh the mixer (levels may change). */

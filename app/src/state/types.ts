@@ -49,6 +49,8 @@ export interface KeysInstrument {
   sourcePad: number;
   zones: Zone[];
   multiName: string;
+  /** Name of the synth preset last loaded (the synth may have been edited since). */
+  preset: string;
   synth: SynthParams;
   volume: number;
 }

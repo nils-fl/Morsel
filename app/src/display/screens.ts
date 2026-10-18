@@ -114,3 +114,21 @@ export function duckScreen(v: DuckView): Frame {
   footer(f, "DUCK", v.summary);
   return f;
 }
+
+export interface KeysView {
+  presets: { label: string; user?: boolean }[];
+  index: number; // current preset
+  title: string; // preset label, e.g. "Warm Pad*"
+  note: string; // right side of the header, e.g. "SYNTH" or "PAD SMP"
+  summary: string;
+}
+
+/** Keys encoder page: the preset list around the current one, like the sample browser. */
+export function keysScreen(v: KeysView): Frame {
+  const f = new Frame();
+  header(f, `KEYS ${v.title}`, v.note);
+  const rows = Math.floor((H - HEADER_H - 1 - 9) / ROW_H);
+  list(f, HEADER_H + 1, rows, v.presets.map((p) => ({ label: p.user ? `${p.label} (mine)` : p.label })), v.index);
+  footer(f, "KEYS", v.summary);
+  return f;
+}

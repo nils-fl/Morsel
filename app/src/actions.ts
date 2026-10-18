@@ -5,7 +5,9 @@ import { equalSlices, detectOnsets, slicesFromMarkers } from "./audio/chop";
 import { DECAY_MAX } from "./audio/dsp";
 import { chopStop, newChop } from "./modes/chop";
 import { sequencer } from "./seq/sequencer";
-import { get, set, updatePad, updateProject } from "./state/store";
+import { get, set, updateKeys, updatePad, updateProject } from "./state/store";
+import { deleteSynthPreset, saveSynthPreset } from "./state/persist";
+import { FACTORY_PRESETS, type SynthPreset } from "./audio/synthPresets";
 import { PAD_COUNT, type Project, type SampleSource } from "./state/types";
 
 export function playPad(i: number, vel: number) {
@@ -39,6 +41,33 @@ export function toggleRecord() {
     set({ recording: true });
     sequencer.start({ countIn: true });
   } else set({ recording: !s.recording });
+}
+
+// ---------- keys presets ----------
+
+/** Factory presets, then the user's own. */
+export const allPresets = (): SynthPreset[] => [...FACTORY_PRESETS, ...get().userPresets];
+
+/** Load a preset onto the Keys synth (switching Keys to the synth if it was playing samples). */
+export function applyPreset(p: SynthPreset) {
+  updateKeys({ type: "synth", preset: p.name, synth: { ...p.params } });
+}
+
+/** Save the current synth as a user preset (overwrites one with the same name). */
+export async function saveUserPreset(name: string) {
+  name = name.trim().slice(0, 24);
+  if (!name) return;
+  if (FACTORY_PRESETS.some((p) => p.name === name)) return set({ status: `“${name}” is a factory preset – pick another name` });
+  const params = { ...get().project.keys.synth };
+  await saveSynthPreset(name, params);
+  const others = get().userPresets.filter((p) => p.name !== name);
+  set({ userPresets: [...others, { name, params, user: true }].sort((a, b) => a.name.localeCompare(b.name)), status: `Saved preset ${name}` });
+  updateKeys({ preset: name });
+}
+
+export async function deleteUserPreset(name: string) {
+  await deleteSynthPreset(name);
+  set({ userPresets: get().userPresets.filter((p) => p.name !== name), status: `Deleted preset ${name}` });
 }
 
 // ---------- sampling ----------

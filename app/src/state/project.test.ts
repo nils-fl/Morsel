@@ -22,6 +22,12 @@ describe("normalizeProject", () => {
     expect(p.keys.zones).toEqual([]);
   });
 
+  it("keeps the Keys preset name, and gives old projects the default", () => {
+    expect(normalizeProject({ keys: { type: "synth" } }).keys.preset).toBe("Init");
+    expect(normalizeProject({ keys: { preset: 5 } }).keys.preset).toBe("Init");
+    expect(normalizeProject({ keys: { preset: "Warm Pad" } }).keys.preset).toBe("Warm Pad");
+  });
+
   it("gives old projects the default ducker and clamps saved duck settings", () => {
     expect(normalizeProject({ name: "Old" }).duck).toEqual(defaultProject().duck);
     expect(normalizeProject({ duck: "junk" }).duck).toEqual(defaultProject().duck);

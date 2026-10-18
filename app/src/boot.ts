@@ -2,12 +2,13 @@ import { engine } from "./audio/engine";
 import { renderFactoryKit } from "./audio/kit";
 import { launchkey } from "./midi/launchkey";
 import { initController } from "./modes/controller";
-import { loadProject, saveProject } from "./state/persist";
+import { loadProject, loadSynthPresets, saveProject } from "./state/persist";
 import { defaultPad, defaultProject, get, normalizeProject, set, store } from "./state/store";
 
 export async function boot() {
   engine.init();
   await engine.loadAllSamples();
+  set({ userPresets: (await loadSynthPresets()).map((p) => ({ ...p, user: true })) });
 
   const saved = await loadProject();
   if (saved) {

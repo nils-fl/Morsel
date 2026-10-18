@@ -1,6 +1,6 @@
 import { del, get as idbGet, keys, set as idbSet } from "idb-keyval";
-import type { Project, SampleInfo } from "./types";
-import { normalizePads } from "./store";
+import type { Project, SampleInfo, SynthParams } from "./types";
+import { defaultKeys, normalizePads } from "./store";
 
 export interface StoredSample {
   name: string;
@@ -47,6 +47,24 @@ export async function loadKit(name: string): Promise<Project["pads"] | undefined
 
 export async function listKits(): Promise<string[]> {
   return (await keys()).map(String).filter((k) => k.startsWith("kit:")).map((k) => k.slice(4));
+}
+
+// User synth presets for the Keys instrument.
+export async function saveSynthPreset(name: string, params: SynthParams) {
+  await idbSet(`synthPreset:${name}`, params);
+}
+
+export async function deleteSynthPreset(name: string) {
+  await del(`synthPreset:${name}`);
+}
+
+export async function loadSynthPresets(): Promise<{ name: string; params: SynthParams }[]> {
+  const names = (await keys()).map(String).filter((k) => k.startsWith("synthPreset:")).map((k) => k.slice(12));
+  const out = await Promise.all(names.map(async (name) => ({ name, params: await idbGet<Partial<SynthParams>>(`synthPreset:${name}`) })));
+  // Fill in any fields a preset saved by an older version lacks.
+  return out
+    .flatMap((p) => (p.params && typeof p.params === "object" ? [{ name: p.name, params: { ...defaultKeys().synth, ...p.params } }] : []))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export type SampleIndex = Record<string, SampleInfo>;

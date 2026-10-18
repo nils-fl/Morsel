@@ -1,4 +1,5 @@
 import { createStore } from "zustand/vanilla";
+import type { SynthPreset } from "../audio/synthPresets";
 import { useStore } from "zustand";
 import { COLOR } from "../midi/protocol";
 import { BAR_TICKS } from "../seq/timing";
@@ -38,6 +39,7 @@ export const defaultKeys = (): KeysInstrument => ({
   sourcePad: 0,
   zones: [],
   multiName: "",
+  preset: "Init",
   volume: 0.7,
   synth: {
     wave: "sawtooth",
@@ -122,6 +124,7 @@ export function normalizeProject(raw: unknown): Project {
       ...d.keys,
       ...keys,
       sourcePad: num(keys.sourcePad, 0, PAD_COUNT - 1, d.keys.sourcePad),
+      preset: typeof keys.preset === "string" ? keys.preset : d.keys.preset,
       zones: Array.isArray(keys.zones) ? keys.zones.filter((z) => isObj(z) && typeof z.sampleId === "string" && typeof z.root === "number") : [],
       synth: { ...d.keys.synth, ...(isObj(keys.synth) ? keys.synth : {}) },
     } as KeysInstrument,
@@ -139,6 +142,8 @@ export function normalizeProject(raw: unknown): Project {
 export interface AppState {
   project: Project;
   samples: Record<string, SampleInfo>;
+  /** The user's saved Keys synth presets (factory ones live in audio/synthPresets.ts). */
+  userPresets: SynthPreset[];
   // transport
   playing: boolean;
   recording: boolean;
@@ -176,6 +181,7 @@ export interface AppState {
 export const store = createStore<AppState>(() => ({
   project: defaultProject(),
   samples: {},
+  userPresets: [],
   playing: false,
   recording: false,
   countIn: false,

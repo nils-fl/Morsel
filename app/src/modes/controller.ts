@@ -1,9 +1,9 @@
 // Maps Launchkey events to actions per hardware mode, and renders LEDs + display.
-import { keyOff, keyOn, playPad, releasePad, toggleSampling, togglePlay, toggleRecord } from "../actions";
+import { allPresets, keyOff, keyOn, playPad, releasePad, toggleSampling, togglePlay, toggleRecord } from "../actions";
 import { engine } from "../audio/engine";
 import { launchkey } from "../midi/launchkey";
 import { CC, COLOR, type LedMode, type PadLayout } from "../midi/protocol";
-import { DUCK_PAGE, PAGES, setDuck, trackLabel, turnEncoder } from "../params";
+import { DUCK_PAGE, KEYS_PAGE, PAGES, presetLabel, setDuck, trackLabel, turnEncoder } from "../params";
 import { makeTicker, sequencer } from "../seq/sequencer";
 import { PPQN, STEP_TICKS } from "../seq/timing";
 import { type AppState, clearTrack, copyPattern, get, patternLength, set, toggleArray, toggleStep, undo, updateProject, KEYS_TRACK, PAD_COLORS } from "../state/store";
@@ -13,7 +13,7 @@ import { activeOverlay, showTemp } from "./notify";
 import { chopEncoder, chopPad, chopPadLeds, chopView } from "./chop";
 import { browseCan, browseDisplay, browseEncoder, browseEnter, browseLeds, browsePad, browseUp, browseView, enterBrowse, exitBrowse } from "./browse";
 import { H, W, type Frame } from "../display/frame";
-import { browserScreen, chopScreen, duckScreen, padScreen, stepScreen } from "../display/screens";
+import { browserScreen, chopScreen, duckScreen, keysScreen, padScreen, stepScreen } from "../display/screens";
 import { HEADER_H, computePeaks, duckPanel, filterPanel, overlayBar, type Peaks } from "../display/widgets";
 import { BOOT_BURP_MS, BOOT_EAT_MS, bootFrame } from "../display/bootAnim";
 
@@ -366,6 +366,17 @@ function screenFor(s: AppState): Frame | null {
       return browserScreen({ folder: v.folder, index: v.index, items: v.items, targetPad: s.selectedPad });
     }
     case "play": {
+      if (s.encPage === KEYS_PAGE) {
+        const presets = allPresets();
+        const k = p.keys;
+        return keysScreen({
+          presets: presets.map((x) => ({ label: x.name, user: x.user })),
+          index: Math.max(0, presets.findIndex((x) => x.name === k.preset)),
+          title: presetLabel(),
+          note: k.type === "synth" ? "SYNTH" : "SAMPLE",
+          summary: "enc 1 = preset",
+        });
+      }
       if (s.encPage === DUCK_PAGE) {
         const d = p.duck;
         return duckScreen({

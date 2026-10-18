@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { bitmapSysex, isBitmapAck, SYSEX_HEADER } from "../midi/protocol";
 import { font5x7 } from "./fonts";
 import { Frame, PACKED_SIZE, fitText } from "./frame";
-import { browserScreen, chopScreen, duckScreen } from "./screens";
+import { browserScreen, chopScreen, duckScreen, keysScreen } from "./screens";
 import { BOOT_BURP_MS, BOOT_EAT_MS, BOOT_MS, bootFrame } from "./bootAnim";
 import { filterPanel, highpassDb, lowpassDb, scrollTop } from "./widgets";
 
@@ -121,5 +121,15 @@ describe("duck screen", () => {
   const view = { on: true, source: "P1 Kick", target: "P9 Bass", depth: 0.8, attack: 0.005, release: 0.2, level: 1, summary: "P1>P9 80%" };
   it("shows more gain reduction when the target is ducked", () => {
     expect(lit(duckScreen({ ...view, level: 0.2 }))).toBeGreaterThan(lit(duckScreen(view)));
+  });
+});
+
+describe("keys screen", () => {
+  it("highlights the current preset in the list", () => {
+    const presets = ["Init", "Sub Bass", "Acid Bass", "Reese"].map((label) => ({ label }));
+    const a = keysScreen({ presets, index: 0, title: "Init", note: "SYNTH", summary: "" });
+    const b = keysScreen({ presets, index: 2, title: "Acid Bass", note: "SYNTH", summary: "" });
+    // The selected row is an inverted bar, so moving the cursor changes the picture.
+    expect(Array.from(a.px)).not.toEqual(Array.from(b.px));
   });
 });

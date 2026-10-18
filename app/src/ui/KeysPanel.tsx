@@ -1,5 +1,7 @@
-import { useRef } from "react";
-import { keyOff, keyOn } from "../actions";
+import { useRef, useState } from "react";
+import { allPresets, applyPreset, deleteUserPreset, keyOff, keyOn, saveUserPreset } from "../actions";
+import { FACTORY_PRESETS } from "../audio/synthPresets";
+import { presetLabel } from "../params";
 import { engine } from "../audio/engine";
 import { updateKeys, useApp } from "../state/store";
 import type { SynthParams, Wave, Zone } from "../state/types";
@@ -42,6 +44,8 @@ export function KeysPanel() {
         </div>
       </Section>
 
+      <PresetBar />
+
       {keys.type === "synth" && (
         <Section title="Synth">
           <div className="row wrap">
@@ -54,7 +58,7 @@ export function KeysPanel() {
           </div>
           <div className="sliders">
             <Slider label="Osc 2 lvl" value={synth.osc2Level} min={0} max={1} format={pct} onChange={(v) => upSynth({ osc2Level: v })} />
-            <Slider label="Detune" value={synth.detune} min={-1200} max={1200} step={1} format={(v) => `${v} ct`} onChange={(v) => upSynth({ detune: v })} />
+            <Slider label="Detune" value={synth.detune} min={-2400} max={2400} step={1} format={(v) => `${v} ct`} onChange={(v) => upSynth({ detune: v })} />
             <Slider label="Cutoff" value={synth.cutoff} min={0} max={1} format={pct} onChange={(v) => upSynth({ cutoff: v })} />
             <Slider label="Resonance" value={synth.resonance} min={0} max={1} format={pct} onChange={(v) => upSynth({ resonance: v })} />
             <Slider label="Env amt" value={synth.envAmount} min={0} max={1} format={pct} onChange={(v) => upSynth({ envAmount: v })} />
@@ -92,6 +96,39 @@ export function KeysPanel() {
         <MiniKeyboard />
       </Section>
     </div>
+  );
+}
+
+/** Pick, step through, save and delete Keys synth presets. Launchkey: encoder page Keys, encoder 1. */
+function PresetBar() {
+  const current = useApp((s) => s.project.keys.preset);
+  const userPresets = useApp((s) => s.userPresets);
+  useApp((s) => s.project.keys); // re-render the "*" when the synth is edited
+  const [name, setName] = useState("");
+  const list = allPresets();
+  const i = list.findIndex((p) => p.name === current);
+  const step = (d: number) => applyPreset(list[Math.max(0, Math.min(list.length - 1, (i < 0 ? 0 : i) + d))]);
+  const isUser = userPresets.some((p) => p.name === current);
+
+  return (
+    <Section title={`Preset · ${presetLabel()}`} actions={
+      <>
+        <button onClick={() => step(-1)} disabled={i <= 0} aria-label="Previous preset">◀</button>
+        <select value={i >= 0 ? current : ""} onChange={(e) => { const p = list.find((x) => x.name === e.target.value); if (p) applyPreset(p); }}>
+          {i < 0 && <option value="">{current}</option>}
+          <optgroup label="Factory">{FACTORY_PRESETS.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}</optgroup>
+          {userPresets.length > 0 && <optgroup label="Mine">{userPresets.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}</optgroup>}
+        </select>
+        <button onClick={() => step(1)} disabled={i >= list.length - 1} aria-label="Next preset">▶</button>
+      </>
+    }>
+      <p className="hint">A * means the sound was edited since the preset was loaded. Launchkey: encoder page <b>Keys</b>, encoder 1 scrolls presets.</p>
+      <div className="row">
+        <input placeholder="Preset name" value={name} maxLength={24} onChange={(e) => setName(e.target.value)} />
+        <button disabled={!name.trim()} onClick={async () => { await saveUserPreset(name); setName(""); }}>Save as preset</button>
+        {isUser && <button onClick={() => deleteUserPreset(current)} title="Delete this saved preset (the current sound stays)">Delete “{current}”</button>}
+      </div>
+    </Section>
   );
 }
 
