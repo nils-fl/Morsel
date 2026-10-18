@@ -15,7 +15,8 @@
     "boot-gif": "node scripts/boot-gif.mjs",
     "kits": "node scripts/make-kits.mjs",
     "deploy": "npm run build && wrangler deploy",
-    "preview:worker": "npm run build && wrangler dev"
+    "preview:worker": "npm run build && wrangler dev",
+    "og-image": "node scripts/og-image.mjs"
   },
   "dependencies": {
     "idb-keyval": "^6.3.0",
