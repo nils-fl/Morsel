@@ -121,6 +121,13 @@ export class Launchkey {
     this.bmpInFlight = false;
     this.bmpPending = this.bmpLast = null;
     this.refreshLeds();
+    // Like a layout switch: LED messages sent while the device is still entering DAW mode can be
+    // dropped, and the sent-colour cache would never resend them.
+    clearTimeout(this.resendTimer);
+    this.resendTimer = window.setTimeout(() => {
+      this.sentColors.clear();
+      this.refreshLeds();
+    }, 300);
   }
 
   release() {

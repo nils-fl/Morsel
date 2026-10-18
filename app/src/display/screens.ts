@@ -139,3 +139,44 @@ export function keysScreen(v: KeysView): Frame {
   footer(f, v.tag ?? "KEYS", v.summary);
   return f;
 }
+
+export interface GridCell {
+  label: string; // 1-2 characters
+  fill: boolean; // drawn solid (selected / on)
+  mark?: boolean; // a bar under the label (e.g. a pattern with notes)
+  dim?: boolean; // dotted outline (empty / off)
+}
+
+export interface GridView {
+  title: string; // header left, e.g. "T1 Drums"
+  mode: string; // header right, e.g. "TRACK"
+  cells: GridCell[]; // by pad index: 0-7 bottom row, 8-15 top row, like the pads
+  tag: string;
+  info: string;
+  note?: string; // replaces the grid, e.g. "Drum tracks only"
+}
+
+/** Track, Mixer and Pattern modes: the 16 pads as two rows of cells, laid out like the hardware. */
+export function gridScreen(v: GridView): Frame {
+  const f = new Frame();
+  header(f, v.title, v.mode);
+  if (v.note) {
+    f.textFit(2, HEADER_H + 16, v.note, W - 4);
+  } else {
+    const cw = 14, gap = 2, ch = 19, x0 = 1, rows = [HEADER_H + 3, HEADER_H + 3 + ch + 3];
+    for (let i = 0; i < 16; i++) {
+      const c = v.cells[i];
+      if (!c) continue;
+      const x = x0 + (i % 8) * (cw + gap), y = rows[i >= 8 ? 0 : 1];
+      if (c.fill) f.fillRect(x, y, cw, ch);
+      else if (c.dim) for (let k = 0; k < cw; k += 2) { f.set(x + k, y); f.set(x + k, y + ch - 1); }
+      else f.rect(x, y, cw, ch);
+      if (c.dim && !c.fill) for (let k = 0; k < ch; k += 2) { f.set(x, y + k); f.set(x + cw - 1, y + k); }
+      const tw = c.label.length * 6 - 1;
+      f.text(x + Math.floor((cw - tw) / 2), y + 4, c.label, c.fill ? 0 : 1);
+      if (c.mark) f.hline(x + 3, x + cw - 4, y + ch - 4, c.fill ? 0 : 1);
+    }
+  }
+  footer(f, v.tag, v.info);
+  return f;
+}

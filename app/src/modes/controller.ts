@@ -17,7 +17,7 @@ import { activeOverlay, showTemp } from "./notify";
 import { chopAddMarker, chopEncoder, chopPad, chopPadLeds, chopRemoveMarker, chopStop, chopTogglePlay, chopView } from "./chop";
 import { browseCan, browseDisplay, browseEncoder, browseEnter, browseFolderToPads, browseLeds, browsePad, browseUp, browseView, enterBrowse, exitBrowse } from "./browse";
 import { H, W, type Frame } from "../display/frame";
-import { browserScreen, chopScreen, duckScreen, keysScreen, padScreen, stepScreen } from "../display/screens";
+import { browserScreen, chopScreen, duckScreen, gridScreen, keysScreen, padScreen, stepScreen } from "../display/screens";
 import { HEADER_H, computePeaks, duckPanel, filterPanel, overlayBar, type Peaks } from "../display/widgets";
 import { BOOT_BURP_MS, BOOT_EAT_MS, bootFrame } from "../display/bootAnim";
 
@@ -29,7 +29,9 @@ const TEMPORARY: HwMode[] = ["browse", "chop"];
 
 /** Play and Chop use the drum layout (velocity, pressure); every other mode lights the pads in DAW layout. */
 const layoutFor = (mode: HwMode): PadLayout => (mode === "play" || mode === "chop" ? "drum" : "daw");
-let lastLayoutFix = 0;
+// -Infinity, not 0: after a page reload the device reports its layout within the first second
+// (performance.now() starts at the reload), and that first report must not be ignored.
+let lastLayoutFix = -Infinity;
 
 export function setHwMode(mode: HwMode) {
   const prev = get().hwMode;
@@ -528,6 +530,38 @@ function screenFor(s: AppState): Frame | null {
     case "chop": {
       const v = chopView(W);
       return v && chopScreen(v);
+    }
+    case "track": {
+      // Top row = tracks 1-8 (selected = solid), bottom row = their mute / solo state (solid = audible).
+      const cells = Array.from({ length: 16 }, (_, i) => {
+        const t = p.tracks[i >= 8 ? i - 8 : i];
+        if (!t) return { label: "", fill: false, dim: true };
+        if (i >= 8) return { label: `${i - 7}`, fill: t.id === s.selectedTrack, mark: t.kind === "keys" };
+        return { label: t.solo ? "S" : t.mute ? "M" : "", fill: trackAudible(p, t.id) };
+      });
+      return gridScreen({ title: trackLabel(s), mode: "TRACK", cells, tag: "TRK", info: "Top: pick  Bottom: mute" });
+    }
+    case "mixer": {
+      const t = selectedTrack(s);
+      const cells = t.pads.map((pad, i) => ({
+        label: t.padSolos[i] ? "S" : t.padMutes[i] ? "M" : `${i + 1}`,
+        fill: !t.padMutes[i] && !!pad.sampleId,
+        dim: !pad.sampleId,
+      }));
+      return gridScreen({
+        title: trackLabel(s), mode: "MIXER", cells, tag: "MIX",
+        info: "Tap: mute  2x: solo", note: t.kind === "drum" ? undefined : "Drum tracks only",
+      });
+    }
+    case "pattern": {
+      // Current = solid, has notes = bar, queued = dotted.
+      const cells = p.patterns.map((pat, i) => ({
+        label: `${i + 1}`,
+        fill: i === s.currentPattern,
+        mark: patternHasNotes(pat),
+        dim: i === s.queuedPattern,
+      }));
+      return gridScreen({ title: trackLabel(s), mode: "PATTERN", cells, tag: "PAT", info: `P${s.currentPattern + 1} ${transportState(s)}` });
     }
     case "step":
       return stepScreen({

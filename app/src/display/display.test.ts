@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { bitmapSysex, isBitmapAck, SYSEX_HEADER } from "../midi/protocol";
 import { font5x7 } from "./fonts";
 import { Frame, PACKED_SIZE, fitText } from "./frame";
-import { browserScreen, chopScreen, duckScreen, keysScreen, padScreen, stepScreen } from "./screens";
+import { browserScreen, chopScreen, duckScreen, gridScreen, keysScreen, padScreen, stepScreen } from "./screens";
 import { BOOT_BURP_MS, BOOT_EAT_MS, BOOT_MS, bootFrame } from "./bootAnim";
 import { filterPanel, highpassDb, lowpassDb, scrollTop } from "./widgets";
 
@@ -149,5 +149,21 @@ describe("track header", () => {
     const presets = [{ label: "Init" }];
     const v = { presets, index: 0, title: "Init", note: "SYNTH", summary: "" };
     expect(headerText(keysScreen({ ...v, track: "T2 Keys 1" }))).not.toEqual(headerText(keysScreen(v)));
+  });
+});
+
+describe("grid screen", () => {
+  const cells = Array.from({ length: 16 }, (_, i) => ({ label: `${i + 1}`, fill: i === 0 }));
+  const view = { title: "T1 Drums", mode: "PATTERN", cells, tag: "PAT", info: "" };
+  it("draws the selected cell solid, in the bottom row for pad 1", () => {
+    const a = gridScreen(view), b = gridScreen({ ...view, cells: cells.map((c, i) => ({ ...c, fill: i === 8 })) });
+    expect(lit(a)).toBeGreaterThan(0);
+    expect(Array.from(a.px)).not.toEqual(Array.from(b.px));
+    // Pad 1 sits in the lower row: its solid cell lights pixels around y = 40.
+    expect(a.px[40 * 128 + 4]).toBe(1);
+    expect(b.px[40 * 128 + 4]).toBe(0);
+  });
+  it("shows a note instead of the grid", () => {
+    expect(lit(gridScreen({ ...view, note: "Drum tracks only" }))).toBeLessThan(lit(gridScreen(view)));
   });
 });
