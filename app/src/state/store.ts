@@ -453,7 +453,7 @@ export const store = createStore<AppState>(() => ({
   tabShared: false,
   sampleTarget: "chop",
   tab: "Track",
-  theme: "dark",
+  theme: "light",
   chop: null,
   kits: [],
   audioReady: false,

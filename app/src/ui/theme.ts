@@ -1,16 +1,16 @@
-// Light / dark theme: a per-browser preference (not part of the project). Dark is the default.
+// Light / dark theme: a per-browser preference (not part of the project). Light is the default.
 import { get, set } from "../state/store";
 
 export type Theme = "dark" | "light";
 const KEY = "morsel:theme";
 const OLD_KEY = "launchkit:theme"; // before the rename
 
-/** The saved theme, or dark. Storage can be unavailable (private window, blocked site data). */
+/** The saved theme, or light. Storage can be unavailable (private window, blocked site data). */
 export function savedTheme(): Theme {
   try {
-    return (localStorage.getItem(KEY) ?? localStorage.getItem(OLD_KEY)) === "light" ? "light" : "dark";
+    return (localStorage.getItem(KEY) ?? localStorage.getItem(OLD_KEY)) === "dark" ? "dark" : "light";
   } catch {
-    return "dark";
+    return "light";
   }
 }
 
