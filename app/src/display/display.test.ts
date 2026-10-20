@@ -146,6 +146,13 @@ describe("keys screen", () => {
     expect(none.get(0, 10)).toBe(0);
     expect(first.get(0, 10)).toBe(1);
   });
+  it("puts the folder line above the folder's presets, pushing the list down a row", () => {
+    const plain = keysScreen({ presets, index: 0, title: "Init", status: "P1 STOP", summary: "" });
+    const foldered = keysScreen({ presets, index: 0, title: "Init", status: "P1 STOP", summary: "", folder: { name: "Bass", pos: "1/4" } });
+    expect(plain.get(0, 10)).toBe(1); // selected row right under the header
+    expect(foldered.get(0, 10)).toBe(0); // the folder line is there instead
+    expect(foldered.get(0, 19)).toBe(1); // selected row one line lower
+  });
 });
 
 describe("headers", () => {

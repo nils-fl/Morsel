@@ -139,6 +139,36 @@ export function buildSampleVoice(
   };
 }
 
+// One second of white noise per context, looped by the synth's noise source.
+const noiseBuffers = new WeakMap<BaseAudioContext, AudioBuffer>();
+function noiseBuffer(ctx: BaseAudioContext) {
+  let b = noiseBuffers.get(ctx);
+  if (!b) {
+    b = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    const d = b.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    noiseBuffers.set(ctx, b);
+  }
+  return b;
+}
+
+// tanh saturation curves by drive amount (shared: building one is a 1024-point loop).
+const driveCurves = new Map<number, Float32Array<ArrayBuffer>>();
+function driveCurve(drive: number) {
+  const key = Math.round(drive * 100);
+  let c = driveCurves.get(key);
+  if (!c) {
+    const k = 1 + (key / 100) * 8;
+    c = new Float32Array(1024);
+    for (let i = 0; i < c.length; i++) c[i] = Math.tanh(k * ((i / (c.length - 1)) * 2 - 1)) / Math.tanh(k);
+    driveCurves.set(key, c);
+  }
+  return c;
+}
+
+/** Key tracking pivots around C4: notes above open the filter, notes below close it. */
+const KEY_TRACK_PIVOT = 261.63;
+
 export function buildSynthVoice(
   ctx: BaseAudioContext,
   out: AudioNode,
@@ -161,27 +191,67 @@ export function buildSynthVoice(
   const filter = ctx.createBiquadFilter();
   filter.type = "lowpass";
   filter.Q.value = synthQDb(s.resonance);
+  // 24 dB: a second, unresonant lowpass in series.
+  const filter2 = s.slope === 24 ? ctx.createBiquadFilter() : null;
+  if (filter2) {
+    filter2.type = "lowpass";
+    filter2.Q.value = 0;
+    filter.connect(filter2);
+  }
   const amp = ctx.createGain();
   o1.connect(filter);
   o2.connect(mix2).connect(filter);
-  filter.connect(amp).connect(out);
+  const sources: AudioScheduledSourceNode[] = [o1, o2];
+  if (s.sub > 0) {
+    const sub = ctx.createOscillator();
+    sub.frequency.value = freq / 2;
+    const g = ctx.createGain();
+    g.gain.value = s.sub * 0.8;
+    sub.connect(g).connect(filter);
+    sources.push(sub);
+  }
+  if (s.noise > 0) {
+    const n = ctx.createBufferSource();
+    n.buffer = noiseBuffer(ctx);
+    n.loop = true;
+    n.loopStart = Math.random() * 0.5; // voices don't all start on the same noise
+    const g = ctx.createGain();
+    g.gain.value = s.noise * 0.5;
+    n.connect(g).connect(filter);
+    sources.push(n);
+  }
+  let last: AudioNode = filter2 ?? filter;
+  if (s.drive > 0) {
+    const shaper = ctx.createWaveShaper();
+    shaper.curve = driveCurve(s.drive);
+    shaper.oversample = "2x";
+    last.connect(shaper);
+    last = shaper;
+  }
+  last.connect(amp).connect(out);
 
-  const base = cutoffHz(s.cutoff);
-  const top = Math.min(18000, base * Math.pow(2, s.envAmount * 6));
-  const f = filter.frequency;
+  const track = s.keyTrack > 0 ? Math.pow(freq / KEY_TRACK_PIVOT, s.keyTrack) : 1;
+  const base = Math.max(20, Math.min(18000, cutoffHz(s.cutoff) * track));
+  const env = s.envAmount * (1 - s.velFilter + (s.velFilter * vel) / 127);
+  const top = Math.min(18000, base * Math.pow(2, env * 6));
   const a = Math.max(0.002, s.attack);
-  f.setValueAtTime(base, when);
-  f.linearRampToValueAtTime(top, when + a);
-  f.setTargetAtTime(base + (top - base) * s.sustain, when + a, Math.max(0.01, s.decay) / 3);
+  const filterParams = filter2 ? [filter.frequency, filter2.frequency] : [filter.frequency];
+  for (const f of filterParams) {
+    f.setValueAtTime(base, when);
+    f.linearRampToValueAtTime(top, when + a);
+    // Own filter decay: it closes fully; otherwise it follows the amp's decay and sustain.
+    if (s.filterDecay > 0) f.setTargetAtTime(base, when + a, s.filterDecay / 3);
+    else f.setTargetAtTime(base + (top - base) * s.sustain, when + a, Math.max(0.01, s.decay) / 3);
+  }
 
   const peak = velGain(vel) * s.volume * 0.5;
   const g = amp.gain;
   g.setValueAtTime(0, when);
   g.linearRampToValueAtTime(peak, when + a);
   g.setTargetAtTime(peak * s.sustain, when + a, Math.max(0.01, s.decay) / 3);
-  o1.start(when);
-  o2.start(when);
-  const stopLfos = noteLfos(ctx, mod, when, [o1.detune, o2.detune], [filter.detune]);
+  for (const src of sources) src.start(when);
+  const pitched = sources.filter((x): x is OscillatorNode => x instanceof OscillatorNode);
+  const stopLfos = noteLfos(ctx, mod, when, pitched.map((o) => o.detune), filter2 ? [filter.detune, filter2.detune] : [filter.detune]);
 
   let stopAt = Infinity;
   const ended = new Promise<void>((res) => (o1.onended = () => {
@@ -196,11 +266,12 @@ export function buildSynthVoice(
       const rel = fast ? 0.005 : Math.max(0.01, s.release);
       holdAt(g, t);
       g.setTargetAtTime(0, t, rel / 4);
-      holdAt(f, t);
-      try {
-        o1.stop(t + rel + 0.05);
-        o2.stop(t + rel + 0.05);
-      } catch { /* already stopped */ }
+      for (const f of filterParams) holdAt(f, t);
+      for (const src of sources) {
+        try {
+          src.stop(t + rel + 0.05);
+        } catch { /* already stopped */ }
+      }
     },
   };
 }

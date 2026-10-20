@@ -1,6 +1,6 @@
 // Protocol lab: watch raw MIDI and try LED / display / SysEx messages on the hardware.
 import { useEffect, useState } from "react";
-import { launchkey } from "../midi/launchkey";
+import { SHIFT_COVERS, launchkey, type ShiftCover } from "../midi/launchkey";
 import { DISPLAY, displayConfigSysex, displayTextSysex, padRgbSysex } from "../midi/protocol";
 import { pauseLeds } from "../modes/controller";
 import { Frame, W, H } from "../display/frame";
@@ -16,6 +16,7 @@ export function Lab() {
   const [paletteBase, setPaletteBase] = useState(0);
   const [custom, setCustom] = useState("F0 00 20 29 02 13 06 21 00 48 65 6C 6C 6F F7");
   const [text, setText] = useState(["Hello", "Launchkey"]);
+  const [shiftCover, setShiftCover] = useState<ShiftCover>(launchkey.shiftCoverMode);
 
   useEffect(() => {
     launchkey.logRaw = true;
@@ -120,6 +121,18 @@ export function Lab() {
             <button onClick={scrollFps}>Animate + measure fps</button>
             <button onClick={() => { launchkey.clearBitmap(); setTestFrame(null); }}>Back to text</button>
             <button onClick={() => launchkey.showTemporary("Overlay", "test 1s")}>Temp text on top</button>
+          </div>
+        </Section>
+        <Section title="Shift popup">
+          <p className="hint">
+            How Morsel covers the Launchkey's own “Plugin | Drum” popup while Shift is held. Pick one, switch to another tab
+            (the Lab pauses Morsel's screen), then hold Shift. Bitmap = the shift map as the popup, Text = two lines of text,
+            Close = close the popup and redraw, Off = the device's own popup.
+          </p>
+          <div className="row">
+            {SHIFT_COVERS.map((m) => (
+              <button key={m} className={m === shiftCover ? "on" : ""} onClick={() => { launchkey.setShiftCover(m); setShiftCover(m); }}>{m}</button>
+            ))}
           </div>
         </Section>
         <Section title="Send raw (DAW port)">

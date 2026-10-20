@@ -36,6 +36,14 @@ export interface SynthParams {
   sustain: number;
   release: number;
   volume: number;
+  // Sound shaping. Each one's default (0, or a 12 dB slope) leaves the synth as it was before they existed.
+  sub: number; // 0..1, sine one octave below osc 1
+  noise: number; // 0..1, white noise into the filter
+  drive: number; // 0..1, saturation after the filter
+  slope: 12 | 24; // filter slope in dB/octave
+  keyTrack: number; // 0..1, the cutoff follows the note (1 = an octave per octave, around C4)
+  velFilter: number; // 0..1, how much velocity scales the filter envelope
+  filterDecay: number; // seconds; 0 = the filter follows the amp envelope, else it closes fully over this time
 }
 
 export interface Zone {

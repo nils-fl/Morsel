@@ -1,123 +1,399 @@
 // Stock kits synthesized offline, so the app works with no sample files: the Factory kit and genre kits.
+// Each sound is a small analog-style drum voice (pitch-swept bodies, shaped noise, 808 metal oscillators)
+// rendered once into the library, then treated per kit (drive, tape roll-off, bit crush, a small room).
 const SR = 44100;
 
-type Gen = (ctx: OfflineAudioContext) => void;
+/** Bumped whenever the sounds change, so kits rendered by an older version are rendered again (actions.ts). */
+export const STOCK_REV = 2;
 
-function noise(ctx: BaseAudioContext, seconds: number) {
-  const b = ctx.createBuffer(1, Math.ceil(seconds * ctx.sampleRate), ctx.sampleRate);
-  const d = b.getChannelData(0);
-  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+/** A drum voice: builds its nodes into `out` (the sound's bus) at time 0. */
+type Gen = (ctx: BaseAudioContext, out: AudioNode) => void;
+
+// ---------- building blocks ----------
+
+const noiseBuffers = new WeakMap<BaseAudioContext, AudioBuffer>();
+function noise(ctx: BaseAudioContext) {
+  let b = noiseBuffers.get(ctx);
+  if (!b) {
+    b = ctx.createBuffer(1, ctx.sampleRate * 4, ctx.sampleRate);
+    const d = b.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    noiseBuffers.set(ctx, b);
+  }
   const s = ctx.createBufferSource();
   s.buffer = b;
   return s;
 }
 
-function env(ctx: BaseAudioContext, peak: number, attack: number, decay: number, t = 0) {
+/** Gain envelope: rises over `attack`, holds, then falls exponentially (most of the way within `decay`). */
+function envGain(ctx: BaseAudioContext, peak: number, attack: number, decay: number, t = 0, hold = 0) {
   const g = ctx.createGain();
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(peak, t + attack);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(peak, t + attack);
+  g.gain.setValueAtTime(peak, t + attack + hold);
+  g.gain.setTargetAtTime(0, t + attack + hold, decay / 4);
   return g;
 }
 
-function tone(ctx: BaseAudioContext, type: OscillatorType, f0: number, f1: number, sweep: number, peak: number, decay: number, t = 0) {
-  const o = ctx.createOscillator();
-  o.type = type;
-  o.frequency.setValueAtTime(f0, t);
-  o.frequency.exponentialRampToValueAtTime(f1, t + sweep);
-  const g = env(ctx, peak, 0.002, decay, t);
-  o.connect(g).connect(ctx.destination);
-  o.start(t);
-  o.stop(t + decay + 0.05);
-}
-
-const hz = (note: number) => 440 * 2 ** ((note - 69) / 12);
-
-/** Six detuned squares through a highpass: the metallic 808 / 909 hat and cymbal sound. */
-function metal(ctx: BaseAudioContext, base: number, hp: number, peak: number, decay: number, t = 0) {
-  const f = ctx.createBiquadFilter();
-  f.type = "highpass";
-  f.frequency.value = hp;
-  const g = env(ctx, peak, 0.001, decay, t);
-  f.connect(g).connect(ctx.destination);
-  for (const r of [2, 3, 4.16, 5.43, 6.79, 8.21]) {
-    const o = ctx.createOscillator();
-    o.type = "square";
-    o.frequency.value = base * r;
-    o.connect(f);
-    o.start(t);
-    o.stop(t + decay + 0.05);
-  }
-}
-
-function filteredNoise(ctx: BaseAudioContext, type: BiquadFilterType, freq: number, q: number, peak: number, decay: number, t = 0) {
-  const n = noise(ctx, decay + 0.1);
+function filter(ctx: BaseAudioContext, type: BiquadFilterType, freq: number, q = 0.7, gain = 0) {
   const f = ctx.createBiquadFilter();
   f.type = type;
   f.frequency.value = freq;
   f.Q.value = q;
-  const g = env(ctx, peak, 0.001, decay, t);
-  n.connect(f).connect(g).connect(ctx.destination);
-  n.start(t);
+  f.gain.value = gain;
+  return f;
 }
+
+/** Chain nodes in order; returns the last. */
+function chain(...nodes: AudioNode[]) {
+  for (let i = 1; i < nodes.length; i++) nodes[i - 1].connect(nodes[i]);
+  return nodes[nodes.length - 1];
+}
+
+function shaper(ctx: BaseAudioContext, drive: number) {
+  const s = ctx.createWaveShaper();
+  const k = 1 + drive * 6;
+  const c = new Float32Array(1024);
+  for (let i = 0; i < c.length; i++) c[i] = Math.tanh(k * ((i / 1023) * 2 - 1)) / Math.tanh(k);
+  s.curve = c;
+  s.oversample = "4x";
+  return s;
+}
+
+/** Oscillator whose pitch falls exponentially from f0 towards f1 (time constant `tau`). */
+function sweptOsc(ctx: BaseAudioContext, type: OscillatorType, f0: number, f1: number, tau: number, stop: number, t = 0) {
+  const o = ctx.createOscillator();
+  o.type = type;
+  o.frequency.setValueAtTime(f0, t);
+  o.frequency.setTargetAtTime(f1, t, tau);
+  o.start(t);
+  o.stop(t + stop);
+  return o;
+}
+
+/** Filtered noise burst into `out`. */
+function noiseHit(ctx: BaseAudioContext, out: AudioNode, filters: BiquadFilterNode[], peak: number, attack: number, decay: number, t = 0) {
+  const n = noise(ctx);
+  n.start(t, Math.random() * 3);
+  n.stop(t + attack + decay * 1.5 + 0.05);
+  chain(n, ...filters, envGain(ctx, peak, attack, decay, t), out);
+}
+
+const TR808_METAL = [205.3, 304.4, 369.6, 522.7, 540, 800];
+
+/** The TR-808 metal: six detuned squares (hats, cymbals, cowbell-ish tones), filtered by the caller. */
+function metal(ctx: BaseAudioContext, into: AudioNode, pitch: number, stop: number, t = 0) {
+  for (const f of TR808_METAL) {
+    const o = ctx.createOscillator();
+    o.type = "square";
+    o.frequency.value = f * pitch;
+    o.connect(into);
+    o.start(t);
+    o.stop(t + stop);
+  }
+}
+
+const hz = (note: number) => 440 * 2 ** ((note - 69) / 12);
 
 // ---------- drum voices, tuned per kit ----------
 
-/** Pitch-swept body plus a click; `wave` "triangle" or a short sweep gives a harder kick. */
-const kick = (f0: number, f1: number, sweep: number, decay: number, click = 0.3, wave: OscillatorType = "sine"): Gen => (c) => {
-  tone(c, wave, f0, f1, sweep, 1, decay);
-  if (click) tone(c, "triangle", 1200, 120, 0.01, click, 0.015);
+interface KickOpts { f0?: number; f1?: number; tau?: number; decay?: number; click?: number; knock?: number; drive?: number; punch?: number; grit?: number }
+/**
+ * Sine body with an exponential pitch drop, a noise click, a short tonal knock and a little low-mid grit,
+ * saturated. Like sampled kicks, the body falls quickly from its punch (`punch`, time constant) to about a
+ * third, then tails off over `decay`. Measured against real one-shots: ~0.14 s to -40 dB, centroid ~260 Hz.
+ */
+const kick = (o: KickOpts = {}): Gen => (c, out) => {
+  const { f0 = 200, f1 = 46, tau = 0.03, decay = 0.18, click = 0.45, knock = 0.6, drive = 0.8, punch = 0.02, grit = 0.35 } = o;
+  const bus = drive ? shaperInto(c, drive, out) : out;
+  const g = c.createGain();
+  g.gain.setValueAtTime(0, 0);
+  g.gain.linearRampToValueAtTime(1, 0.001);
+  // Low plateau: the saturation after it lifts the tail again.
+  g.gain.setTargetAtTime(0.09, 0.008, punch);
+  g.gain.setTargetAtTime(0, 0.008 + punch * 2, decay / 5);
+  chain(sweptOsc(c, "sine", f0, f1, tau, decay * 1.5 + 0.1), g, bus);
+  if (knock) chain(sweptOsc(c, "sine", f0 * 4, f0 * 2, 0.005, 0.04), envGain(c, knock, 0.0005, 0.018), bus);
+  if (click) noiseHit(c, bus, [filter(c, "highpass", 2000), filter(c, "peaking", 4500, 1, 5), filter(c, "lowpass", 9000)], click, 0.0005, 0.01);
+  if (grit) noiseHit(c, bus, [filter(c, "bandpass", 400, 0.8)], grit, 0.001, 0.05);
 };
-/** A long sine bass drum; `from` above `to` with a long `glide` slides like a drill 808. */
-const bass808 = (from: number, to: number, glide: number, decay: number): Gen => (c) => tone(c, "sine", from, to, glide, 1, decay);
-const snare = (body: number, noiseHz: number, decay: number, noiseAmt = 0.7, bodyAmt = 0.6): Gen => (c) => {
-  tone(c, "triangle", body, body * 0.7, 0.05, bodyAmt, decay * 0.55);
-  filteredNoise(c, "highpass", noiseHz, 0.7, noiseAmt, decay);
-};
-/** Brushed / ghost snare: band-limited noise, little body. */
-const brush = (noiseHz: number, decay: number): Gen => (c) => filteredNoise(c, "bandpass", noiseHz, 0.6, 0.6, decay);
-const clap = (band: number, tail: number, spread = 0.012): Gen => (c) => {
-  [0, spread, spread * 2].forEach((t) => filteredNoise(c, "bandpass", band, 1.2, 0.8, 0.02, t));
-  filteredNoise(c, "bandpass", band, 1.2, 0.8, tail, spread * 3 + 0.01);
-};
-const snap = (band: number): Gen => (c) => { filteredNoise(c, "bandpass", band, 3, 0.9, 0.05); tone(c, "sine", 2000, 1500, 0.01, 0.2, 0.01); };
-const rim = (hi = 1700, lo = 500): Gen => (c) => { tone(c, "square", hi, hi * 0.94, 0.01, 0.4, 0.03); tone(c, "triangle", lo, lo * 0.96, 0.01, 0.4, 0.05); };
-const hat = (hp: number, decay: number, amt = 0.6): Gen => (c) => filteredNoise(c, "highpass", hp, 0.8, amt, decay);
-const metalHat = (decay: number, base = 100, hp = 7000, amt = 0.35): Gen => (c) => metal(c, base, hp, amt, decay);
-const shaker = (band: number, decay: number): Gen => (c) => filteredNoise(c, "bandpass", band, 2, 0.5, decay);
-const tamb = (decay: number): Gen => (c) => { metal(c, 130, 8000, 0.15, decay); filteredNoise(c, "bandpass", 7000, 1.5, 0.4, decay); };
-const ride = (decay: number, hp = 5000): Gen => (c) => { filteredNoise(c, "highpass", hp, 2, 0.3, decay); [3200, 4700, 6100].forEach((f) => tone(c, "square", f, f, 0.01, 0.03, decay * 0.9)); };
-const crash = (decay: number, hp = 4000): Gen => (c) => filteredNoise(c, "highpass", hp, 0.5, 0.5, decay);
-const tom = (f0: number, decay: number): Gen => (c) => tone(c, "sine", f0, f0 * 0.58, 0.2, 0.9, decay);
-const conga = (f: number): Gen => (c) => { tone(c, "sine", f * 1.4, f, 0.03, 0.9, 0.25); filteredNoise(c, "bandpass", f * 4, 2, 0.15, 0.02); };
-const cowbell = (a = 560, b = 845): Gen => (c) => { tone(c, "square", a, a, 0.01, 0.25, 0.35); tone(c, "square", b, b, 0.01, 0.25, 0.35); };
-const clave = (f = 2500): Gen => (c) => tone(c, "sine", f, f, 0.01, 0.7, 0.05);
-const wood = (f = 900): Gen => (c) => { tone(c, "triangle", f, f * 0.9, 0.02, 0.7, 0.08); tone(c, "sine", f * 2.7, f * 2.6, 0.01, 0.2, 0.03); };
-const zap = (from = 2400, to = 60, time = 0.2): Gen => (c) => tone(c, "sawtooth", from, to, time, 0.4, time + 0.05);
-/** Two quick opposite sweeps, like a record pushed and pulled. */
-const scratch: Gen = (c) => { tone(c, "sawtooth", 250, 1400, 0.08, 0.35, 0.08); tone(c, "sawtooth", 1400, 300, 0.1, 0.35, 0.1, 0.09); };
-const chord = (notes: number[], wave: OscillatorType, decay: number, peak = 0.12): Gen => (c) => notes.forEach((n) => tone(c, wave, hz(n), hz(n), 0.01, peak, decay));
-const bell = (f: number, decay: number): Gen => (c) => { tone(c, "sine", f, f, 0.01, 0.5, decay); tone(c, "sine", f * 2.76, f * 2.76, 0.01, 0.2, decay * 0.5); };
 
-/** Offline "tape" treatment after rendering: drive (tanh), a gentle lowpass, fewer bits and a lower sample rate. */
-interface Fx { drive?: number; lp?: number; bits?: number; hold?: number }
+/** A shaper feeding `out` (helper so voices can share one saturation stage). */
+function shaperInto(ctx: BaseAudioContext, drive: number, out: AudioNode) {
+  const s = shaper(ctx, drive);
+  s.connect(out);
+  return s;
+}
+
+interface BassOpts { from: number; to: number; glide?: number; decay?: number; drive?: number }
+/** 808 bass drum / sub: a quick thump into a long sine, optionally gliding (drill slides), saturated for presence. */
+const bass808 = (o: BassOpts): Gen => (c, out) => {
+  const { from, to, glide = 0.04, decay = 1.6, drive = 0.4 } = o;
+  const bus = shaperInto(c, drive, out);
+  const osc = c.createOscillator();
+  osc.frequency.setValueAtTime(from * 2.5, 0);
+  osc.frequency.setTargetAtTime(from, 0, 0.012);
+  osc.frequency.setTargetAtTime(to, 0.03, glide / 3);
+  osc.start(0);
+  osc.stop(decay * 1.5);
+  chain(osc, envGain(c, 1, 0.001, decay, 0, 0.05), bus);
+  noiseHit(c, bus, [filter(c, "highpass", 3000)], 0.15, 0.0005, 0.006);
+};
+
+interface SnareOpts { tone?: number; ratio?: number; toneDecay?: number; noiseHp?: number; presence?: number; snap?: number; noise?: number; body?: number; drive?: number }
+/** Two tuned body modes with a little pitch drop, plus snappy noise with a presence lift. */
+const snare = (o: SnareOpts = {}): Gen => (c, out) => {
+  const { tone = 200, ratio = 1.7, toneDecay = 0.07, noiseHp = 1000, presence = 3500, snap = 0.11, noise: nAmt = 0.8, body = 0.85, drive = 0.3 } = o;
+  const bus = drive ? shaperInto(c, drive, out) : out;
+  for (const [f, g] of [[tone, body], [tone * ratio, body * 0.5]] as const) {
+    chain(sweptOsc(c, "triangle", f * 1.35, f, 0.012, toneDecay * 1.5), envGain(c, g, 0.0005, toneDecay), bus);
+  }
+  // Lowpassed at 6.5 kHz: sampled snares sit around a 5 kHz centroid, not the hiss of raw noise.
+  noiseHit(c, bus, [filter(c, "highpass", noiseHp), filter(c, "peaking", Math.min(presence, 4500), 0.8, 4), filter(c, "lowpass", 6500)], nAmt, 0.0008, snap);
+};
+
+/** Brushed / ghost snare: soft band-limited noise with a slower attack. */
+const brush = (band = 3000, decay = 0.25): Gen => (c, out) =>
+  noiseHit(c, out, [filter(c, "bandpass", band, 0.6), filter(c, "lowpass", 9000)], 0.8, 0.012, decay);
+
+interface ClapOpts { band?: number; tail?: number; bursts?: number; spread?: number }
+/** Hand clap: a flurry of uneven noise bursts (several hands), then a short tail, through one band-pass. */
+const clap = (o: ClapOpts = {}): Gen => (c, out) => {
+  const { band = 1200, tail = 0.09, bursts = 7, spread = 0.0065 } = o;
+  const n = noise(c);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0, 0);
+  let t = 0;
+  for (let i = 0; i < bursts; i++) {
+    g.gain.setValueAtTime(i === bursts - 1 ? 1 : 0.55 + Math.random() * 0.4, t);
+    if (i < bursts - 1) g.gain.setTargetAtTime(0.03, t + 0.0004, 0.0018);
+    else g.gain.setTargetAtTime(0, t + 0.002, tail / 4);
+    if (i < bursts - 1) t += spread * (0.6 + Math.random() * 0.8);
+  }
+  n.start(0, Math.random() * 3);
+  n.stop(t + tail * 1.5 + 0.05);
+  chain(n, filter(c, "highpass", 600), filter(c, "bandpass", band, 0.9), filter(c, "peaking", band * 3, 0.8, 5), filter(c, "lowpass", 10000), g, out);
+};
+
+/** Finger snap: a tight band of noise with a tiny tonal tick. */
+const snap = (band = 2400): Gen => (c, out) => {
+  noiseHit(c, out, [filter(c, "bandpass", band, 3)], 1, 0.0005, 0.045);
+  chain(sweptOsc(c, "sine", 2200, 1600, 0.004, 0.02), envGain(c, 0.25, 0.0003, 0.008), out);
+};
+
+/** Rimshot / side stick: a short tonal knock and a click. */
+const rim = (hi = 1700, lo = 480): Gen => (c, out) => {
+  const hp = chain(filter(c, "highpass", 500), out);
+  chain(sweptOsc(c, "triangle", hi * 1.1, hi, 0.003, 0.12), envGain(c, 0.7, 0.0003, 0.06), hp);
+  chain(sweptOsc(c, "sine", lo * 1.2, lo, 0.004, 0.12), envGain(c, 0.45, 0.0003, 0.05), hp);
+  noiseHit(c, hp, [filter(c, "bandpass", 4000, 1.2)], 0.6, 0.0003, 0.03);
+};
+
+/** 808-style hat: the six metal squares through a band-pass at 10 kHz and a high-pass, plus a little noise sizzle. */
+const hat = (decay: number, o: { hp?: number; pitch?: number; amt?: number; sizzle?: number } = {}): Gen => (c, out) => {
+  // Darker than a raw 808 (bp 8 kHz, lowpassed): sampled hats measure ~7 kHz centroid.
+  const { hp = 6000, pitch = 1, amt = 0.6, sizzle = 0.3 } = o;
+  const g = envGain(c, amt, 0.0005, decay);
+  const bp = filter(c, "bandpass", 7000, 0.7);
+  chain(bp, filter(c, "highpass", hp * 0.85), filter(c, "lowpass", 10000), g, out);
+  metal(c, bp, pitch, decay * 1.5 + 0.02);
+  if (sizzle) noiseHit(c, out, [filter(c, "highpass", hp), filter(c, "lowpass", 9500)], amt * sizzle, 0.0005, decay * 0.8);
+};
+
+/** Noise hat for the dustier kits: brighter top, no metallic ring. */
+const noiseHat = (decay: number, hp = 6000, amt = 0.6): Gen => (c, out) =>
+  noiseHit(c, out, [filter(c, "highpass", hp * 0.85), filter(c, "peaking", 7000, 1, 4), filter(c, "lowpass", 9500)], amt, 0.0006, decay);
+
+/** Shaker: band of noise with a soft attack (two grains, like a shake back and forth). */
+const shaker = (band = 6000, decay = 0.08): Gen => (c, out) => {
+  noiseHit(c, out, [filter(c, "bandpass", band, 1.4)], 0.5, 0.02, decay);
+  noiseHit(c, out, [filter(c, "bandpass", band * 1.15, 1.4)], 0.35, 0.015, decay * 0.7, decay * 0.4);
+};
+
+/** Tambourine: metal jingles plus noise, with a couple of follow-up jingles. */
+const tamb = (decay = 0.2): Gen => (c, out) => {
+  for (const [t, a] of [[0, 1], [0.025, 0.5], [0.05, 0.3]] as const) {
+    const g = envGain(c, 0.25 * a, 0.001, decay, t);
+    const bp = filter(c, "bandpass", 9000, 1.2);
+    chain(bp, g, out);
+    metal(c, bp, 1.35, t + decay * 1.5, t);
+    noiseHit(c, out, [filter(c, "bandpass", 7500, 1.5)], 0.35 * a, 0.001, decay * 0.8, t);
+  }
+};
+
+/** Ride: metal with a lower band, a bell "ping" and a long wash. */
+const ride = (decay = 1.4, o: { pitch?: number; bell?: number } = {}): Gen => (c, out) => {
+  const { pitch = 1.25, bell = 0.15 } = o;
+  const bp = filter(c, "bandpass", 5500, 0.7);
+  chain(bp, filter(c, "highpass", 3000), filter(c, "lowpass", 8000), envGain(c, 0.35, 0.001, decay), out);
+  metal(c, bp, pitch, decay * 1.5);
+  noiseHit(c, out, [filter(c, "highpass", 4500), filter(c, "lowpass", 8000)], 0.12, 0.001, decay * 0.7);
+  for (const f of [3100, 4600]) chain(sweptOsc(c, "sine", f, f, 1, decay), envGain(c, bell, 0.001, decay * 0.5), out);
+};
+
+/** Crash: noise and metal, a fast bloom and a long wash. */
+const crash = (decay = 1.8, hp = 3500): Gen => (c, out) => {
+  const bp = filter(c, "bandpass", 5000, 0.5);
+  chain(bp, filter(c, "highpass", hp * 0.8), filter(c, "lowpass", 8000), envGain(c, 0.25, 0.003, decay), out);
+  metal(c, bp, 1.6, decay * 1.5);
+  noiseHit(c, out, [filter(c, "highpass", hp * 0.8), filter(c, "peaking", 5000, 0.8, 3), filter(c, "lowpass", 8000)], 0.6, 0.004, decay);
+};
+
+/** Tom: a pitched sine dropping a fourth, a soft attack noise and a little drive. */
+const tom = (f: number, decay = 0.22): Gen => (c, out) => {
+  const bus = shaperInto(c, 0.4, out);
+  chain(sweptOsc(c, "sine", f * 1.8, f, 0.03, decay * 1.5), envGain(c, 1, 0.001, decay), bus);
+  chain(sweptOsc(c, "triangle", f * 3, f * 2.2, 0.02, decay), envGain(c, 0.4, 0.001, decay * 0.4), bus);
+  noiseHit(c, bus, [filter(c, "bandpass", Math.max(900, f * 7), 0.8)], 0.45, 0.001, 0.05);
+};
+
+/** Conga / bongo: a quick pitch blip and a slap. */
+const conga = (f: number, decay = 0.25): Gen => (c, out) => {
+  chain(sweptOsc(c, "sine", f * 1.3, f, 0.01, decay * 1.5), envGain(c, 1, 0.0008, decay), out);
+  noiseHit(c, out, [filter(c, "bandpass", 2200, 1.5)], 0.2, 0.0005, 0.015);
+};
+
+/** 808 cowbell: two squares through a band-pass, a fast first drop then a slower ring. */
+const cowbell = (a = 540, b = 800): Gen => (c, out) => {
+  const g = c.createGain();
+  g.gain.setValueAtTime(0, 0);
+  g.gain.linearRampToValueAtTime(0.5, 0.001);
+  g.gain.setTargetAtTime(0.15, 0.001, 0.008);
+  g.gain.setTargetAtTime(0, 0.03, 0.08);
+  const bp = filter(c, "bandpass", 2600, 1.2);
+  chain(bp, g, out);
+  for (const f of [a, b]) {
+    const o = c.createOscillator();
+    o.type = "square";
+    o.frequency.value = f;
+    o.connect(bp);
+    o.start(0);
+    o.stop(0.6);
+  }
+};
+
+const clave = (f = 2500): Gen => (c, out) => {
+  chain(sweptOsc(c, "sine", f, f, 1, 0.1), envGain(c, 0.8, 0.0003, 0.04), out);
+};
+
+/** Woodblock / perc: a hollow triangle knock with a higher partial. */
+const wood = (f = 900): Gen => (c, out) => {
+  chain(sweptOsc(c, "triangle", f * 1.1, f, 0.005, 0.15), envGain(c, 0.8, 0.0005, 0.06), out);
+  chain(sweptOsc(c, "sine", f * 2.7, f * 2.6, 0.005, 0.06), envGain(c, 0.25, 0.0005, 0.025), out);
+};
+
+/** Pitch-sweep effect. */
+const zap = (from = 2400, to = 60, time = 0.2, type: OscillatorType = "sawtooth"): Gen => (c, out) => {
+  chain(sweptOsc(c, type, from, to, time / 3, time * 1.5), filter(c, "lowpass", 8000), envGain(c, 0.5, 0.001, time), out);
+};
+
+/** Noise riser: a band-pass sweeping up while it swells. */
+const riser = (time = 0.5): Gen => (c, out) => {
+  const n = noise(c);
+  const bp = filter(c, "bandpass", 300, 2);
+  bp.frequency.exponentialRampToValueAtTime(6000, time);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.001, 0);
+  g.gain.exponentialRampToValueAtTime(1, time);
+  g.gain.linearRampToValueAtTime(0, time + 0.05);
+  n.start(0);
+  n.stop(time + 0.1);
+  chain(n, bp, g, out);
+};
+
+/** Record scratch: a band-limited saw pushed up and pulled back. */
+const scratch: Gen = (c, out) => {
+  const bus = chain(filter(c, "bandpass", 1500, 0.8), out);
+  const o = c.createOscillator();
+  o.type = "sawtooth";
+  o.frequency.setValueAtTime(220, 0);
+  o.frequency.exponentialRampToValueAtTime(1300, 0.07);
+  o.frequency.exponentialRampToValueAtTime(260, 0.18);
+  o.start(0);
+  o.stop(0.22);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0, 0);
+  g.gain.linearRampToValueAtTime(0.6, 0.01);
+  g.gain.setValueAtTime(0.6, 0.06);
+  g.gain.linearRampToValueAtTime(0.1, 0.085);
+  g.gain.linearRampToValueAtTime(0.6, 0.1);
+  g.gain.linearRampToValueAtTime(0, 0.2);
+  chain(o, g, bus);
+};
+
+/** Chord stab: detuned pairs of `wave` per note through a lowpass with its own envelope. */
+const chord = (notes: number[], wave: OscillatorType, decay: number, o: { cutoff?: number; env?: number } = {}): Gen => (c, out) => {
+  const { cutoff = 1200, env = 4 } = o;
+  const lp = filter(c, "lowpass", cutoff, 2);
+  lp.frequency.setValueAtTime(cutoff * env, 0);
+  lp.frequency.setTargetAtTime(cutoff, 0.002, decay / 4);
+  chain(lp, envGain(c, 0.5, 0.002, decay, 0, 0.02), out);
+  for (const n of notes) {
+    for (const cents of [-8, 8]) {
+      const osc = c.createOscillator();
+      osc.type = wave;
+      osc.frequency.value = hz(n);
+      osc.detune.value = cents;
+      const g = c.createGain();
+      g.gain.value = 0.5 / notes.length;
+      chain(osc, g, lp);
+      osc.start(0);
+      osc.stop(decay * 1.5 + 0.05);
+    }
+  }
+};
+
+/** Bell: inharmonic sine partials, the higher ones dying sooner. */
+const bell = (f: number, decay = 1.2): Gen => (c, out) => {
+  for (const [r, a, d] of [[1, 0.6, 1], [2.76, 0.3, 0.5], [5.4, 0.15, 0.25], [8.93, 0.08, 0.12]] as const) {
+    chain(sweptOsc(c, "sine", f * r, f * r, 1, decay * d * 1.5), envGain(c, a, 0.001, decay * d), out);
+  }
+};
+
+/** A dusty hit: band-passed noise thump with a low body, like a hit lifted off vinyl. */
+const vinylHit: Gen = (c, out) => {
+  noiseHit(c, out, [filter(c, "bandpass", 1500, 0.8)], 0.5, 0.002, 0.35);
+  chain(sweptOsc(c, "sine", 120, 55, 0.03, 0.4), envGain(c, 0.6, 0.001, 0.25), out);
+};
+
+// ---------- treatment ----------
+
+/** Offline "sampler" treatment after rendering: drive (tanh), fewer bits, a lower sample rate, then a lowpass. */
+interface Fx { drive?: number; lp?: number; bits?: number; hold?: number; room?: number }
 
 function applyFx(data: Float32Array, fx: Fx) {
   const { drive, lp, bits, hold } = fx;
   const a = lp ? 1 - Math.exp((-2 * Math.PI * lp) / SR) : 1;
   const q = bits ? 2 ** (bits - 1) : 0;
   const norm = drive ? Math.tanh(drive) : 1;
-  let y = 0, held = 0;
+  // Like a sampler: saturate, crush (bits, rate), then the output filter (two one-poles, 12 dB) smooths the grit.
+  let y1 = 0, y2 = 0, held = 0;
   for (let i = 0; i < data.length; i++) {
     let x = data[i];
     if (drive) x = Math.tanh(x * drive) / norm;
-    y += a * (x - y);
-    x = y;
     if (q) x = Math.round(x * q) / q;
     if (hold && hold > 1) x = i % hold === 0 ? (held = x) : held;
-    data[i] = x;
+    y1 += a * (x - y1);
+    y2 += a * (y1 - y2);
+    data[i] = lp ? y2 : x;
   }
 }
+
+/** A small room: exponentially decaying, darkening noise as the impulse response. */
+function roomIR(ctx: BaseAudioContext, seconds: number) {
+  const b = ctx.createBuffer(1, Math.ceil(seconds * ctx.sampleRate), ctx.sampleRate);
+  const d = b.getChannelData(0);
+  let y = 0;
+  for (let i = 0; i < d.length; i++) {
+    const t = i / ctx.sampleRate;
+    const a = 0.25 + 0.6 * (t / seconds); // darker as it decays
+    y += (1 - a) * (Math.random() * 2 - 1 - y);
+    d[i] = y * Math.exp((-6 * t) / seconds);
+  }
+  return b;
+}
+
+const ROOM_SECONDS = 0.35;
 
 const PEAK = 0.9;
 
@@ -127,202 +403,226 @@ function normalize(data: Float32Array, peak: number) {
   if (max > 0) for (let i = 0; i < data.length; i++) data[i] *= peak / max;
 }
 
-/** One pad: name, length in seconds, generator, and its own Fx on top of the kit's. */
+/** Below this (dB under the peak) a sound counts as faded out; the render is cut there. */
+const TRIM_DB = -54;
+
+/** The buffer cut where it has faded out (plus a short fade, so it never clicks). */
+function trimmed(buffer: AudioBuffer, fadeMs = 10) {
+  const d = buffer.getChannelData(0);
+  let peak = 0;
+  for (const x of d) peak = Math.max(peak, Math.abs(x));
+  const floor = peak * 10 ** (TRIM_DB / 20);
+  let last = d.length - 1;
+  while (last > 0 && Math.abs(d[last]) < floor) last--;
+  const fade = Math.round((fadeMs / 1000) * SR);
+  const len = Math.min(d.length, last + fade);
+  const out = new AudioBuffer({ length: len, numberOfChannels: 1, sampleRate: SR });
+  const o = out.getChannelData(0);
+  o.set(d.subarray(0, len));
+  for (let i = 0; i < Math.min(fade, len); i++) o[len - 1 - i] *= i / fade;
+  return out;
+}
+
+/** One pad: name, length in seconds, generator, and its own Fx on top of the kit's (room: wet level 0..1). */
 type Sound = [name: string, len: number, gen: Gen, fx?: Fx];
 
 interface StockKit { sounds: Sound[]; fx?: Fx }
 
 // 16 sounds each, pads 1-16 (pad 1 = bottom left): the groove on the bottom row, variations, toms, cymbals and colour on top.
-// "Hat Cl" / "Hat Op" choke each other; sounds longer than a pad's default tail get a longer decay (see stockKitPads).
+// "Hat Cl" / "Hat Op" choke each other. Lengths are upper bounds: each render is trimmed where it fades out.
+// Tuned against measured sample-pack one-shots (length to -40 dB, spectral centroid, body pitch): kicks ~0.1-0.25 s,
+// snares ~0.12 s around 5 kHz, claps ~0.1 s, closed hats ~0.1 s and open ~0.35 s around 7 kHz.
 const KITS: Record<string, StockKit> = {
-  Factory: { sounds: [
-    ["Kick", 0.6, (c) => { tone(c, "sine", 150, 42, 0.12, 1, 0.5); tone(c, "triangle", 900, 100, 0.01, 0.3, 0.02); }],
-    ["Snare", 0.4, (c) => { tone(c, "triangle", 240, 170, 0.05, 0.6, 0.12); filteredNoise(c, "highpass", 1800, 0.7, 0.7, 0.22); }],
-    ["Clap", 0.5, (c) => { [0, 0.012, 0.024].forEach((t) => filteredNoise(c, "bandpass", 1200, 1.2, 0.8, 0.02, t)); filteredNoise(c, "bandpass", 1200, 1.2, 0.8, 0.25, 0.034); }],
-    ["Rim", 0.15, (c) => { tone(c, "square", 1700, 1600, 0.01, 0.4, 0.03); tone(c, "triangle", 500, 480, 0.01, 0.4, 0.05); }],
-    ["Hat Cl", 0.15, (c) => filteredNoise(c, "highpass", 7500, 0.8, 0.6, 0.06)],
-    ["Hat Op", 0.7, (c) => filteredNoise(c, "highpass", 7000, 0.8, 0.5, 0.5)],
-    ["Shaker", 0.2, (c) => filteredNoise(c, "bandpass", 6000, 2, 0.5, 0.09)],
-    ["Ride", 1.2, (c) => { filteredNoise(c, "highpass", 5000, 2, 0.3, 1.0); [3200, 4700, 6100].forEach((f) => tone(c, "square", f, f, 0.01, 0.03, 0.9)); }],
-    ["Tom Lo", 0.6, (c) => tone(c, "sine", 140, 80, 0.2, 0.9, 0.45)],
-    ["Tom Mid", 0.5, (c) => tone(c, "sine", 200, 120, 0.2, 0.9, 0.38)],
-    ["Tom Hi", 0.45, (c) => tone(c, "sine", 280, 170, 0.18, 0.9, 0.32)],
-    ["Cowbell", 0.5, (c) => { tone(c, "square", 560, 560, 0.01, 0.25, 0.35); tone(c, "square", 845, 845, 0.01, 0.25, 0.35); }],
-    ["808", 1.6, (c) => tone(c, "sine", 120, 55, 0.08, 1, 1.4)],
-    ["Crash", 2, (c) => filteredNoise(c, "highpass", 4000, 0.5, 0.5, 1.8)],
-    ["Zap", 0.3, (c) => tone(c, "sawtooth", 2400, 60, 0.2, 0.4, 0.25)],
-    ["Stab", 0.8, (c) => [60, 63, 67, 70].forEach((n) => tone(c, "sawtooth", 440 * 2 ** ((n - 69) / 12), 440 * 2 ** ((n - 69) / 12), 0.01, 0.12, 0.6))],
+  // All-rounder: punchy, clean, a touch of room on the snare and clap.
+  Factory: { fx: { drive: 1.1 }, sounds: [
+    ["Kick", 0.6, kick({ f0: 200, f1: 48, decay: 0.15 })],
+    ["Snare", 0.5, snare({ tone: 200, snap: 0.104 }), { room: 0.15 }],
+    ["Clap", 0.5, clap(), { room: 0.2 }],
+    ["Rim", 0.25, rim()],
+    ["Hat Cl", 0.3, hat(0.08)],
+    ["Hat Op", 0.8, hat(0.36, { amt: 0.5 })],
+    ["Shaker", 0.3, shaker()],
+    ["Ride", 2, ride(1.5)],
+    ["Tom Lo", 0.6, tom(95, 0.21)],
+    ["Tom Mid", 0.5, tom(135, 0.18)],
+    ["Tom Hi", 0.5, tom(190, 0.15)],
+    ["Cowbell", 0.5, cowbell()],
+    ["808", 2, bass808({ from: 55, to: 50, decay: 1.4 })],
+    ["Crash", 2.4, crash(1.8)],
+    ["Zap", 0.4, zap()],
+    ["Stab", 0.8, chord([60, 63, 67, 70], "sawtooth", 0.5)],
   ] },
-  // Dusty and soft: rounded kicks, brushy snares, bit-crushed and rolled off like a sampled record.
-  "Lo-Fi": { fx: { drive: 1.3, lp: 5000, bits: 10, hold: 2 }, sounds: [
-    ["Kick", 0.5, kick(110, 45, 0.1, 0.38, 0.1)],
-    ["Snare", 0.35, snare(200, 2200, 0.2, 0.5, 0.5)],
-    ["Rim", 0.15, rim(1500, 450)],
-    ["Snap", 0.15, snap(2200)],
-    ["Hat Cl", 0.12, hat(6000, 0.05, 0.4)],
-    ["Hat Op", 0.5, hat(5500, 0.35, 0.35)],
-    ["Shaker", 0.2, shaker(5000, 0.1)],
-    ["Brush", 0.35, brush(3000, 0.25)],
-    ["Kick 2", 0.55, kick(90, 40, 0.12, 0.45, 0.05)],
-    ["Snare 2", 0.3, snare(180, 1800, 0.15, 0.45, 0.4)],
-    ["Conga Lo", 0.35, conga(180)],
-    ["Conga Hi", 0.3, conga(260)],
-    ["Wood", 0.15, wood(800)],
-    ["Ride", 1.2, ride(1, 4000)],
-    ["Keys", 1.2, chord([57, 60, 64, 67, 71], "triangle", 1, 0.1)],
-    ["Vinyl Hit", 0.6, (c) => { filteredNoise(c, "bandpass", 1500, 0.8, 0.5, 0.4); tone(c, "sine", 80, 50, 0.1, 0.5, 0.3); }],
+  // Dusty and soft: short rounded kicks, brushy snares, rolled off and crushed like a sampled record.
+  // Darker than the others (measured: lo-fi packs' snares sit near 4 kHz, kicks near 150 Hz).
+  "Lo-Fi": { fx: { drive: 1.4, lp: 3800, bits: 12, hold: 2, room: 0.1 }, sounds: [
+    ["Kick", 0.5, kick({ f0: 130, f1: 50, tau: 0.04, decay: 0.12, click: 0.05, knock: 0.08, drive: 0.5, grit: 0.04 })],
+    ["Snare", 0.5, snare({ tone: 190, snap: 0.096, noise: 0.6, presence: 3500, body: 0.8 })],
+    ["Rim", 0.25, rim(1500, 420)],
+    ["Snap", 0.2, snap(2100)],
+    ["Hat Cl", 0.3, noiseHat(0.08, 5500, 0.5)],
+    ["Hat Op", 0.7, noiseHat(0.35, 5000, 0.45)],
+    ["Shaker", 0.3, shaker(5500, 0.1)],
+    ["Brush", 0.5, brush(2800, 0.22)],
+    ["Kick 2", 0.5, kick({ f0: 115, f1: 44, tau: 0.05, decay: 0.14, click: 0.03, knock: 0.05, drive: 0.6, grit: 0.05 })],
+    ["Snare 2", 0.4, snare({ tone: 170, snap: 0.08, noise: 0.5, body: 0.6, presence: 3000 })],
+    ["Conga Lo", 0.5, conga(170, 0.28)],
+    ["Conga Hi", 0.4, conga(250, 0.22)],
+    ["Wood", 0.2, wood(800)],
+    ["Ride", 1.8, ride(1.2, { bell: 0.08 })],
+    ["Keys", 1.4, chord([57, 60, 64, 67, 71], "triangle", 1, { cutoff: 1800, env: 2 })],
+    ["Vinyl Hit", 0.6, vinylHit],
   ] },
-  // Hard-hitting 90s: punchy kick, cracking snare, gritty from the sampler.
-  "Boom Bap": { fx: { drive: 2, lp: 9000, bits: 12 }, sounds: [
-    ["Kick", 0.45, kick(130, 48, 0.08, 0.32, 0.4)],
-    ["Snare", 0.4, snare(210, 1900, 0.26, 0.9, 0.6)],
-    ["Clap", 0.4, clap(1300, 0.2)],
-    ["Rim", 0.15, rim()],
-    ["Hat Cl", 0.12, hat(7000, 0.05, 0.5)],
-    ["Hat Op", 0.5, hat(6500, 0.35, 0.45)],
-    ["Shaker", 0.2, shaker(6000, 0.08)],
-    ["Tamb", 0.3, tamb(0.2)],
-    ["Kick 2", 0.3, kick(160, 55, 0.05, 0.18, 0.5)],
-    ["Snare 2", 0.3, snare(260, 2500, 0.15, 0.8, 0.5)],
-    ["Snap", 0.15, snap(2600)],
-    ["Tom Lo", 0.5, tom(130, 0.4)],
-    ["Tom Hi", 0.4, tom(220, 0.3)],
-    ["Crash", 1.8, crash(1.6)],
-    ["Scratch", 0.25, scratch],
-    ["Horns", 0.6, chord([58, 62, 65], "sawtooth", 0.45, 0.14)],
+  // Hard-hitting 90s: punchy mid-heavy kick, cracking snare, gritty like an SP-1200.
+  "Boom Bap": { fx: { drive: 1.8, lp: 10000, bits: 12, room: 0.08 }, sounds: [
+    ["Kick", 0.5, kick({ f0: 180, f1: 52, tau: 0.025, decay: 0.15, click: 0.5, knock: 0.6, drive: 0.8, grit: 0.3 })],
+    ["Snare", 0.5, snare({ tone: 200, snap: 0.12, noise: 0.95, presence: 4000, drive: 0.6 }), { room: 0.18 }],
+    ["Clap", 0.5, clap({ band: 1300, tail: 0.096 })],
+    ["Rim", 0.25, rim()],
+    ["Hat Cl", 0.3, noiseHat(0.08, 6500, 0.55)],
+    ["Hat Op", 0.7, noiseHat(0.32, 6000, 0.5)],
+    ["Shaker", 0.3, shaker(6000, 0.08)],
+    ["Tamb", 0.4, tamb(0.18)],
+    ["Kick 2", 0.4, kick({ f0: 220, f1: 58, tau: 0.02, decay: 0.105, click: 0.6, knock: 0.7, drive: 0.9, grit: 0.35 })],
+    ["Snare 2", 0.4, snare({ tone: 240, snap: 0.088, noise: 0.85, presence: 5000, drive: 0.6 })],
+    ["Snap", 0.2, snap(2600)],
+    ["Tom Lo", 0.5, tom(110, 0.2)],
+    ["Tom Hi", 0.4, tom(180, 0.15)],
+    ["Crash", 2.2, crash(1.6)],
+    ["Scratch", 0.3, scratch],
+    ["Horns", 0.7, chord([58, 62, 65], "sawtooth", 0.45, { cutoff: 1600, env: 3 })],
   ] },
   // Modern and clean: tight kick, 808s to play bass lines with pitch.
   "Hip Hop": { fx: { drive: 1.2 }, sounds: [
-    ["Kick", 0.45, kick(140, 50, 0.07, 0.35, 0.35)],
-    ["808", 1.8, bass808(110, 55, 0.06, 1.6)],
-    ["Snare", 0.35, snare(230, 2400, 0.2, 0.8, 0.5)],
-    ["Clap", 0.45, clap(1250, 0.25)],
-    ["Hat Cl", 0.1, hat(8500, 0.04, 0.5)],
-    ["Hat Op", 0.6, hat(8000, 0.4, 0.4)],
-    ["Rim", 0.15, rim(1800, 520)],
-    ["Snap", 0.15, snap(2800)],
-    ["Kick 2", 0.5, kick(120, 45, 0.1, 0.4, 0.2)],
-    ["808 Hi", 1.6, bass808(146, 73, 0.06, 1.4)],
-    ["Snare 2", 0.3, snare(280, 3000, 0.14, 0.7, 0.4)],
-    ["Perc", 0.2, wood(1100)],
-    ["Shaker", 0.2, shaker(6500, 0.08)],
-    ["Crash", 1.8, crash(1.6, 4500)],
-    ["Zap", 0.3, zap(1800, 80, 0.18)],
-    ["Bell", 1.2, bell(880, 1)],
+    ["Kick", 0.5, kick({ f0: 190, f1: 50, decay: 0.15, click: 0.45 })],
+    ["808", 2.2, bass808({ from: 55, to: 55, decay: 1.6 })],
+    ["Snare", 0.5, snare({ tone: 220, snap: 0.104, presence: 5000 }), { room: 0.12 }],
+    ["Clap", 0.5, clap({ band: 1250, tail: 0.104 }), { room: 0.15 }],
+    ["Hat Cl", 0.3, hat(0.07, { hp: 7000 })],
+    ["Hat Op", 0.8, hat(0.36, { hp: 6500, amt: 0.5 })],
+    ["Rim", 0.25, rim(1800, 520)],
+    ["Snap", 0.2, snap(2800)],
+    ["Kick 2", 0.5, kick({ f0: 160, f1: 45, tau: 0.04, decay: 0.18, click: 0.25, knock: 0.3 })],
+    ["808 Hi", 2, bass808({ from: 73, to: 73, decay: 1.4 })],
+    ["Snare 2", 0.4, snare({ tone: 260, snap: 0.08, noise: 0.75, presence: 5500 })],
+    ["Perc", 0.25, wood(1100)],
+    ["Shaker", 0.3, shaker(6500, 0.08)],
+    ["Crash", 2.2, crash(1.7, 4000)],
+    ["Zap", 0.4, zap(1800, 80, 0.18)],
+    ["Bell", 1.6, bell(880, 1.1)],
   ] },
-  // Long 808s, tight snares, crisp hats for rolls.
+  // Long 808s, tight snares and claps, crisp hats for rolls.
   Trap: { fx: { drive: 1.3 }, sounds: [
-    ["Kick", 0.4, kick(160, 50, 0.06, 0.25, 0.45)],
-    ["808", 2.2, bass808(98, 49, 0.05, 2), { drive: 1.8 }],
-    ["Snare", 0.3, snare(300, 3000, 0.16, 0.8, 0.5)],
-    ["Clap", 0.45, clap(1400, 0.26, 0.01)],
-    ["Hat Cl", 0.08, hat(9500, 0.03, 0.5)],
-    ["Hat Op", 0.5, hat(9000, 0.35, 0.4)],
-    ["Hat Tick", 0.05, hat(10000, 0.018, 0.45)],
-    ["Rim", 0.12, rim(1900, 600)],
-    ["Kick 2", 0.35, kick(180, 55, 0.04, 0.2, 0.5, "triangle")],
-    ["808 Hi", 2, bass808(130, 65, 0.05, 1.8), { drive: 1.8 }],
-    ["Snap", 0.15, snap(3000)],
-    ["Perc", 0.2, wood(1300)],
-    ["Cowbell", 0.4, cowbell(540, 800)],
-    ["Crash", 2, crash(1.8, 5000)],
-    ["Riser", 0.5, zap(200, 3000, 0.45)],
-    ["Bell", 1.4, bell(1046, 1.2)],
+    ["Kick", 0.4, kick({ f0: 220, f1: 52, tau: 0.022, decay: 0.12, click: 0.5, knock: 0.5 })],
+    ["808", 2.6, bass808({ from: 49, to: 49, decay: 2, drive: 0.6 })],
+    ["Snare", 0.4, snare({ tone: 280, snap: 0.088, noise: 0.85, presence: 5500, body: 0.55 })],
+    ["Clap", 0.5, clap({ band: 1400, tail: 0.112, bursts: 8, spread: 0.006 }), { room: 0.15 }],
+    ["Hat Cl", 0.2, hat(0.05, { hp: 7500 })],
+    ["Hat Op", 0.7, hat(0.32, { hp: 7000, amt: 0.5 })],
+    ["Hat Tick", 0.12, hat(0.025, { hp: 8000, sizzle: 0.4 })],
+    ["Rim", 0.2, rim(1900, 600)],
+    ["Kick 2", 0.4, kick({ f0: 250, f1: 58, tau: 0.018, decay: 0.098, click: 0.6, knock: 0.6, drive: 0.7 })],
+    ["808 Hi", 2.4, bass808({ from: 65, to: 65, decay: 1.8, drive: 0.6 })],
+    ["Snap", 0.2, snap(3000)],
+    ["Perc", 0.25, wood(1300)],
+    ["Cowbell", 0.5, cowbell()],
+    ["Crash", 2.4, crash(1.9, 4500)],
+    ["Riser", 0.7, riser(0.5)],
+    ["Bell", 1.8, bell(1046, 1.3)],
   ] },
   // UK drill: sliding 808s, short punchy kicks, crisp snares and sharp percs.
   Drill: { fx: { drive: 1.4 }, sounds: [
-    ["Kick", 0.3, kick(170, 52, 0.04, 0.2, 0.5)],
-    ["808 Slide", 2, bass808(98, 46, 0.35, 1.8), { drive: 2.2 }],
-    ["Snare", 0.3, snare(330, 3500, 0.13, 0.85, 0.45)],
-    ["Clap", 0.35, clap(1500, 0.2, 0.009)],
-    ["Hat Cl", 0.07, hat(9500, 0.028, 0.5)],
-    ["Hat Op", 0.4, hat(9000, 0.28, 0.4)],
-    ["Rim", 0.12, rim(2000, 650)],
-    ["Perc", 0.15, wood(1400)],
-    ["Kick 2", 0.3, kick(190, 60, 0.03, 0.16, 0.5, "triangle")],
-    ["808 Up", 2, bass808(41, 62, 0.3, 1.8), { drive: 2.2 }],
-    ["Snare 2", 0.3, snare(360, 4000, 0.12, 0.75, 0.4)],
-    ["Snap", 0.12, snap(3200)],
-    ["Shaker", 0.15, shaker(7000, 0.06)],
-    ["Crash", 1.8, crash(1.6, 5000)],
-    ["Dark Bell", 1.4, bell(622, 1.2)],
-    ["Zap", 0.3, zap(2000, 100, 0.2)],
+    ["Kick", 0.35, kick({ f0: 230, f1: 55, tau: 0.018, decay: 0.098, click: 0.6, knock: 0.6, drive: 0.6 })],
+    ["808 Slide", 2.4, bass808({ from: 98, to: 46, glide: 0.35, decay: 1.8, drive: 0.7 })],
+    ["Snare", 0.35, snare({ tone: 320, snap: 0.08, noise: 0.9, presence: 6000, body: 0.5 })],
+    ["Clap", 0.4, clap({ band: 1500, tail: 0.08, spread: 0.006 })],
+    ["Hat Cl", 0.2, hat(0.045, { hp: 8000 })],
+    ["Hat Op", 0.6, hat(0.28, { hp: 7500, amt: 0.5 })],
+    ["Rim", 0.2, rim(2000, 650)],
+    ["Perc", 0.2, wood(1400)],
+    ["Kick 2", 0.35, kick({ f0: 270, f1: 62, tau: 0.014, decay: 0.083, click: 0.6, knock: 0.7, drive: 0.8 })],
+    ["808 Up", 2.4, bass808({ from: 41, to: 62, glide: 0.3, decay: 1.8, drive: 0.7 })],
+    ["Snare 2", 0.35, snare({ tone: 350, snap: 0.072, noise: 0.8, presence: 6500, body: 0.45 })],
+    ["Snap", 0.2, snap(3200)],
+    ["Shaker", 0.2, shaker(7500, 0.06)],
+    ["Crash", 2.2, crash(1.6, 4500)],
+    ["Dark Bell", 1.8, bell(622, 1.3)],
+    ["Zap", 0.4, zap(2000, 100, 0.2)],
   ] },
-  // 909-style: driven four-on-the-floor kick, metallic hats, claps, an organ chord.
-  House: { sounds: [
-    ["Kick", 0.5, kick(160, 50, 0.05, 0.42, 0.5), { drive: 1.6 }],
-    ["Clap", 0.5, clap(1100, 0.32)],
-    ["Snare", 0.35, snare(220, 2200, 0.2, 0.75, 0.55)],
-    ["Rim", 0.12, rim(1700, 500)],
-    ["Hat Cl", 0.1, metalHat(0.05)],
-    ["Hat Op", 0.5, metalHat(0.35, 100, 6500, 0.3)],
-    ["Shaker", 0.2, shaker(6000, 0.08)],
-    ["Ride", 1.4, (c) => metal(c, 120, 5000, 0.2, 1.2)],
-    ["Kick 2", 0.6, kick(120, 45, 0.08, 0.5, 0.25)],
-    ["Clap 2", 0.6, clap(1300, 0.45, 0.015)],
-    ["Tamb", 0.3, tamb(0.2)],
-    ["Conga", 0.3, conga(220)],
-    ["Cowbell", 0.4, cowbell()],
-    ["Crash", 2, crash(1.8)],
-    ["Organ", 0.6, chord([57, 60, 64, 67], "square", 0.4, 0.08)],
-    ["Chord", 0.8, chord([57, 60, 64, 67, 71], "sawtooth", 0.6, 0.08), { lp: 3000 }],
+  // 909-style: driven four-on-the-floor kick, metallic hats, roomy claps, organ and chord stabs.
+  House: { fx: { drive: 1.2 }, sounds: [
+    ["Kick", 0.6, kick({ f0: 220, f1: 50, tau: 0.028, decay: 0.238, click: 0.6, knock: 0.5, drive: 0.7, punch: 0.035 })],
+    ["Clap", 0.6, clap({ band: 1100, tail: 0.12 }), { room: 0.25 }],
+    ["Snare", 0.5, snare({ tone: 200, snap: 0.112, presence: 4500 }), { room: 0.15 }],
+    ["Rim", 0.2, rim(1700, 500)],
+    ["Hat Cl", 0.3, hat(0.07, { pitch: 1.1 })],
+    ["Hat Op", 0.7, hat(0.34, { pitch: 1.1, amt: 0.5 })],
+    ["Shaker", 0.3, shaker(6500, 0.08)],
+    ["Ride", 1.8, ride(1.4, { pitch: 1.4 })],
+    ["Kick 2", 0.7, kick({ f0: 170, f1: 44, tau: 0.04, decay: 0.289, click: 0.3, knock: 0.25, punch: 0.04 })],
+    ["Clap 2", 0.7, clap({ band: 1300, tail: 0.176, bursts: 9, spread: 0.008 }), { room: 0.3 }],
+    ["Tamb", 0.4, tamb(0.2)],
+    ["Conga", 0.4, conga(220)],
+    ["Cowbell", 0.5, cowbell()],
+    ["Crash", 2.4, crash(1.9)],
+    ["Organ", 0.7, chord([57, 60, 64, 67], "square", 0.4, { cutoff: 2500, env: 1.5 })],
+    ["Chord", 0.9, chord([57, 60, 64, 67, 71], "sawtooth", 0.6, { cutoff: 1500, env: 3 }), { room: 0.2 }],
   ] },
-  // Hard and dark: distorted kick, rumble, metallic percussion, a minor stab.
-  Techno: { sounds: [
-    ["Kick", 0.6, kick(180, 45, 0.04, 0.5, 0.5), { drive: 3 }],
-    ["Clap", 0.5, clap(1200, 0.3, 0.01)],
-    ["Snare", 0.35, snare(240, 2000, 0.22, 0.9, 0.4)],
-    ["Rim", 0.12, rim(1900, 550)],
-    ["Hat Cl", 0.08, metalHat(0.04, 110, 8000)],
-    ["Hat Op", 0.5, metalHat(0.3, 110, 7500, 0.3)],
-    ["Ride", 1.4, (c) => metal(c, 140, 6000, 0.2, 1.2)],
-    ["Perc", 0.3, bell(300, 0.2), { drive: 2 }],
-    ["Rumble", 1.2, bass808(60, 45, 0.1, 1), { drive: 3, lp: 400 }],
-    ["Kick 2", 0.35, kick(200, 55, 0.03, 0.25, 0.6, "triangle"), { drive: 4 }],
-    ["Clave", 0.1, clave(2200)],
-    ["Tom", 0.4, tom(160, 0.3)],
-    ["Shaker", 0.2, shaker(7000, 0.07)],
-    ["Crash", 2, crash(1.8, 5000)],
-    ["Stab", 0.5, chord([57, 60, 64], "sawtooth", 0.35, 0.12), { lp: 2500 }],
-    ["Zap", 0.3, zap(3000, 50, 0.25)],
+  // Hard and dark: long distorted kick, rumble, metallic percussion, a minor stab.
+  Techno: { fx: { drive: 1.3 }, sounds: [
+    ["Kick", 0.7, kick({ f0: 240, f1: 46, tau: 0.024, decay: 0.272, click: 0.6, knock: 0.6, drive: 1.2, punch: 0.04, grit: 0.25 })],
+    ["Clap", 0.6, clap({ band: 1200, tail: 0.128, spread: 0.007 }), { room: 0.3 }],
+    ["Snare", 0.5, snare({ tone: 210, snap: 0.12, noise: 0.95, body: 0.45, presence: 4000, drive: 0.7 })],
+    ["Rim", 0.2, rim(1900, 550)],
+    ["Hat Cl", 0.25, hat(0.06, { hp: 7000, pitch: 1.15 })],
+    ["Hat Op", 0.6, hat(0.3, { hp: 6500, pitch: 1.15, amt: 0.5 })],
+    ["Ride", 1.8, ride(1.4, { pitch: 1.5, bell: 0.1 })],
+    ["Perc", 0.35, bell(300, 0.25), { drive: 2.5 }],
+    ["Rumble", 1.4, bass808({ from: 50, to: 45, decay: 1.1, drive: 1 }), { lp: 500, room: 0.3 }],
+    ["Kick 2", 0.45, kick({ f0: 290, f1: 58, tau: 0.015, decay: 0.17, click: 0.7, knock: 0.7, drive: 1.4, grit: 0.3 })],
+    ["Clave", 0.15, clave(2200)],
+    ["Tom", 0.4, tom(140, 0.17)],
+    ["Shaker", 0.25, shaker(7500, 0.07)],
+    ["Crash", 2.4, crash(1.9, 4500)],
+    ["Stab", 0.6, chord([57, 60, 64], "sawtooth", 0.35, { cutoff: 900, env: 5 }), { room: 0.25 }],
+    ["Zap", 0.4, zap(3000, 50, 0.25)],
   ] },
-  // Drum & bass: tight kick, cracking snare, ghost snare for rolling breaks, a deep sub.
+  // Drum & bass: tight kick, cracking bright snare, ghost snare for rolling breaks, a deep sub.
   DnB: { fx: { drive: 1.4 }, sounds: [
-    ["Kick", 0.35, kick(150, 55, 0.05, 0.22, 0.5)],
-    ["Snare", 0.35, snare(230, 2200, 0.2, 0.95, 0.65), { drive: 2 }],
-    ["Ghost", 0.2, snare(260, 2600, 0.1, 0.4, 0.25)],
-    ["Rim", 0.12, rim(1800, 520)],
-    ["Hat Cl", 0.08, hat(9000, 0.035, 0.5)],
-    ["Hat Op", 0.4, hat(8500, 0.28, 0.4)],
-    ["Shaker", 0.15, shaker(7000, 0.06)],
-    ["Ride", 1.2, ride(1, 5500)],
-    ["Kick 2", 0.4, kick(120, 48, 0.07, 0.3, 0.3)],
-    ["Snare 2", 0.3, snare(290, 3000, 0.15, 0.85, 0.5)],
-    ["Clap", 0.4, clap(1400, 0.22)],
-    ["Tom", 0.4, tom(180, 0.3)],
-    ["Tamb", 0.3, tamb(0.2)],
-    ["Crash", 2, crash(1.8, 4500)],
-    ["Sub", 1.4, bass808(41, 41, 0.01, 1.2)],
-    ["Zap", 0.3, zap(2600, 70, 0.2)],
+    ["Kick", 0.4, kick({ f0: 210, f1: 56, tau: 0.022, decay: 0.105, click: 0.6, knock: 0.6 })],
+    ["Snare", 0.5, snare({ tone: 230, snap: 0.12, noise: 1, body: 0.8, presence: 5500, drive: 0.7 }), { room: 0.15 }],
+    ["Ghost", 0.3, snare({ tone: 250, snap: 0.064, noise: 0.5, body: 0.35, presence: 6000 })],
+    ["Rim", 0.2, rim(1800, 520)],
+    ["Hat Cl", 0.2, hat(0.05, { hp: 7500 })],
+    ["Hat Op", 0.6, hat(0.3, { hp: 7000, amt: 0.5 })],
+    ["Shaker", 0.2, shaker(7500, 0.06)],
+    ["Ride", 1.6, ride(1.2, { pitch: 1.35 })],
+    ["Kick 2", 0.45, kick({ f0: 175, f1: 48, tau: 0.03, decay: 0.15, click: 0.4, knock: 0.4 })],
+    ["Snare 2", 0.4, snare({ tone: 270, snap: 0.088, noise: 0.9, presence: 6000, drive: 0.6 })],
+    ["Clap", 0.5, clap({ band: 1400, tail: 0.088 })],
+    ["Tom", 0.4, tom(150, 0.17)],
+    ["Tamb", 0.4, tamb(0.2)],
+    ["Crash", 2.4, crash(1.9, 4000)],
+    ["Sub", 1.6, bass808({ from: 41, to: 41, decay: 1.2, drive: 0.3 })],
+    ["Zap", 0.4, zap(2600, 70, 0.2)],
   ] },
   // Classic drum machine: booming 808 kick, metallic hats, cowbell, claves and toms.
   Electro: { sounds: [
-    ["Kick", 1, bass808(80, 48, 0.08, 0.8)],
-    ["Snare", 0.35, (c) => { tone(c, "triangle", 180, 175, 0.01, 0.4, 0.15); tone(c, "triangle", 330, 325, 0.01, 0.3, 0.1); filteredNoise(c, "highpass", 3000, 0.7, 0.6, 0.2); }],
-    ["Clap", 0.5, clap(1100, 0.3)],
-    ["Rim", 0.12, rim(1700, 500)],
-    ["Hat Cl", 0.1, metalHat(0.05)],
-    ["Hat Op", 0.6, metalHat(0.45, 100, 6500, 0.3)],
-    ["Cowbell", 0.5, cowbell(540, 800)],
-    ["Clave", 0.1, clave()],
-    ["Tom Lo", 0.6, tom(100, 0.5)],
-    ["Tom Mid", 0.5, tom(150, 0.42)],
-    ["Tom Hi", 0.45, tom(220, 0.36)],
-    ["Conga", 0.3, conga(300)],
-    ["Maraca", 0.12, shaker(8000, 0.04)],
-    ["Cymbal", 2, (c) => metal(c, 90, 5000, 0.25, 1.8)],
-    ["Zap", 0.3, zap()],
-    ["Laser", 0.25, zap(4000, 400, 0.15)],
+    ["Kick", 1.2, bass808({ from: 52, to: 47, decay: 0.8, drive: 0.3 })],
+    ["Snare", 0.4, snare({ tone: 238, ratio: 2, toneDecay: 0.09, snap: 0.096, noise: 0.7, presence: 5000, drive: 0 })],
+    ["Clap", 0.5, clap({ band: 1100, tail: 0.112 })],
+    ["Rim", 0.2, rim(1700, 500)],
+    ["Hat Cl", 0.3, hat(0.07)],
+    ["Hat Op", 0.8, hat(0.42, { amt: 0.5 })],
+    ["Cowbell", 0.5, cowbell()],
+    ["Clave", 0.15, clave()],
+    ["Tom Lo", 0.6, tom(80, 0.24)],
+    ["Tom Mid", 0.5, tom(120, 0.2)],
+    ["Tom Hi", 0.5, tom(170, 0.17)],
+    ["Conga", 0.4, conga(300, 0.22)],
+    ["Maraca", 0.2, shaker(9000, 0.035)],
+    ["Cymbal", 2.6, crash(2.1, 5000)],
+    ["Zap", 0.4, zap()],
+    ["Laser", 0.3, zap(4000, 400, 0.15, "square")],
   ] },
 };
 
@@ -338,15 +638,25 @@ export async function renderStockKit(kit: string): Promise<{ name: string; buffe
   if (!def) throw new Error(`No stock kit ${kit}`);
   return Promise.all(
     def.sounds.map(async ([name, len, gen, fx]) => {
-      const ctx = new OfflineAudioContext(1, Math.ceil(len * SR), SR);
-      gen(ctx);
+      // Rendered with room to spare; trimmed() then cuts it where it has actually faded out.
+      const ctx = new OfflineAudioContext(1, Math.ceil((len * 1.5 + 0.3) * SR), SR);
+      const all: Fx = { ...def.fx, ...fx };
+      // The voice plays into a bus; a room (when asked for) is mixed in from it.
+      const bus = ctx.createGain();
+      bus.connect(ctx.destination);
+      if (all.room) {
+        const conv = ctx.createConvolver();
+        conv.buffer = roomIR(ctx, ROOM_SECONDS);
+        const wet = ctx.createGain();
+        wet.gain.value = all.room;
+        chain(bus, conv, wet, ctx.destination);
+      }
+      gen(ctx, bus);
       const buffer = await ctx.startRendering();
-      const all = { ...def.fx, ...fx };
       const data = buffer.getChannelData(0);
-      if (Object.keys(all).length) applyFx(data, all);
-      // Genre kits are peak-normalized like sample-pack one-shots (the pads balance them); Factory stays as it always sounded.
-      if (kit !== "Factory") normalize(data, PEAK);
-      return { name, buffer };
+      applyFx(data, all);
+      normalize(data, PEAK);
+      return { name, buffer: trimmed(buffer) };
     }),
   );
 }

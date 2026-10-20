@@ -75,6 +75,13 @@ export function normalizeSynth(raw: unknown, d: SynthParams = defaultKeys().synt
     sustain: num(s.sustain, 0, 1, d.sustain),
     release: num(s.release, 0.01, 3, d.release),
     volume: num(s.volume, 0, 1, d.volume),
+    sub: num(s.sub, 0, 1, d.sub),
+    noise: num(s.noise, 0, 1, d.noise),
+    drive: num(s.drive, 0, 1, d.drive),
+    slope: s.slope === 24 || s.slope === 12 ? s.slope : d.slope,
+    keyTrack: num(s.keyTrack, 0, 1, d.keyTrack),
+    velFilter: num(s.velFilter, 0, 1, d.velFilter),
+    filterDecay: num(s.filterDecay, 0, 2, d.filterDecay),
   };
 }
 
@@ -99,6 +106,13 @@ export const defaultKeys = (): KeysInstrument => ({
     sustain: 0.6,
     release: 0.25,
     volume: 0.6,
+    sub: 0,
+    noise: 0,
+    drive: 0,
+    slope: 12,
+    keyTrack: 0,
+    velFilter: 0,
+    filterDecay: 0,
   },
   sample: { sampleId: null, root: 60, attack: 0.005, release: 0.3, cutoff: 1, resonance: 0 },
   lfo: { vibRate: 5, vibDepth: 0, filterRate: 2, filterDepth: 0 },

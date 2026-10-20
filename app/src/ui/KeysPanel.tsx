@@ -12,6 +12,7 @@ import { noteName, rootFromName } from "./notes";
 
 const WAVES: Wave[] = ["sawtooth", "square", "triangle", "sine"];
 const pct = (v: number) => `${Math.round(v * 100)}%`;
+const offPct = (v: number) => (v ? pct(v) : "Off");
 const ms = (v: number) => (v >= 1 ? `${v.toFixed(2)} s` : `${Math.round(v * 1000)} ms`);
 
 export function KeysPanel() {
@@ -73,6 +74,24 @@ export function KeysPanel() {
             <Slider label="Sustain" value={synth.sustain} min={0} max={1} format={pct} onChange={(v) => upSynth({ sustain: v })} />
             <Slider label="Release" value={synth.release} min={0.01} max={3} format={ms} onChange={(v) => upSynth({ release: v })} />
           </div>
+          <h4 className="sub-head">Shape</h4>
+          <div className="row wrap">
+            <Field label="Filter slope">
+              <select value={synth.slope} onChange={(e) => upSynth({ slope: Number(e.target.value) === 24 ? 24 : 12 })}>
+                <option value={12}>12 dB</option>
+                <option value={24}>24 dB</option>
+              </select>
+            </Field>
+          </div>
+          <div className="sliders">
+            <Slider label="Sub" value={synth.sub} min={0} max={1} format={offPct} onChange={(v) => upSynth({ sub: v })} />
+            <Slider label="Noise" value={synth.noise} min={0} max={1} format={offPct} onChange={(v) => upSynth({ noise: v })} />
+            <Slider label="Drive" value={synth.drive} min={0} max={1} format={offPct} onChange={(v) => upSynth({ drive: v })} />
+            <Slider label="Key track" value={synth.keyTrack} min={0} max={1} format={offPct} onChange={(v) => upSynth({ keyTrack: v })} />
+            <Slider label="Vel > filt" value={synth.velFilter} min={0} max={1} format={offPct} onChange={(v) => upSynth({ velFilter: v })} />
+            <Slider label="Filt decay" value={synth.filterDecay} min={0} max={2} format={(v) => (v ? ms(v) : "= Decay")} onChange={(v) => upSynth({ filterDecay: v })} />
+          </div>
+          <p className="hint">Filt decay: the filter closes over its own time (plucks that still sustain); at 0 it follows the amp's Decay and Sustain.</p>
         </Section>
       )}
 

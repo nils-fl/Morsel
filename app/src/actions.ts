@@ -2,7 +2,8 @@
 import { engine } from "./audio/engine";
 import { connectTab, disconnectTab, normalize, startRecording, tabConnected, type Recording } from "./audio/recorder";
 import { slicesFromMarkers } from "./audio/chop";
-import { renderStockKit, stockLengths, stockSounds } from "./audio/kit";
+import { STOCK_REV, renderStockKit, stockLengths, stockSounds } from "./audio/kit";
+import { DECAY_MAX } from "./audio/dsp";
 import { autoMarkers, chopStop, newChop, takeMarkers } from "./modes/chop";
 import { showTemp } from "./modes/notify";
 import { sequencer } from "./seq/sequencer";
@@ -325,7 +326,8 @@ async function samplesInUse() {
   for (const p of s.undo) for (const id of usedSampleIds(p)) ids.add(id);
   if (s.chop) ids.add(s.chop.sampleId);
   for (const name of s.kits) (await loadKit(name))?.forEach((pad) => pad.sampleId && ids.add(pad.sampleId));
-  for (const x of Object.values(s.samples)) if (x.folder === FACTORY_KIT) ids.add(x.id);
+  // The current Factory kit is what new drum tracks get: keep it (older renders of it may go).
+  for (const x of Object.values(s.samples)) if (x.folder === FACTORY_KIT && isCurrentStock(x)) ids.add(x.id);
   return ids;
 }
 
@@ -383,25 +385,40 @@ export function samplesToPads(samples: { id: string; name: string }[], kit = "")
 }
 
 const isStockKit = (name: string) => STOCK_KITS.includes(name);
+/** Marks a stock kit's samples with the version of the sounds that made them (SampleInfo.src). */
+const stockSrc = (kit: string) => `stock:${kit}:${STOCK_REV}`;
+const isCurrentStock = (s: SampleInfo) => s.src?.startsWith("stock:") && s.src.endsWith(`:${STOCK_REV}`);
+
+/** Remove a stock kit's samples rendered by an older version of the sounds, once nothing uses them. */
+async function pruneOldStock(kit: string) {
+  const folder = stockFolder(kit);
+  const old = Object.values(get().samples).filter((s) => s.folder === folder && !isCurrentStock(s));
+  if (!old.length) return;
+  const used = await samplesInUse();
+  const gone = old.filter((s) => !used.has(s.id)).map((s) => s.id);
+  if (gone.length) await engine.removeSamples(gone);
+}
 const QUIET = /hat|shaker|maraca|tamb|ride|crash|cymbal|brush/i;
 
 /** A stock kit's pads (Factory or a genre kit). Reuses its samples in the library and renders the kit when any are missing. */
 export async function stockKitPads(kit = FACTORY_KIT): Promise<Pad[]> {
-  const folder = stockFolder(kit), names = stockSounds(kit), lengths = stockLengths(kit);
-  const lib = Object.values(get().samples).filter((s) => s.folder === folder);
+  const folder = stockFolder(kit), names = stockSounds(kit), lengths = stockLengths(kit), src = stockSrc(kit);
+  // Only samples rendered by this version of the sounds; older renders are re-made (and pruned, see pruneOldStock).
+  const lib = Object.values(get().samples).filter((s) => s.folder === folder && s.src === src);
   const found = await Promise.all(names.map(async (name) => {
     const id = lib.find((s) => s.name === name)?.id;
     return id && (await engine.ensure(id)) ? id : undefined;
   }));
   const ids = found.every(Boolean)
     ? (found as string[])
-    : await renderStockKit(kit).then((sounds) => Promise.all(sounds.map(({ name, buffer }, i) => found[i] ?? engine.addBuffer(name, buffer, folder))));
+    : await renderStockKit(kit).then((sounds) => Promise.all(sounds.map(({ name, buffer }, i) => found[i] ?? engine.addBuffer(name, buffer, folder, src))));
   // Long sounds (808s, cymbals) ring out instead of being cut at the default tail.
-  // Genre kit samples are normalized, so hats, shakers and cymbals sit lower on their pads.
-  const quiet = (name: string) => kit !== FACTORY_KIT && QUIET.test(name);
+  // Stock kit samples are normalized, so hats, shakers and cymbals sit lower on their pads.
+  const quiet = (name: string) => QUIET.test(name);
   const pads = ids.map((sampleId, i) => ({
     ...defaultPad(i), name: names[i], sampleId,
-    decay: Math.max(defaultPad(i).decay, lengths[i]),
+    // Longer than the default tail: the maximum, which plays the whole sound.
+    decay: (engine.buffer(sampleId)?.duration ?? lengths[i]) > defaultPad(i).decay ? DECAY_MAX : defaultPad(i).decay,
     ...(quiet(names[i]) && { volume: 0.5 }),
   }));
   const closed = names.indexOf("Hat Cl"), open = names.indexOf("Hat Op");
@@ -449,6 +466,7 @@ export async function loadNamedKit(name: string, undoable = true) {
   if (!pads) return false;
   updateTrack(track, (t) => ({ ...t, pads, kit: name }), undo);
   set({ status: `Loaded kit ${name} on ${drumTrack().name}` });
+  if (isStockKit(name)) void pruneOldStock(name);
   return true;
 }
 

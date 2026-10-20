@@ -19,7 +19,7 @@ import { browseCan, browseDisplay, browseEncoder, browseEnter, browseFolderToPad
 import { H, W, type Frame } from "../display/frame";
 import { browserScreen, chopScreen, duckScreen, encoderScreen, gridScreen, keysScreen, padScreen, shiftCoverText, shiftEncHint, shiftRows, shiftScreen, stepScreen } from "../display/screens";
 import { HEADER_H, computePeaks, duckPanel, filterPanel, overlayBar, type Peaks } from "../display/widgets";
-import { BOOT_BURP_MS, BOOT_EAT_MS, bootFrame } from "../display/bootAnim";
+import { BOOT_BURP_MS, BOOT_EAT_MS, BOOT_MS, bootFrame } from "../display/bootAnim";
 
 const MODES: HwMode[] = ["play", "step", "track", "mute", "pattern"];
 const MODE_NAMES: Record<HwMode, string> = { play: "Play", step: "Step", track: "Track", mute: "Mute", pattern: "Pattern", browse: "Browse", chop: "Chop" };
@@ -119,6 +119,8 @@ export function releaseAll() {
 
 // Start-up animation: plays when the page loads and whenever the Launchkey connects; any input skips it.
 let bootStart = -Infinity;
+/** The Launchkey connecting this long after the page loaded counts as plugged in later. */
+const REPLAY_AFTER_MS = 5000;
 const bootElapsed = () => performance.now() - bootStart;
 
 /** Pads during the animation: a colour sweep following the blob, a white flash on the burp, then a rainbow chase. */
@@ -129,8 +131,8 @@ function bootLeds(ms: number) {
       const at = Math.floor((ms / BOOT_EAT_MS) * 8);
       return { color: col === at ? COLOR.white : col < at ? PAD_COLORS[i] : COLOR.off };
     }
-    if (ms < BOOT_BURP_MS) return { color: Math.floor(ms / 100) % 2 ? COLOR.white : COLOR.off };
-    return { color: PAD_COLORS[(i + Math.floor(ms / 80)) % 16] };
+    if (ms < BOOT_BURP_MS) return { color: Math.floor(ms / 60) % 2 ? COLOR.white : COLOR.off };
+    return { color: PAD_COLORS[(i + Math.floor(ms / 50)) % 16] };
   });
 }
 
@@ -156,7 +158,9 @@ export function initController() {
         if (e.connected) {
           launchkey.setLayout(layoutFor(s.hwMode));
           lastStationary = "";
-          bootStart = performance.now();
+          // Plugged in later: play the intro for it. Right after the page loads the device connects while the
+          // page's own intro runs (or just after it): don't start it over.
+          if (performance.now() > REPLAY_AFTER_MS && bootElapsed() >= BOOT_MS) bootStart = performance.now();
         } else releaseAll();
         break;
       case "layout": {
@@ -622,8 +626,12 @@ function screenFor(s: AppState, overlay: Overlay | null): Frame | null {
         const k = t.keys!;
         // Encoder 1 of the Keys page scrolls this list: the synth's presets or the library's samples.
         // The other sources show what they play.
+        // Synth presets are shown a folder at a time (encoder 1 scrolls on into the next folder, Shift jumps folders).
         const lib = k.type === "sample" ? keysSampleList() : [];
-        const presets = k.type === "synth" ? allPresets()
+        const all = k.type === "synth" ? allPresets() : [];
+        const current = all.find((x) => x.name === k.preset);
+        const inFolder = current ? all.filter((x) => x.folder === current.folder) : all;
+        const presets = k.type === "synth" ? inFolder
           : k.type === "sample" ? lib.map((x) => ({ name: x.name, user: false }))
           : [{ name: keysSoundName(s, k), user: false }];
         const index = k.type === "synth" ? presets.findIndex((x) => x.name === k.preset)
@@ -636,6 +644,7 @@ function screenFor(s: AppState, overlay: Overlay | null): Frame | null {
           title: presetLabel(),
           tag: page.tag,
           summary: page.summary(),
+          folder: current ? { name: current.folder, pos: `${index + 1}/${presets.length}` } : undefined,
         });
       }
       const pad = t.pads[s.selectedPad];

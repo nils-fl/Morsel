@@ -16,6 +16,9 @@ describe("synth presets", () => {
       inRange(name, s.attack, 0.001, 2);
       inRange(name, s.decay, 0.01, 2);
       inRange(name, s.release, 0.01, 3);
+      for (const v of [s.sub, s.noise, s.drive, s.keyTrack, s.velFilter]) inRange(name, v, 0, 1);
+      inRange(name, s.filterDecay, 0, 2);
+      expect([12, 24], name).toContain(s.slope);
     }
   });
   it("Init matches the default synth, so a fresh project isn't marked edited", () => {

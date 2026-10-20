@@ -651,6 +651,8 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
 .channel .slider { grid-template-columns: 52px 1fr 50px; gap: 4px; }
 .returns { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
 .returns h4 { margin: 0 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--page); }
+/* A sub-heading inside a panel (Keys: Shape). */
+.sub-head { margin: 12px 0 0; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--page); }
 
 /* ---------- matrix ---------- */
 .matrix { display: grid; grid-template-columns: 34px repeat(var(--cols), minmax(70px, 1fr)); gap: 2px; overflow-x: auto; }

@@ -138,14 +138,27 @@ export interface KeysView {
   track?: string;
   /** Footer tag (the encoder page), "KEYS" by default. */
   tag?: string;
+  /** Presets in folders: the folder line above the list ("Bass", "3/14"); `presets` then holds that folder's presets. */
+  folder?: { name: string; pos: string };
 }
 
 /** A keys track (or the Keys / Kit encoder page): the preset list around the current one, like the sample browser. */
 export function keysScreen(v: KeysView): Frame {
   const f = new Frame();
   header(f, v.track ?? `KEYS ${v.title}`, v.status);
-  const rows = Math.floor((H - HEADER_H - 1 - 9) / ROW_H);
-  list(f, HEADER_H + 1, rows, v.presets.map((p) => ({ label: p.user ? `${p.label} (mine)` : p.label })), v.index);
+  let rows = Math.floor((H - HEADER_H - 1 - 9) / ROW_H);
+  let y = HEADER_H + 1;
+  if (v.folder) {
+    // Like a Browse folder: icon, name, and the position in the folder on the right.
+    const pw = textWidth(v.folder.pos);
+    list(f, y, 1, [{ label: v.folder.name, folder: true }], -1);
+    f.fillRect(W - pw - 4, y, pw + 4, ROW_H, 0);
+    f.text(W - pw - 2, y + 1, v.folder.pos);
+    f.hline(0, W - 1, y + ROW_H - 1);
+    y += ROW_H;
+    rows--;
+  }
+  list(f, y, rows, v.presets.map((p) => ({ label: p.user ? `${p.label} (mine)` : p.label })), v.index);
   footer(f, v.tag ?? "KEYS", v.summary);
   return f;
 }

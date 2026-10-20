@@ -19,8 +19,28 @@ export type LaunchkeyEvent =
 type Listener = (e: LaunchkeyEvent) => void;
 
 const TEMP_TIMEOUT_TENTHS = 10; // temporary display popup: 1 s
-/** After Shift goes down, cover the device's own Shift popup again at these delays (it may be drawn late). */
-const SHIFT_COVER_RETRY_MS = [40, 120, 250, 500, 1000];
+/** After Shift goes down, cover the device's own Shift popup again at these delays (it may be drawn late)... */
+const SHIFT_COVER_RETRY_MS = [40, 120, 250, 500];
+/** ...and then this often while Shift stays held, before a temporary popup times out. */
+const SHIFT_COVER_KEEP_MS = 700;
+
+/**
+ * Covering the device's own "Plugin | Drum" popup while Shift is held:
+ * "bitmap" draws the screen (the shift map) into the temporary popup itself; "text" shows our two-line text
+ * popup (shiftCover); "cancel" closes the device popup and redraws the stationary bitmap; "off" leaves it.
+ * Measured 2026-10-20: "bitmap" covers it (the shift map shows while Shift is held); "cancel" doesn't hide it.
+ */
+export type ShiftCover = "bitmap" | "text" | "cancel" | "off";
+export const SHIFT_COVERS: ShiftCover[] = ["bitmap", "text", "cancel", "off"];
+const SHIFT_COVER_KEY = "morsel.shiftCover";
+
+function loadShiftCover(): ShiftCover {
+  try {
+    const v = localStorage.getItem(SHIFT_COVER_KEY);
+    if (SHIFT_COVERS.includes(v as ShiftCover)) return v as ShiftCover;
+  } catch { /* storage blocked: use the default */ }
+  return "bitmap";
+}
 
 export class Launchkey {
   private access: MIDIAccess | null = null;
@@ -46,12 +66,8 @@ export class Launchkey {
   logRaw = false;
   /** The two lines of the device text popup shown while Shift is held (set by the controller per mode). */
   shiftCover: [string, string] = ["Shift", ""];
-  /**
-   * How to deal with the device's own "Plugin | Drum" overlay while Shift is held: "cancel" closes the device
-   * popup and redraws the bitmap, so the shift map drawn in the frame shows; "text" puts our own two-line text
-   * popup (shiftCover) over it instead.
-   */
-  static SHIFT_COVER: "text" | "cancel" = "cancel";
+  /** How the device's own Shift popup is covered (see ShiftCover); picked in the Lab tab, remembered per browser. */
+  shiftCoverMode: ShiftCover = loadShiftCover();
   private shiftTimers: number[] = [];
 
   async init() {
@@ -232,15 +248,28 @@ export class Launchkey {
    * the popup and redraw the screen.
    */
   private coverShiftOverlay(down: boolean) {
-    this.shiftTimers.forEach(clearTimeout);
+    this.shiftTimers.forEach((t) => { clearTimeout(t); clearInterval(t); });
     this.shiftTimers = [];
-    const cover = () => {
-      if (Launchkey.SHIFT_COVER === "text") return this.showTemporary(...this.shiftCover);
-      this.closeTemporary();
-    };
+    const mode = this.shiftCoverMode;
+    if (mode === "off") return;
     if (!down) return this.closeTemporary();
+    const cover = () => {
+      if (mode === "text") return this.showTemporary(...this.shiftCover);
+      if (mode === "cancel") return this.closeTemporary();
+      // The controller draws the shift map into the stationary frame once it sees Shift; show that frame as the popup.
+      const last = this.bmpPending ?? this.bmpLast;
+      if (last) this.send(bitmapSysex(DISPLAY.temporary, last.packed));
+    };
     cover();
     for (const ms of SHIFT_COVER_RETRY_MS) this.shiftTimers.push(window.setTimeout(cover, ms));
+    this.shiftTimers.push(window.setInterval(cover, SHIFT_COVER_KEEP_MS));
+  }
+
+  setShiftCover(mode: ShiftCover) {
+    this.shiftCoverMode = mode;
+    try {
+      localStorage.setItem(SHIFT_COVER_KEY, mode);
+    } catch { /* storage blocked: applies until reload */ }
   }
 
   /** Close the temporary popup (ours or the device's) and redraw the latest bitmap over it. */

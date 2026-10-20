@@ -2,10 +2,12 @@
 // Plain time in, Frame out, like the other screens.
 import { Frame, H, W, textWidth } from "./frame";
 
-export const BOOT_EAT_MS = 1800;
-export const BOOT_BURP_MS = 2300;
-/** Logo bounces in for 0.5 s after the burp, then stays up long enough to read. */
-export const BOOT_MS = BOOT_BURP_MS + 2000;
+// About 1.5 s in all: a quick chomp, a short burp, and the logo just long enough to read (any input skips it).
+export const BOOT_EAT_MS = 650;
+export const BOOT_BURP_MS = 900;
+/** The logo bounces in over LOGO_IN_MS after the burp, then stays up briefly. */
+const LOGO_IN_MS = 300;
+export const BOOT_MS = BOOT_BURP_MS + 650;
 
 const MID = 32;
 const R = 7;
@@ -63,16 +65,16 @@ export function bootFrame(ms: number): Frame | null {
     drawWave(f, bx + R + 1, W, 0);
     // Crumbs tumbling out behind it.
     for (let k = 1; k <= 3; k++) {
-      const cx = bx - R - k * 5 - ((ms / 40) % 5);
-      f.set(Math.round(cx), MID + ((k * 7 + Math.floor(ms / 60)) % 9) - 4);
+      const cx = bx - R - k * 5 - ((ms / 15) % 5);
+      f.set(Math.round(cx), MID + ((k * 7 + Math.floor(ms / 25)) % 9) - 4);
     }
-    const open = Math.floor(ms / 120) % 2 === 0;
+    const open = Math.floor(ms / 60) % 2 === 0;
     drawBlob(f, bx, R, open ? 0.75 : 0.12, 0);
     return f;
   }
   if (ms < BOOT_BURP_MS) {
     const t = (ms - BOOT_EAT_MS) / (BOOT_BURP_MS - BOOT_EAT_MS);
-    const shake = Math.floor(ms / 50) % 2 ? 1 : -1;
+    const shake = Math.floor(ms / 35) % 2 ? 1 : -1;
     const cx = W / 2;
     // The burp blows the rest of the waveform away.
     drawWave(f, cx + R + 2 + Math.round(t * W), W, shake);
@@ -87,12 +89,12 @@ export function bootFrame(ms: number): Frame | null {
     f.text(bxl + 3, byt + 2, bub);
     return f;
   }
-  const t = Math.min(1, (ms - BOOT_BURP_MS) / 500);
+  const t = Math.min(1, (ms - BOOT_BURP_MS) / LOGO_IN_MS);
   const logo = "MORSEL";
   const lw = textWidth(logo) * 2;
   const y = Math.round(-16 + easeOutBounce(t) * (18 + 16));
   bigText(f, Math.floor((W - lw) / 2), y, logo);
-  if (ms > BOOT_BURP_MS + 450) {
+  if (ms > BOOT_BURP_MS + LOGO_IN_MS) {
     const sub = "ready to chop";
     f.text(Math.floor((W - textWidth(sub)) / 2), H - 16, sub);
   }
