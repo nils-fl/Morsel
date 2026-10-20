@@ -10,7 +10,7 @@ import { addTrack, defaultPad, drumPads, drumTrack, get, keysTrack, set, updateK
 import { deleteKit, deleteSynthPreset, listKits, loadKit, renameKit, saveKit, saveSynthPreset } from "./state/persist";
 import { padsFromSamples, slicePads } from "./state/pads";
 import { ask } from "./state/confirm";
-import { FACTORY_PRESETS, type SynthPreset } from "./audio/synthPresets";
+import { FACTORY_PRESETS, USER_FOLDER, type SynthPreset } from "./audio/synthPresets";
 import { FACTORY_KIT, MAX_TRACKS, PAD_COUNT, type Pad, type Project, type SampleInfo, type SampleSource } from "./state/types";
 
 /** Play a pad of the drum track (the pads always play it) and record it when recording. */
@@ -70,7 +70,7 @@ export async function saveUserPreset(name: string) {
   const params = { ...keysTrack().keys!.synth };
   await saveSynthPreset(name, params);
   const others = get().userPresets.filter((p) => p.name !== name);
-  set({ userPresets: [...others, { name, params, user: true }].sort((a, b) => a.name.localeCompare(b.name)), status: `Saved preset ${name}` });
+  set({ userPresets: [...others, { name, params, folder: USER_FOLDER, user: true }].sort((a, b) => a.name.localeCompare(b.name)), status: `Saved preset ${name}` });
   updateKeys({ preset: name });
 }
 

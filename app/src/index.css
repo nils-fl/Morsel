@@ -100,6 +100,11 @@ button {
 button:hover:not(:disabled) { border-color: var(--page); color: var(--page); }
 button:active:not(:disabled) { background: color-mix(in srgb, var(--page) var(--tint), var(--panel)); }
 button:disabled { opacity: .3; cursor: default; }
+/* Touch screens (iPad): no double-tap zoom on controls, and no hover colour left behind on the last button tapped. */
+button, select, input { touch-action: manipulation; }
+@media (hover: none) {
+  button:not(.on):hover:not(:disabled) { border-color: var(--line-hi); color: var(--text); }
+}
 button.on, button.on:hover { background: color-mix(in srgb, var(--page) var(--tint), var(--panel)); color: var(--page); border-color: var(--page); }
 button.primary:not(:disabled) { color: var(--page); border-color: var(--page); }
 button.rec { --page: var(--rec); }
@@ -252,7 +257,7 @@ p.hint { margin: 0 0 8px; }
     radial-gradient(ellipse at 50% 120%, color-mix(in srgb, var(--pad) 14%, transparent), transparent 70%),
     var(--panel);
   color: var(--text);
-  display: flex; flex-direction: column; justify-content: space-between; user-select: none; touch-action: none;
+  display: flex; flex-direction: column; justify-content: space-between; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: none;
   text-transform: none; letter-spacing: 0; font-weight: 400;
   transition: background .05s;
 }
@@ -341,6 +346,11 @@ p.hint { margin: 0 0 8px; }
 .slider input::-webkit-slider-thumb { -webkit-appearance: none; width: 3px; height: 14px; background: var(--white); border: none; }
 .slider input::-moz-range-thumb { width: 3px; height: 14px; background: var(--white); border: none; border-radius: 0; }
 .slider input:focus { outline: none; border-color: var(--page); }
+/* A finger needs a bigger thumb to grab (iOS only drags a range from its thumb). */
+@media (pointer: coarse) {
+  .slider input { height: 20px; }
+  .slider input::-webkit-slider-thumb { width: 12px; height: 22px; }
+}
 
 .swatches { display: flex; gap: 3px; align-self: flex-end; padding-bottom: 3px; }
 .swatch { width: 18px; height: 18px; padding: 0; border-radius: 0; border: 1px solid var(--bg); box-shadow: none; }
@@ -373,7 +383,7 @@ p.hint { margin: 0 0 8px; }
 
 /* ---------- keys ---------- */
 .keys-panel { --page: var(--violet); }
-.mini-kb { display: flex; height: 110px; position: relative; padding: 6px; background: var(--wave-bg); border: 1px solid var(--line); }
+.mini-kb { display: flex; height: 110px; position: relative; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; padding: 6px; background: var(--wave-bg); border: 1px solid var(--line); }
 .mini-kb .white {
   flex: 1; background: var(--panel-2); color: var(--muted); border: 1px solid var(--line-hi); border-radius: 0;
   display: flex; align-items: flex-end; justify-content: center; font-size: 9px; padding: 4px 0; margin-right: -1px;
@@ -383,6 +393,9 @@ p.hint { margin: 0 0 8px; }
 .mini-kb .black { width: 0; flex: 0; padding: 0; z-index: 1; position: relative; border: none; background: none; }
 .mini-kb .black::before { content: ""; position: absolute; left: -10px; top: 0; width: 20px; height: 62px; background: var(--bg); border: 1px solid var(--line-hi); border-top: none; }
 .mini-kb .black:active::before { background: color-mix(in srgb, var(--violet) 45%, var(--bg)); }
+.preset-folders { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0 6px; }
+.preset-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 4px; margin-bottom: 6px; }
+.preset-list button { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 12px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chip { background: transparent; border: 1px solid var(--page); color: var(--page); padding: 2px 8px; font-size: 11px; }
 
 /* ---------- song ---------- */
@@ -409,9 +422,6 @@ p.hint { margin: 0 0 8px; }
 .help td { color: var(--text); }
 
 @media (max-width: 900px) {
-  .topbar { grid-template-columns: 1fr; }
-  .screen-slot { grid-column: 1; grid-row: auto; justify-self: start; }
-  .patterns, .hw, .status { grid-column: 1; }
   .pad-row { gap: 5px; }
 }
 
@@ -616,6 +626,16 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
 .trk.on { background: color-mix(in srgb, var(--trk) var(--tint), var(--panel)); border-color: var(--trk); color: var(--text); }
 .trk.muted span { opacity: .45; text-decoration: line-through; }
 .trk-actions { display: flex; gap: 4px; margin-left: 6px; }
+
+/* Narrow windows (an iPad held upright): the screen sits right of the transport, patterns and tracks;
+   the mode buttons and the encoder strip get the full width below. After .tracks, which sets its own column. */
+@media (max-width: 900px) {
+  .topbar { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; }
+  .screen-slot { grid-column: 2; grid-row: 1 / span 4; }
+  .transport, .patterns, .tracks { grid-column: 1; }
+  .hw, .status { grid-column: 1 / -1; }
+  .hw .enc-strip { flex-basis: 100%; margin-left: 0; }
+}
 
 /* ---------- mixer ---------- */
 .mixer-panel { --page: var(--yellow); }

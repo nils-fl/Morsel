@@ -1,5 +1,6 @@
 import { engine } from "./audio/engine";
 import { factoryPads, refreshKits } from "./actions";
+import { USER_FOLDER } from "./audio/synthPresets";
 import { launchkey } from "./midi/launchkey";
 import { initController } from "./modes/controller";
 import { initDisk } from "./browse/disk";
@@ -11,7 +12,7 @@ export async function boot() {
   engine.init();
   await engine.loadLibrary();
   await initDisk();
-  set({ userPresets: (await loadSynthPresets()).map((p) => ({ ...p, user: true })) });
+  set({ userPresets: (await loadSynthPresets()).map((p) => ({ ...p, folder: USER_FOLDER, user: true })) });
   await refreshKits();
 
   const saved = await loadProject();

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { allPresets, applyPreset, deleteUserPreset, keyOff, keyOn, saveUserPreset } from "../actions";
-import { FACTORY_PRESETS } from "../audio/synthPresets";
+import { presetFolders } from "../audio/synthPresets";
 import { hz, presetLabel } from "../params";
 import { engine } from "../audio/engine";
 import { get, keysTrack, set, updateKeys, useApp } from "../state/store";
@@ -168,6 +168,10 @@ function PresetBar() {
   const i = list.findIndex((p) => p.name === current);
   const step = (d: number) => applyPreset(list[Math.max(0, Math.min(list.length - 1, (i < 0 ? 0 : i) + d))]);
   const isUser = userPresets.some((p) => p.name === current);
+  const folders = presetFolders(list);
+  // A clicked folder tab stays open until the preset changes (e.g. from the Launchkey); then it follows the preset.
+  const [open, setOpen] = useState<{ folder: string; preset: string } | null>(null);
+  const folder = (open?.preset === current ? open.folder : list[i]?.folder) ?? folders[0];
 
   return (
     <Section title={`Preset · ${presetLabel()}`} actions={
@@ -175,13 +179,24 @@ function PresetBar() {
         <button onClick={() => step(-1)} disabled={i <= 0} aria-label="Previous preset">◀</button>
         <select value={i >= 0 ? current : ""} onChange={(e) => { const p = list.find((x) => x.name === e.target.value); if (p) applyPreset(p); }}>
           {i < 0 && <option value="">{current}</option>}
-          <optgroup label="Factory">{FACTORY_PRESETS.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}</optgroup>
-          {userPresets.length > 0 && <optgroup label="Mine">{userPresets.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}</optgroup>}
+          {folders.map((f) => (
+            <optgroup key={f} label={f}>{list.filter((p) => p.folder === f).map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}</optgroup>
+          ))}
         </select>
         <button onClick={() => step(1)} disabled={i >= list.length - 1} aria-label="Next preset">▶</button>
       </>
     }>
-      <p className="hint">A * means the sound was edited since the preset was loaded. Launchkey: encoder page <b>Keys</b>, encoder 1 scrolls presets.</p>
+      <div className="preset-folders" role="tablist" aria-label="Preset folders">
+        {folders.map((f) => (
+          <button key={f} role="tab" aria-selected={f === folder} className={f === folder ? "on" : ""} onClick={() => setOpen({ folder: f, preset: current })}>{f}</button>
+        ))}
+      </div>
+      <div className="preset-list">
+        {list.filter((p) => p.folder === folder).map((p) => (
+          <button key={p.name} className={p.name === current ? "on" : ""} onClick={() => applyPreset(p)}>{p.name}</button>
+        ))}
+      </div>
+      <p className="hint">A * means the sound was edited since the preset was loaded. Launchkey: encoder page <b>Keys</b>, encoder 1 scrolls presets, Shift + encoder 1 jumps to the next folder.</p>
       <div className="row">
         <input placeholder="Preset name" value={name} maxLength={24} onChange={(e) => setName(e.target.value)} />
         <button disabled={!name.trim()} onClick={async () => { await saveUserPreset(name); setName(""); }}>Save as preset</button>
@@ -202,6 +217,7 @@ function MiniKeyboard() {
           className={black(n) ? "black" : "white"}
           onPointerDown={() => keyOn(n, 100)}
           onPointerUp={() => keyOff(n)}
+          onPointerCancel={() => keyOff(n)}
           onPointerLeave={(e) => e.buttons && keyOff(n)}
         >
           {n % 12 === 0 ? noteName(n) : ""}

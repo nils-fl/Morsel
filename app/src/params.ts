@@ -5,7 +5,7 @@ import { QUANTIZE_OPTIONS, REPEAT_OPTIONS } from "./seq/timing";
 import { drumPads, get, keysTrack, setPatternBars, parseDuckTarget, selectedTrack, set, trackById, updateKeys, updatePad, updateProject, updateTrack } from "./state/store";
 import { DUCK_ALL, MAX_TRACKS, PAD_COUNT, type DuckSettings, type DuckTarget, type KeysLfo, type Pad, type SampleInfo, type SynthParams, type TrackFx, type TrackKind, type Wave } from "./state/types";
 import { allPresets, applyPreset, currentKit, kitNames, stepKit } from "./actions";
-import { presetEdited } from "./audio/synthPresets";
+import { jumpFolder, presetEdited } from "./audio/synthPresets";
 import { noteName } from "./ui/notes";
 
 export interface Param {
@@ -217,9 +217,10 @@ const SYNTH_PARAMS: Param[] = [
     get range(): [number, number] {
       return [0, Math.max(1, allPresets().length - 1)];
     },
-    nudge: (d) => {
+    // Shift jumps to the next / previous folder (Bass, Lead, Keys…).
+    nudge: (d, fine) => {
       const list = allPresets();
-      applyPreset(list[clamp(presetIndex() + Math.sign(d), 0, list.length - 1)]);
+      applyPreset(list[fine ? jumpFolder(list, presetIndex(), d > 0 ? 1 : -1) : clamp(presetIndex() + Math.sign(d), 0, list.length - 1)]);
     },
     format: presetLabel,
   },
@@ -433,7 +434,7 @@ export const PAGES: Page[] = [
     // The encoders follow the keys track's sound source: synth, one sample, a drum pad or a multisample.
     summary: () => {
       const k = keysNow();
-      if (k.type === "synth") return `Synth: ${presetLabel()}`;
+      if (k.type === "synth") return `${allPresets().find((p) => p.name === k.preset)?.folder ?? "Synth"}: ${presetLabel()}`;
       if (k.type === "sample") return `Smp: ${keysSampleName()} ${noteName(k.sample.root)}`;
       if (k.type === "chromatic") return `Pad: ${sourcePadLabel()}`;
       return `Multi: ${k.multiName || "none"}`;

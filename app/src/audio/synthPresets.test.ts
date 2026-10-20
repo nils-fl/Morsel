@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FACTORY_PRESETS, presetEdited } from "./synthPresets";
+import { FACTORY_PRESETS, jumpFolder, presetEdited, presetFolders } from "./synthPresets";
 import { defaultKeys } from "../state/store";
 
 describe("synth presets", () => {
@@ -27,5 +27,21 @@ describe("synth presets", () => {
     expect(presetEdited({ ...p.params, cutoff: p.params.cutoff + 0.01 }, p)).toBe(true);
     expect(presetEdited({ ...p.params, wave: "sine" }, p)).toBe(p.params.wave !== "sine");
     expect(presetEdited(p.params, undefined)).toBe(true);
+  });
+  it("keep each folder together, so stepping walks one folder at a time", () => {
+    const folders = presetFolders(FACTORY_PRESETS);
+    const runs = FACTORY_PRESETS.map((p) => p.folder).filter((f, i, a) => f !== a[i - 1]);
+    expect(runs).toEqual(folders);
+    expect(folders).toContain("Bass");
+  });
+  it("jump to the next or previous folder", () => {
+    const list = ["A", "B", "B", "B", "C"].map((folder, i) => ({ name: `${i}`, folder, params: FACTORY_PRESETS[0].params }));
+    expect(jumpFolder(list, 0, 1)).toBe(1);
+    expect(jumpFolder(list, 2, 1)).toBe(4);
+    expect(jumpFolder(list, 4, 1)).toBe(4);
+    expect(jumpFolder(list, 3, -1)).toBe(1); // back to this folder's start first
+    expect(jumpFolder(list, 1, -1)).toBe(0);
+    expect(jumpFolder(list, 4, -1)).toBe(1);
+    expect(jumpFolder([], 0, 1)).toBe(0);
   });
 });

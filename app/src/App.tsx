@@ -80,8 +80,9 @@ function AudioBanner() {
   return <button className="audio-banner">Audio is paused by the browser. Click anywhere to start it.</button>;
 }
 
-/** Short windows (e.g. a 14" laptop) get the compact layout; keep in sync with the media query in index.css. */
-const COMPACT_QUERY = "(max-height: 950px)";
+/** Short windows (e.g. a 14" laptop) get the compact layout; keep in sync with the media query in index.css.
+ *  Narrow ones (an iPad held upright) also get the smaller screen preview, so it fits beside the transport. */
+const COMPACT_QUERY = "(max-height: 950px), (max-width: 900px)";
 
 function useCompact() {
   const [compact, setCompact] = useState(() => window.matchMedia(COMPACT_QUERY).matches);
