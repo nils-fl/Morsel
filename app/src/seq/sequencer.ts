@@ -1,6 +1,6 @@
 import { engine } from "../audio/engine";
 import { scheduleNote } from "../audio/voices";
-import { addEvent, clipOf, get, patternLength, set, setEventLength } from "../state/store";
+import { addEvent, clipOf, get, markUndo, patternLength, set, setEventLength } from "../state/store";
 import type { Clip, NoteEvent } from "../state/types";
 import { BAR_TICKS, PPQN, quantizeTick, secondsPerTick, swingOffsetTicks } from "./timing";
 
@@ -55,12 +55,26 @@ class Sequencer {
   /** Pads held for note repeat, by `${track}:${pad}`. */
   repeatPads = new Map<string, RepeatPad>();
   repeatOn = false;
+  /** Whether this take already has its undo step (made on its first recorded note, so Undo removes the whole take). */
+  private takeOpen = false;
+
+  /** Recording (re)starts: the next recorded note opens a new undo step. */
+  newTake() {
+    this.takeOpen = false;
+  }
+
+  private beginTake() {
+    if (this.takeOpen) return;
+    markUndo();
+    this.takeOpen = true;
+  }
 
   start(opts: { countIn?: boolean } = {}) {
     const s = get();
     if (s.playing) return;
     if (engine.ctx.state !== "running") engine.ctx.resume();
     this.stopRepeatClock();
+    this.newTake();
     this.pattern = s.songMode ? s.project.song[0]?.pattern ?? 0 : s.currentPattern;
     this.songIndex = 0;
     this.songRepeat = 0;
@@ -128,7 +142,10 @@ class Sequencer {
             // Held across the loop while recording: the note from the last pass is already there and has just played.
             if (recording && eventsByTick(clipOf(pat, track)).get(tick)?.some((e) => e.note === pad)) continue;
             engine.voices.pad(track, pad, vel, when, s.repeatRate * spt, true);
-            if (recording) addEvent(this.pattern, track, { tick, note: pad, vel, len: s.repeatRate });
+            if (recording) {
+              this.beginTake();
+              addEvent(this.pattern, track, { tick, note: pad, vel, len: s.repeatRate });
+            }
           }
         }
       }
@@ -221,6 +238,7 @@ class Sequencer {
   recordPad(track: string, pad: number, vel: number) {
     const r = this.recordTick();
     if (!r) return;
+    this.beginTake();
     const ev = addEvent(r.pattern, track, { tick: r.tick, note: pad, vel, len: get().quantize || 24 });
     this.skipIfAhead(ev, r);
   }
@@ -228,6 +246,7 @@ class Sequencer {
   recordKeyOn(track: string, note: number, vel: number) {
     const r = this.recordTick();
     if (!r) return;
+    this.beginTake();
     const ev = addEvent(r.pattern, track, { tick: r.tick, note, vel, len: 24 });
     this.skipIfAhead(ev, r);
     const pos = this.tickAt();

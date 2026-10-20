@@ -667,3 +667,48 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
 .mx-dens { display: grid; grid-template-columns: repeat(var(--steps), 1fr); gap: 1px; height: 100%; align-items: end; }
 .mx-dens i { height: 30%; background: color-mix(in srgb, var(--trk) 25%, transparent); }
 .mx-dens i.on { height: 100%; background: var(--trk); }
+
+/* ---------- phone (e.g. Pixel 6a, 412 px wide). Only below 600 px, so iPad (820+) and desktop layouts are untouched.
+   Last in the file so it wins over the narrow and compact rules above. ---------- */
+@media (max-width: 600px) {
+  .app { padding: 8px 10px 32px; }
+
+  /* Top bar: one column, the screen centred, every row full width. */
+  .topbar { grid-template-columns: minmax(0, 1fr); padding: 8px; gap: 8px; }
+  .screen-slot, .transport, .patterns, .tracks, .hw, .status { grid-column: 1; grid-row: auto; }
+  /* The preview mirrors the Launchkey's own screen; on a phone the room is better spent on the pads. */
+  .screen-slot { display: none; }
+  .brand { flex-wrap: wrap; gap: 8px; }
+  .trk-actions { margin-left: 0; }
+  .patterns { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); }
+  .pat { width: auto; }
+  .hw > button { flex: 1 1 auto; }
+  /* Encoder page tag on its own line, so the 8 knobs get the full width. */
+  .enc-strip { flex-wrap: wrap; }
+  .enc-tag { flex-basis: 100%; border-right: none; border-bottom: 1px solid var(--line-hi); min-height: 22px; }
+  .enc-knobs { flex-basis: 100%; }
+
+  /* Pads 4 x 4 like an MPC: 13-16 on top, 1-4 at the bottom (each 8-pad row becomes two lines, upper half first). */
+  .pad-grid { padding: 6px; gap: 6px; margin: 8px 0; }
+  .pad-row { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .pad-row > :nth-child(-n+4) { grid-row: 2; }
+  .pad-row > :nth-child(n+5) { grid-row: 1; }
+  .pad { aspect-ratio: 1.25; height: auto; padding: 5px 6px; }
+
+  /* Tabs scroll sideways instead of overflowing the page. */
+  .tabs { overflow-x: auto; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs button { flex: none; }
+
+  .section { padding: 0 8px 8px; }
+  .section > header { margin: 0 -8px 8px; flex-wrap: wrap; }
+  .slider { grid-template-columns: 70px 1fr 56px; gap: 8px; }
+  .seq-row { grid-template-columns: 64px 22px 22px 1fr; }
+  .seq-cells { grid-template-columns: repeat(var(--steps), minmax(14px, 1fr)); }
+  .cell { height: 28px; }
+}
+
+/* Phone held sideways (short touch screen): the encoder strip gets its own line so the knobs aren't squeezed. */
+@media (max-height: 500px) and (pointer: coarse) {
+  .hw .enc-strip { flex-basis: 100%; margin-left: 0; }
+}

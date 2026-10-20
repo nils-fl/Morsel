@@ -509,6 +509,12 @@ export function updateProject(fn: (p: Project) => Project, undoable = true) {
   set({ project: next, undo: undoable ? [...s.undo.slice(-49), s.project] : s.undo });
 }
 
+/** Remember the project as it is now as an undo step, for changes made in many small non-undoable edits (a recorded take). */
+export function markUndo() {
+  const s = get();
+  set({ undo: [...s.undo.slice(-49), s.project] });
+}
+
 export function undo() {
   const s = get();
   const prev = s.undo[s.undo.length - 1];

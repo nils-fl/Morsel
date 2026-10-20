@@ -49,7 +49,11 @@ export function toggleRecord() {
     set({ recording: true });
     sequencer.start({ countIn: true });
   } else if (s.countIn) sequencer.stop(); // the count-in was for this take: Record again calls it off
-  else set({ recording: !s.recording });
+  else {
+    // Punching in starts a new take: one undo step for what it records.
+    if (!s.recording) sequencer.newTake();
+    set({ recording: !s.recording });
+  }
 }
 
 // ---------- keys presets ----------

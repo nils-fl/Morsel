@@ -39,9 +39,14 @@ export default function App() {
   const [guide, setGuide] = useState(false);
   useEffect(() => { document.documentElement.style.setProperty("--page", color(tab)); });
   useEffect(() => {
-    // "?" opens the guide, unless you're typing in a field.
+    // "?" opens the guide and Cmd/Ctrl+Z undoes, unless you're typing in a field.
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "?" && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement)) setGuide(true);
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+      if (e.key === "?") setGuide(true);
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        undo();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

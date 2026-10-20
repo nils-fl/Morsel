@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DRUMS_ID, KEYS_ID, addTrack, canRemoveTrack, copyClip, copyPattern, defaultPad, defaultProject, fixSelection, get, migrateV1, normalizeProject, removeTrack, resetSession, selectTrack, set, stepTrack, undo,
+  DRUMS_ID, KEYS_ID, addEvent, addTrack, clipOf, markUndo, canRemoveTrack, copyClip, copyPattern, defaultPad, defaultProject, fixSelection, get, migrateV1, normalizeProject, removeTrack, resetSession, selectTrack, set, stepTrack, undo,
 } from "./store";
 import { DUCK_ALL, MAX_TRACKS, PATTERN_COUNT, type NoteEvent, type Project } from "./types";
 
@@ -297,5 +297,18 @@ describe("fixSelection and resetSession", () => {
     expect(get()).toMatchObject({ selectedTrack: DRUMS_ID, drumTrack: DRUMS_ID, keysTrack: KEYS_ID });
     resetSession();
     expect(get()).toMatchObject({ currentPattern: 0, stepPage: 0, songMode: false, queuedPattern: null, selectedPad: 0 });
+  });
+});
+
+describe("recorded takes", () => {
+  it("undo as one step: the notes of a take are added without undo steps after markUndo", () => {
+    reset();
+    markUndo();
+    addEvent(0, DRUMS_ID, { tick: 0, note: 0, vel: 100, len: 24 });
+    addEvent(0, DRUMS_ID, { tick: 96, note: 1, vel: 100, len: 24 });
+    expect(get().undo).toHaveLength(1);
+    expect(clipOf(get().project.patterns[0], DRUMS_ID).events).toHaveLength(2);
+    undo();
+    expect(clipOf(get().project.patterns[0], DRUMS_ID).events).toHaveLength(0);
   });
 });
