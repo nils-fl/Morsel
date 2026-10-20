@@ -3,6 +3,7 @@ import { deleteSample, deleteSamples, listSampleIds, loadSample, loadSampleIndex
 import { Voices } from "./voices";
 import { encodeChannels, toFloat } from "./pcm";
 import { buildClick } from "./dsp";
+import { loadVoiceWorklet } from "./worklet/voiceNode";
 import type { SampleInfo } from "../state/types";
 
 /** Default jitter budget for live notes, ms (see Engine.liveTime). */
@@ -17,6 +18,17 @@ function loadLiveBudget() {
   return LIVE_BUDGET_MS;
 }
 
+/** Where voices play: in an AudioWorklet (sample-accurate, off the main thread) or as Web Audio node graphs. */
+export type VoiceEngine = "worklet" | "nodes";
+const VOICE_ENGINE_KEY = "morsel.voiceEngine";
+
+function loadVoiceEngine(): VoiceEngine {
+  try {
+    if (localStorage.getItem(VOICE_ENGINE_KEY) === "nodes") return "nodes";
+  } catch { /* storage blocked: use the default */ }
+  return "worklet";
+}
+
 const encode = (b: AudioBuffer) => encodeChannels(Array.from({ length: b.numberOfChannels }, (_, c) => b.getChannelData(c)));
 const baseName = (f: File) => f.name.replace(/\.[^.]+$/, "");
 /** The folder a file was picked from with a folder input. */
@@ -28,9 +40,22 @@ class Engine {
   private buffers = new Map<string, AudioBuffer>();
   private clickOut!: GainNode;
 
-  init() {
+  /** The voice engine this session plays on; picked in the Lab tab, remembered per browser, used from the next load. */
+  readonly voiceEngine = loadVoiceEngine();
+
+  setVoiceEngine(e: VoiceEngine) {
+    try {
+      localStorage.setItem(VOICE_ENGINE_KEY, e);
+    } catch { /* storage blocked */ }
+  }
+
+  async init() {
     this.ctx = new AudioContext({ latencyHint: "interactive" });
-    this.voices = new Voices(this.ctx, this.ctx.destination, () => get().project, (id) => this.buffers.get(id), true);
+    const worklet = this.voiceEngine === "worklet" && (await loadVoiceWorklet(this.ctx).then(() => true, (err) => {
+      console.warn("The voice worklet couldn't be loaded; playing on Web Audio nodes", err);
+      return false;
+    }));
+    this.voices = new Voices(this.ctx, this.ctx.destination, () => get().project, (id) => this.buffers.get(id), true, worklet);
     this.clickOut = this.ctx.createGain();
     this.clickOut.connect(this.ctx.destination);
     // Browsers start audio suspended until a user gesture. MIDI input doesn't count as one.
@@ -163,6 +188,7 @@ class Engine {
   async removeSamples(ids: string[]) {
     const gone = new Set(ids);
     for (const id of ids) this.buffers.delete(id);
+    this.voices.dropSamples(ids);
     set({ samples: Object.fromEntries(Object.entries(get().samples).filter(([id]) => !gone.has(id))) });
     await deleteSamples(ids);
   }
@@ -210,6 +236,7 @@ class Engine {
   /** Drop a sample from memory, the library and storage. Callers clear references to it first. */
   async removeSample(id: string) {
     this.buffers.delete(id);
+    this.voices.dropSamples([id]);
     const { [id]: _gone, ...rest } = get().samples;
     set({ samples: rest });
     await deleteSample(id);

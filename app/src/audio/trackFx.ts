@@ -2,6 +2,7 @@
 // returns. Built on any BaseAudioContext, so the WAV bounce has the same FX as live playback.
 import { PAD_COUNT, type Returns, type Track, type TrackFx } from "../state/types";
 import { cutoffHz } from "./dsp";
+import { KEYS_MONO_OUT, KEYS_STEREO_OUT, VoiceNode } from "./worklet/voiceNode";
 
 const TC = 0.02; // smoothing time constant for knob moves
 
@@ -44,8 +45,12 @@ export class TrackStrip {
   private nodes: AudioNode[];
   private lastDrive = -1;
   private ctx: BaseAudioContext;
+  /** Worklet engine: the voice processor feeding this strip (null on the node engine). */
+  readonly voices: VoiceNode | null;
+  /** Which keys output of the voice processor feeds `input`: mono for the synth, stereo for samples. */
+  private keysOut = -1;
 
-  constructor(ctx: BaseAudioContext, kind: Track["kind"], master: AudioNode, reverbIn: AudioNode, delayIn: AudioNode) {
+  constructor(ctx: BaseAudioContext, kind: Track["kind"], master: AudioNode, reverbIn: AudioNode, delayIn: AudioNode, worklet = false) {
     this.ctx = ctx;
     const g = () => ctx.createGain();
     this.input = g();
@@ -84,6 +89,8 @@ export class TrackStrip {
         this.padDuck.push(duck);
       }
     }
+    this.voices = worklet ? new VoiceNode(ctx) : null;
+    if (this.voices && kind === "drum") this.padBus.forEach((bus, i) => this.voices!.node.connect(bus, i));
     this.nodes = [this.input, this.filter, ...this.eq, this.driveIn, this.shaper, this.driveOut, this.comp, this.pan, this.fader, this.duck, this.sendA, this.sendB, ...this.padBus, ...this.padDuck];
     this.applyFx(undefined);
   }
@@ -97,6 +104,13 @@ export class TrackStrip {
     this.sendB.gain.setTargetAtTime(t.sendB, now, TC);
     this.padBus.forEach((b, i) => b.gain.setTargetAtTime(padOn(i) ? 1 : 0, now, 0.01));
     this.applyFx(t.fx);
+    // Only the output in use is connected: a synth alone stays mono up to the pan, as on the node engine.
+    const keysOut = t.keys ? (t.keys.type === "synth" ? KEYS_MONO_OUT : KEYS_STEREO_OUT) : -1;
+    if (this.voices && keysOut !== this.keysOut) {
+      if (this.keysOut >= 0) this.voices.node.disconnect(this.keysOut);
+      if (keysOut >= 0) this.voices.node.connect(this.input, keysOut);
+      this.keysOut = keysOut;
+    }
   }
 
   private applyFx(fx: TrackFx | undefined) {
@@ -131,6 +145,7 @@ export class TrackStrip {
 
   dispose() {
     this.nodes.forEach((n) => n.disconnect());
+    this.voices?.dispose();
   }
 }
 

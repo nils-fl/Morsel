@@ -9,7 +9,7 @@ import { DRUMS_ID, defaultProject, fixSelection, get, normalizeProject, set, sto
 import { FACTORY_KIT } from "./state/types";
 
 export async function boot() {
-  engine.init();
+  await engine.init();
   await engine.loadLibrary();
   await initDisk();
   set({ userPresets: (await loadSynthPresets()).map((p) => ({ ...p, folder: USER_FOLDER, user: true })) });

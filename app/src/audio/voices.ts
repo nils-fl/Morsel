@@ -1,11 +1,12 @@
 // Instrument layer: turns "pad i / key note on track t" into voices on a context, through that track's
 // mixer strip. Used by the live engine and by the offline renderer.
 import { defaultPad, padAudible, parseDuckTarget, trackAudible, trackById } from "../state/store";
-import type { DuckTarget, NoteEvent, Project, Track } from "../state/types";
+import type { DuckTarget, KeysLfo, NoteEvent, Pad, Project, SynthParams, Track } from "../state/types";
 import { DUCK_ALL, PAD_COUNT } from "../state/types";
 import { applyDuck, duckRamp } from "./duck";
 import { buildSampleVoice, buildSynthVoice, reverseBuffer, type Voice } from "./dsp";
 import { ReturnFx, TrackStrip } from "./trackFx";
+import { KEYS_MONO_OUT, KEYS_STEREO_OUT } from "./worklet/voiceNode";
 
 export type BufferLookup = (id: string) => AudioBuffer | undefined;
 
@@ -26,9 +27,13 @@ export class Voices {
   readonly ctx: BaseAudioContext;
   private getProject: () => Project;
   private buffer: BufferLookup;
+  /** Voices play in the strips' voice processors (the worklet engine) instead of as node graphs. */
+  readonly worklet: boolean;
 
-  constructor(ctx: BaseAudioContext, out: AudioNode, getProject: () => Project, buffer: BufferLookup, live = false) {
+  /** `worklet`: the context must have the voice worklet loaded (loadVoiceWorklet). */
+  constructor(ctx: BaseAudioContext, out: AudioNode, getProject: () => Project, buffer: BufferLookup, live = false, worklet = false) {
     this.ctx = ctx;
+    this.worklet = worklet;
     this.getProject = getProject;
     this.buffer = buffer;
     this.master = ctx.createGain();
@@ -59,7 +64,7 @@ export class Voices {
   private strip(t: Track): TrackStrip {
     let s = this.strips.get(t.id);
     if (!s) {
-      s = new TrackStrip(this.ctx, t.kind, this.master, this.returns.reverbIn, this.returns.delayIn);
+      s = new TrackStrip(this.ctx, t.kind, this.master, this.returns.reverbIn, this.returns.delayIn, this.worklet);
       s.update(t, trackAudible(this.getProject(), t.id), (i) => padAudible(t, i));
       this.strips.set(t.id, s);
     }
@@ -73,6 +78,38 @@ export class Voices {
     let r = this.reversed.get(buf);
     if (!r) this.reversed.set(buf, (r = reverseBuffer(this.ctx, buf)));
     return r;
+  }
+
+  /**
+   * A sample voice on output `out` of track t's strip: pad `out`'s bus, or the keys input. `pad` holds the sound
+   * settings (a drum pad's, or a keys instrument's dressed as one).
+   */
+  private sampleVoice(t: Track, out: number, sampleId: string | null, pad: Pad, vel: number, when: number, pitchOffset = 0, gate = pad.mode === "gate", mod?: KeysLfo): Voice | null {
+    const strip = this.strip(t);
+    if (strip.voices) {
+      const buf = sampleId ? this.buffer(sampleId) : undefined;
+      if (!buf || !sampleId) return null;
+      return strip.voices.play(out, { kind: "sample", sample: sampleId, pad, vel, pitchOffset, gate, lfo: mod }, when, buf);
+    }
+    const buf = this.sampleFor(sampleId, pad.reverse);
+    if (!buf) return null;
+    return buildSampleVoice(this.ctx, out === KEYS_STEREO_OUT ? strip.input : strip.padBus[out], buf, pad, vel, when, pitchOffset, gate, mod);
+  }
+
+  private synthVoice(t: Track, s: SynthParams, note: number, vel: number, when: number, mod: KeysLfo): Voice {
+    const strip = this.strip(t);
+    if (strip.voices) return strip.voices.play(KEYS_MONO_OUT, { kind: "synth", synth: s, note, vel, lfo: mod }, when);
+    return buildSynthVoice(this.ctx, strip.input, s, note, vel, when, mod);
+  }
+
+  /** Samples deleted from the library: free the voice processors' copies. */
+  dropSamples(ids: string[]) {
+    for (const s of this.strips.values()) s.voices?.dropSamples(ids);
+  }
+
+  /** Resolves once every voice processor has taken the voices sent so far (an offline render waits for it). */
+  async sync() {
+    await Promise.all([...this.strips.values()].map((s) => s.voices?.sync()));
   }
 
   private track(map: Map<string, Voice[]>, key: string, v: Voice) {
@@ -90,9 +127,7 @@ export class Voices {
     const p = this.getProject();
     const t = trackById(p, trackId);
     const pad = t?.pads[i];
-    if (!t || !pad) return null;
-    const buf = this.sampleFor(pad.sampleId, pad.reverse);
-    if (!buf) return null;
+    if (!t || !pad || !this.buffer(pad.sampleId ?? "")) return null;
     // Choke: same group cuts others in this rack (and itself, like an MPC mono pad).
     if (pad.choke > 0) {
       t.pads.forEach((other, j) => {
@@ -102,7 +137,8 @@ export class Voices {
     // Pressure opens both filters: LP up towards 1, HP down towards 0.
     const press = pressure ? this.pressure[i] / 127 : 0;
     const effective = { ...pad, cutoff: Math.min(1, pad.cutoff + press * (1 - pad.cutoff)), hpCutoff: Math.max(0, pad.hpCutoff * (1 - press)) };
-    const v = buildSampleVoice(this.ctx, this.strip(t).padBus[i], buf, effective, vel, when);
+    const v = this.sampleVoice(t, i, pad.sampleId, effective, vel, when);
+    if (!v) return null;
     this.track(this.padVoices, `${trackId}:${i}`, v);
     if (p.duck.on && p.duck.sourceTrack === trackId && p.duck.sourcePad === i) this.duck(when);
     if (pad.mode === "gate" && lenSec !== undefined) v.stop(when + lenSec);
@@ -152,23 +188,20 @@ export class Voices {
     const t = trackById(p, trackId);
     const k = t?.keys;
     if (!t || !k) return null;
-    const out = this.strip(t).input;
+    const out = KEYS_STEREO_OUT;
     let v: Voice | null = null;
     if (k.type === "synth") {
-      v = buildSynthVoice(this.ctx, out, { ...k.synth, volume: k.synth.volume * k.volume / 0.7 }, note, vel, when, k.lfo);
+      v = this.synthVoice(t, { ...k.synth, volume: k.synth.volume * k.volume / 0.7 }, note, vel, when, k.lfo);
     } else if (k.type === "chromatic") {
       const pad = trackById(p, k.sourceTrack)?.pads[k.sourcePad];
-      const buf = pad && this.sampleFor(pad.sampleId, pad.reverse);
-      if (pad && buf) v = buildSampleVoice(this.ctx, out, buf, { ...pad, volume: pad.volume * k.volume / 0.7 }, vel, when, note - 60, true, k.lfo);
+      if (pad) v = this.sampleVoice(t, out, pad.sampleId, { ...pad, volume: pad.volume * k.volume / 0.7 }, vel, when, note - 60, true, k.lfo);
     } else if (k.type === "sample") {
       const s = k.sample;
-      const buf = s.sampleId ? this.buffer(s.sampleId) : undefined;
       const voice = { ...ZONE_VOICE, attack: s.attack, decay: s.release, cutoff: s.cutoff, resonance: s.resonance, volume: k.volume };
-      if (buf) v = buildSampleVoice(this.ctx, out, buf, voice, vel, when, note - s.root, true, k.lfo);
+      v = this.sampleVoice(t, out, s.sampleId, voice, vel, when, note - s.root, true, k.lfo);
     } else if (k.zones.length) {
       const zone = k.zones.reduce((best, z) => (Math.abs(z.root - note) < Math.abs(best.root - note) ? z : best));
-      const buf = this.buffer(zone.sampleId);
-      if (buf) v = buildSampleVoice(this.ctx, out, buf, { ...ZONE_VOICE, volume: k.volume }, vel, when, note - zone.root, true, k.lfo);
+      v = this.sampleVoice(t, out, zone.sampleId, { ...ZONE_VOICE, volume: k.volume }, vel, when, note - zone.root, true, k.lfo);
     }
     if (v && lenSec !== undefined) {
       v.stop(when + lenSec);

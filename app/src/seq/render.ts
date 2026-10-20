@@ -1,5 +1,6 @@
 import { scheduleNote, Voices } from "../audio/voices";
-import { engine } from "../audio/engine";
+import { engine, type VoiceEngine } from "../audio/engine";
+import { loadVoiceWorklet } from "../audio/worklet/voiceNode";
 import { clipOf, patternLength } from "../state/store";
 import type { NoteEvent, Project, Track } from "../state/types";
 import { secondsPerTick, swingOffsetTicks } from "./timing";
@@ -28,14 +29,19 @@ export function orderedEvents(p: Project, order: number[]): { track: Track; even
   return out.sort((a, b) => a.tick - b.tick);
 }
 
-export async function renderToBuffer(p: Project, order: number[]): Promise<AudioBuffer> {
+/** `voiceEngine`: the engine to render on (the one playing, unless the Lab compares them). */
+export async function renderToBuffer(p: Project, order: number[], voiceEngine: VoiceEngine = engine.voices.worklet ? "worklet" : "nodes"): Promise<AudioBuffer> {
   const spt = secondsPerTick(p.bpm);
   const totalTicks = order.reduce((n, i) => n + patternLength(p.patterns[i]), 0);
   const ctx = new OfflineAudioContext(2, Math.ceil((totalTicks * spt + TAIL) * SR), SR);
-  const voices = new Voices(ctx, ctx.destination, () => p, engine.bufferLookup);
+  const worklet = voiceEngine === "worklet";
+  if (worklet) await loadVoiceWorklet(ctx);
+  const voices = new Voices(ctx, ctx.destination, () => p, engine.bufferLookup, false, worklet);
   for (const { track, event, tick } of orderedEvents(p, order)) {
     scheduleNote(voices, track, event, (tick + swingOffsetTicks(event.tick, p.swing)) * spt, event.len * spt);
   }
+  // Rendering doesn't wait for messages: the voice processors must have every note before it starts.
+  await voices.sync();
   return ctx.startRendering();
 }
 

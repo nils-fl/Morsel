@@ -155,7 +155,7 @@ function noiseBuffer(ctx: BaseAudioContext) {
 
 // tanh saturation curves by drive amount (shared: building one is a 1024-point loop).
 const driveCurves = new Map<number, Float32Array<ArrayBuffer>>();
-function driveCurve(drive: number) {
+export function driveCurve(drive: number) {
   const key = Math.round(drive * 100);
   let c = driveCurves.get(key);
   if (!c) {
@@ -168,7 +168,7 @@ function driveCurve(drive: number) {
 }
 
 /** Key tracking pivots around C4: notes above open the filter, notes below close it. */
-const KEY_TRACK_PIVOT = 261.63;
+export const KEY_TRACK_PIVOT = 261.63;
 
 export function buildSynthVoice(
   ctx: BaseAudioContext,

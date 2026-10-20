@@ -409,6 +409,8 @@ p.hint { margin: 0 0 8px; }
 
 /* ---------- lab / help ---------- */
 .lab { --page: var(--magenta); }
+.lab .compare { border-collapse: collapse; font-size: 11px; margin-top: 8px; }
+.lab .compare th, .lab .compare td { text-align: left; padding: 3px 14px 3px 0; border-bottom: 1px solid var(--line); }
 .log {
   background: var(--wave-bg); border: 1px solid var(--line); padding: 10px; height: 340px; overflow: auto;
   font-size: 11px; margin: 0; color: var(--ok);

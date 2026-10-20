@@ -8,6 +8,7 @@ import { ScreenPreview } from "./ScreenPreview";
 import { useApp } from "../state/store";
 import { Section } from "./controls";
 import { engine } from "../audio/engine";
+import { EngineCompare } from "./EngineCompare";
 
 const LIVE_BUDGETS = [0, 4, 8, 12, 20];
 
@@ -119,6 +120,7 @@ export function Lab() {
         <p className="hint">The app takes the Launchkey over, so close Ableton Live first.</p>
       </Section>
       <TimingProbe />
+      <EngineCompare />
       <div className="row wrap">
         <Section title="Pad LEDs">
           <p className="hint">Use this to check pad numbering and palette indices. Normal LEDs come back when you leave the Lab.</p>
