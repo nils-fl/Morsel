@@ -7,7 +7,7 @@ import { sequencer } from "../seq/sequencer";
 import { cancelKitLoad } from "../actions";
 import { releaseAll, setHwMode } from "../modes/controller";
 import { listKits, saveKit } from "./persist";
-import { FACTORY_KIT, type Pad, type Project } from "./types";
+import { STOCK_KITS, type Pad, type Project } from "./types";
 import { KIT_FORMAT, PROJECT_FORMAT, isKitFormat, isProjectFormat } from "./fileFormat";
 
 interface FileSample { name: string; sampleRate: number; channels: string[] }
@@ -120,7 +120,7 @@ async function readJson(f: File): Promise<Record<string, unknown>> {
 
 /** First free kit name: "Name", then "Name (2)", "Name (3)", ... */
 async function freeKitName(name: string) {
-  const taken = new Set([...(await listKits()), FACTORY_KIT]);
+  const taken = new Set([...(await listKits()), ...STOCK_KITS]);
   let n = name, i = 2;
   while (taken.has(n)) n = `${name} (${i++})`;
   return n;

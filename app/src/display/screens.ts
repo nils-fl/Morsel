@@ -252,7 +252,8 @@ export function shiftRows(mode: HwMode, kind: TrackKind, sampling: boolean): Shi
   const rec: ShiftRow = ["Rec", sampling ? "Stop sampling" : "Sample"];
   const play: ShiftRow = ["Play", mode === "chop" ? "Play/stop seq" : "Metronome"];
   const track: ShiftRow = ["Pad ^v", "Track -/+"];
-  if (mode === "browse") return [play, rec, ["Func", "Folder>pads"], ["Scene", "Clear track"], track, ["Enc ^", "Exit browse"]];
+  // Browse keeps Scene as "up a folder" with Shift held too.
+  if (mode === "browse") return [play, rec, ["Func", "Folder>pads"], ["Scene", "Up folder"], track, ["Enc ^", "Exit browse"]];
   if (mode === "chop") return [play, rec, ["Func", "Undo"], ["Scene", "Remove marker"], track, ["Enc v", "Exit chop"]];
   return [
     play,
@@ -273,12 +274,17 @@ export function shiftCoverText(mode: HwMode): [string, string] {
 
 export interface ShiftView {
   rows: ShiftRow[];
+  /** What Shift does to the encoders, for the header ("enc=fine" by default). */
+  enc?: string;
 }
+
+/** The shift map's header hint: Browse jumps by 8 with encoder 2, Chop's encoder 4 moves a marker finely. */
+export const shiftEncHint = (mode: HwMode) => (mode === "browse" ? "enc2=by 8" : mode === "chop" ? "enc4=fine" : "enc=fine");
 
 /** The shift map: six rows of "button: action". */
 export function shiftScreen(v: ShiftView): Frame {
   const f = new Frame();
-  header(f, "SHIFT", "enc=fine");
+  header(f, "SHIFT", v.enc ?? "enc=fine");
   v.rows.slice(0, 6).forEach(([key, action], r) => {
     const y = HEADER_H + 1 + r * ROW_H;
     f.textFit(2, y, key, 40);

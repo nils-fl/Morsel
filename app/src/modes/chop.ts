@@ -135,6 +135,23 @@ export function chopRemoveMarker() {
 }
 
 /** Encoders: 1 scroll, 2 zoom, 3 pick marker, 4 move marker (Shift = fine), 5 slice count, 6 sensitivity. */
+/** Select the previous / next marker (encoder 3, or Pad ⌃ / ⌄), scrolling it into view. None selected: the first / last. */
+export function chopStepMarker(dir: 1 | -1) {
+  const c = get().chop, buf = chopBuffer();
+  if (!c || !buf) return;
+  const n = c.markers.length;
+  const sel = c.sel === null ? (dir > 0 ? 0 : n - 1) : Math.max(0, Math.min(n - 1, c.sel + dir));
+  updateChop({ sel, view: reveal(c, c.markers[sel], minSpan(buf)) });
+  showTemp("Marker", `${sel + 1}/${n} ${time(c.markers[sel], buf)}`);
+}
+
+/** Pad ⌃ / ⌄ LEDs in Chop: lit when there is a marker that way. */
+export function chopMarkerArrows() {
+  const c = get().chop;
+  if (!c || !c.markers.length) return { up: false, down: false };
+  return c.sel === null ? { up: true, down: true } : { up: c.sel > 0, down: c.sel < c.markers.length - 1 };
+}
+
 export function chopEncoder(index: number, delta: number, fine: boolean) {
   const c = get().chop, buf = chopBuffer();
   if (!c || !buf) return;
@@ -157,13 +174,9 @@ export function chopEncoder(index: number, delta: number, fine: boolean) {
       showTemp("Zoom", `${(1 / (v[1] - v[0])).toFixed(1)}x`);
       break;
     }
-    case 2: {
-      const n = c.markers.length;
-      const sel = c.sel === null ? (delta > 0 ? 0 : n - 1) : Math.max(0, Math.min(n - 1, c.sel + Math.sign(delta)));
-      updateChop({ sel, view: reveal(c, c.markers[sel], min) });
-      showTemp("Marker", `${sel + 1}/${n} ${time(c.markers[sel], buf)}`);
+    case 2:
+      chopStepMarker(delta > 0 ? 1 : -1);
       break;
-    }
     case 3: {
       if (c.sel === null) {
         showTemp("Marker", "Pick one (enc 3)");

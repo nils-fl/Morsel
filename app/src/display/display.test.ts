@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { bitmapSysex, isBitmapAck, SYSEX_HEADER } from "../midi/protocol";
 import { font5x7 } from "./fonts";
 import { Frame, PACKED_SIZE, fitText } from "./frame";
-import { browserScreen, chopScreen, duckScreen, encoderScreen, gridScreen, keysScreen, padScreen, shiftCoverText, shiftRows, shiftScreen, shortName, shortValue, stepScreen } from "./screens";
+import { browserScreen, chopScreen, duckScreen, encoderScreen, gridScreen, keysScreen, padScreen, shiftCoverText, shiftEncHint, shiftRows, shiftScreen, shortName, shortValue, stepScreen } from "./screens";
 import type { HwMode } from "../state/types";
 import { BOOT_BURP_MS, BOOT_EAT_MS, BOOT_MS, bootFrame } from "./bootAnim";
 import { filterPanel, footer, header, highpassDb, lowpassDb, overlayBar, scrollTop } from "./widgets";
@@ -179,7 +179,7 @@ describe("headers", () => {
 
   it("fits every footer hint next to its tag", () => {
     const f = new Frame();
-    for (const [tag, text] of [["TRACK", "Up:pick Dn:mute"], ["MIXER", "1x mute 2x solo"], ["PATTERN", "Hold+tap copy"], ["PATTERN", "Next: P16"],
+    for (const [tag, text] of [["TRACK", "Up:pick Dn:mute"], ["MUTE", "1x mute 2x solo"], ["PATTERN", "Hold+tap copy"], ["PATTERN", "Next: P16"],
       ["STEP", "2bars Sw54 Q1/16"], ["KEYS", "Synth: Warm Pad*"], ["DUCK", "On T1P1>All 85%"], ["KIT", "No kit"]]) {
       expect(footer(f, tag, text)).toBe(text);
     }
@@ -253,7 +253,7 @@ describe("encoder screen", () => {
 
 describe("shift map", () => {
   const ascii = (s: string) => /^[\x20-\x7e]*$/.test(s);
-  const modes: HwMode[] = ["play", "step", "track", "mixer", "pattern", "browse", "chop"];
+  const modes: HwMode[] = ["play", "step", "track", "mute", "pattern", "browse", "chop"];
   it("fits its columns and uses only characters the font has", () => {
     for (const mode of modes) for (const kind of ["drum", "keys"] as const) for (const sampling of [false, true]) {
       const rows = shiftRows(mode, kind, sampling);
@@ -269,6 +269,10 @@ describe("shift map", () => {
       }
     }
     expect(shiftRows("browse", "drum", false).map((r) => r[1])).toContain("Exit browse");
+    // Shift + Scene in Browse still goes up a folder; the map must not promise "Clear track".
+    expect(shiftRows("browse", "drum", false)).toContainEqual(["Scene", "Up folder"]);
+    expect(shiftEncHint("browse")).toBe("enc2=by 8");
+    expect(shiftEncHint("mute")).toBe("enc=fine");
     expect(shiftRows("chop", "drum", false).map((r) => r[1])).toContain("Exit chop");
     expect(shiftRows("play", "keys", false).map((r) => r[1])).toContain("Drum only");
     expect(shiftRows("play", "drum", true).map((r) => r[1])).toContain("Stop sampling");

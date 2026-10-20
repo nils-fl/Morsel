@@ -174,7 +174,7 @@ export interface DuckSettings {
 
 export const DUCK_ALL = "all";
 
-export type HwMode = "play" | "step" | "track" | "mixer" | "pattern" | "browse" | "chop";
+export type HwMode = "play" | "step" | "track" | "mute" | "pattern" | "browse" | "chop";
 
 /** "Track" shows the selected track: the drum rack or the keys instrument. */
 export const TABS = ["Track", "Chop", "Sequencer", "Mixer", "Song", "Help", "Lab"] as const;
@@ -182,6 +182,13 @@ export type Tab = (typeof TABS)[number];
 
 /** The synthesized kit that is always there, listed first among the kits (its samples live in the library folder of the same name). */
 export const FACTORY_KIT = "Factory";
+
+/** Built-in synthesized kits (audio/kit.ts), listed before the saved ones; their names can't be used for saved kits.
+ *  The genre kits' samples go in "Factory/<kit>" when first loaded. */
+export const STOCK_KITS = [FACTORY_KIT, "Lo-Fi", "Boom Bap", "Hip Hop", "Trap", "Drill", "House", "Techno", "DnB", "Electro"];
+
+/** Library folder of a stock kit's samples. */
+export const stockFolder = (kit: string) => (kit === FACTORY_KIT ? FACTORY_KIT : `${FACTORY_KIT}/${kit}`);
 
 export type SampleSource = "input" | "master" | "tab";
 /** Where a sampled take lands. */

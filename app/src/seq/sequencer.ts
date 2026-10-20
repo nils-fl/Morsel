@@ -37,6 +37,10 @@ interface Anchor { tick: number; time: number; pattern: number }
 
 class Sequencer {
   private ticker = makeTicker(() => this.pump());
+  /** Note repeat while stopped runs on its own clock (like an MPC); playback takes over from it. */
+  private repeatTicker = makeTicker(() => this.pumpRepeat());
+  private repeatClock = false;
+  private repeatNext = 0;
   private nextTick = 0;
   private nextTime = 0;
   private pattern = 0;
@@ -56,6 +60,7 @@ class Sequencer {
     const s = get();
     if (s.playing) return;
     if (engine.ctx.state !== "running") engine.ctx.resume();
+    this.stopRepeatClock();
     this.pattern = s.songMode ? s.project.song[0]?.pattern ?? 0 : s.currentPattern;
     this.songIndex = 0;
     this.songRepeat = 0;
@@ -74,6 +79,7 @@ class Sequencer {
     engine.voices.allOff(engine.now);
     this.openKeys.clear();
     set({ playing: false, recording: false, countIn: false });
+    this.ensureRepeatClock(); // pads still held for note repeat keep going
   }
 
   /** Song position (ticks, fractional) at audio time `at`. Negative during count-in. */
@@ -134,6 +140,34 @@ class Sequencer {
     }
     const cutoff = now - 1;
     while (this.anchors.length > 2 && this.anchors[1].time < cutoff) this.anchors.shift();
+  }
+
+  /** Start the stopped-transport repeat clock if pads are held for note repeat; the first hit sounds now. */
+  ensureRepeatClock() {
+    if (this.repeatClock || get().playing || !this.repeatOn || !this.repeatPads.size) return;
+    this.repeatClock = true;
+    this.repeatNext = engine.now;
+    this.pumpRepeat();
+    this.repeatTicker(TIMER_MS);
+  }
+
+  private stopRepeatClock() {
+    if (!this.repeatClock) return;
+    this.repeatClock = false;
+    this.repeatTicker(0);
+  }
+
+  /** Free-running note repeat at the project tempo and repeat rate. Nothing is recorded while stopped. */
+  private pumpRepeat() {
+    const s = get();
+    if (!this.repeatClock || s.playing || !this.repeatOn || !this.repeatPads.size) return this.stopRepeatClock();
+    const now = engine.now;
+    if (this.repeatNext < now - 0.2) this.repeatNext = now; // recover after a stall
+    const step = s.repeatRate * secondsPerTick(s.project.bpm);
+    while (this.repeatNext < now + LOOKAHEAD) {
+      for (const { track, pad, vel } of this.repeatPads.values()) engine.voices.pad(track, pad, vel, this.repeatNext, step, true);
+      this.repeatNext += step;
+    }
   }
 
   private wrap() {

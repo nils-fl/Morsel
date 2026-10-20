@@ -165,7 +165,7 @@ function TopBar({ onGuide }: { onGuide: () => void }) {
       </div>
       <TrackStrip />
       <div className="hw">
-        {(["play", "step", "track", "mixer", "pattern", "browse"] as HwMode[]).map((m) => (
+        {(["play", "step", "track", "mute", "pattern", "browse"] as HwMode[]).map((m) => (
           <button key={m} className={s.hwMode === m ? "on" : ""} onClick={() => setHwMode(m)}>{m}</button>
         ))}
         <EncoderStrip />

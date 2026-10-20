@@ -14,15 +14,15 @@ const CONTROLS: Record<ControlId, { name: string; does: string; shift?: string }
   arpScale: { name: "Arp / Scale", does: "The Launchkey's own arpeggiator and scale mode. They work on the keys while Morsel plays them." },
   encUp: { name: "Encoder page ⌃", does: "Previous encoder page (the arrows next to the encoders) of the selected track. Lit when there is a page to go to. Browse: previous item.", shift: "Enter / leave Browse (drum tracks)" },
   encDown: { name: "Encoder page ⌄", does: "Next encoder page of the selected track (drum tracks: Kit, Pad, Pad 2, Track FX, Mix, Global, Duck; keys tracks: Keys, LFO, Track FX, Mix, Global; Step mode adds Step first). Browse: next item. Chop: nothing.", shift: "Enter / leave Chop (the selected pad's sample, or the open chop)" },
-  screen: { name: "Screen", does: "The header names the selected track (T2 Keys 1) and, on the right, the pattern and transport (P1 PLAY, REC, COUNT, SAMPLE), on every mode screen. Below in Play: the selected pad's waveform (Pad pages), the preset or sample list (Keys page), the duck curve (Duck), or the page's 8 encoders with their values (LFO, Track FX, Mix, Global). Otherwise: the 16-step grid (Step), the sample browser (Browse), the zoomed take with its slice markers (Chop), or the 16 pads as cells (Track, Mixer, Pattern). The footer names the mode or encoder page with its values. Switching mode or track pops up where you landed. Turning an encoder pops up its value (on the 8-encoder screens the cell lights up instead); the filters show their curve. Holding Shift shows what Shift does with each button." },
-  encoders: { name: "Encoders 1–8", does: "Edit the parameters of the current encoder page (see below). Browse and Chop use them their own way (see Pad modes).", shift: "Fine steps" },
+  screen: { name: "Screen", does: "The header names the selected track (T2 Keys 1) and, on the right, the pattern and transport (P1 PLAY, REC, COUNT, SAMPLE), on every mode screen. Below in Play: the selected pad's waveform (Pad pages), the preset or sample list (Keys page), the duck curve (Duck), or the page's 8 encoders with their values (LFO, Track FX, Mix, Global). Otherwise: the 16-step grid (Step), the sample browser (Browse), the zoomed take with its slice markers (Chop), or the 16 pads as cells (Track, Mute, Pattern). The footer names the mode or encoder page with its values. Switching mode or track pops up where you landed. Turning an encoder pops up its value (on the 8-encoder screens the cell lights up instead); the filters show their curve. Holding Shift shows what Shift does with each button." },
+  encoders: { name: "Encoders 1–8", does: "Edit the parameters of the current encoder page (see below). Browse and Chop use them their own way (see Pad modes).", shift: "Fine steps. Keys page encoder 1: jump to the next preset folder (Bass, Lead, Keys…)" },
   play: { name: "Play", does: "Start / stop. Chop: play the take from the selected marker / stop.", shift: "Metronome on / off. Chop: start / stop the sequencer" },
   record: { name: "Record", does: "Stopped: 1-bar count-in, then overdub. During the count-in: call it off. Playing: recording on / off.", shift: "Sample (audio input, master or a shared browser tab); press again to stop. The take opens in Chop with its hits marked, or goes on the selected pad (Track tab → Sample)." },
-  padUp: { name: "Pad ⌃", does: "The arrow left of the top pad row. Previous pattern. Step mode: previous bar. Browse: up a folder.", shift: "Previous track (the device's “< Track”)" },
-  padDown: { name: "Pad ⌄", does: "The arrow left of the bottom pad row. Next pattern. Step mode: next bar. Browse: open folder / load onto the pad.", shift: "Next track (the device's “Track >”)" },
+  padUp: { name: "Pad ⌃", does: "The arrow left of the top pad row. Previous pattern. Step mode: previous bar. Browse: up a folder. Chop: previous marker.", shift: "Previous track (the device's “< Track”)" },
+  padDown: { name: "Pad ⌄", does: "The arrow left of the bottom pad row. Next pattern. Step mode: next bar. Browse: open folder / load onto the pad. Chop: next marker.", shift: "Next track (the device's “Track >”)" },
   pads: { name: "Pads", does: "Depends on the mode (see Modes). In Play they play the selected track: its drum pads, or on a keys track the notes C3–D#4. Pressure (aftertouch) opens the pad's filters on note-repeat hits." },
-  scene: { name: "Scene ›", does: "The › button right of the top pad row. Hold while playing pads: note repeat. Pattern mode: hold + pad adds that pattern to the song. Browse: up a folder. Chop: add a marker at the playhead (Shift: remove the selected one).", shift: "Clear the selected track's clip in this pattern (Step mode on a drum track: the selected pad's notes)" },
-  func: { name: "Func", does: "The button right of the bottom pad row. Cycle pad modes: Play → Step → Track → Mixer → Pattern. Browse: open folder / load onto the pad (Shift: put the whole folder on the pads). Chop: send the slices to a new drum rack.", shift: "Undo (the screen says how many steps are left)" },
+  scene: { name: "Scene ›", does: "The › button right of the top pad row. Hold while playing drum pads: note repeat at the tempo, playing or stopped. Pattern mode: hold + pad adds that pattern to the song. Browse: up a folder (with or without Shift). Chop: add a marker at the playhead (Shift: remove the selected one).", shift: "Clear the selected track's clip in this pattern (Step mode on a drum track: the selected pad's notes)" },
+  func: { name: "Func", does: "The button right of the bottom pad row. Cycle pad modes: Play → Step → Track → Mute → Pattern (the screen shows which of the 5 you're on). Browse: open folder / load onto the pad (Shift: put the whole folder on the pads). Chop: send the slices to a new drum rack.", shift: "Undo (the screen says how many steps are left)" },
   keys: { name: "Keys", does: "Play the keys track (the last keys track you selected), recorded into its clip. Step mode on a drum track: pick the pad (lowest 16 keys = pads 1–16); on a keys track: the note the step pads write. The Launchkey's Arp and Scale still work." },
 };
 
@@ -45,7 +45,7 @@ const SHORTCUTS: [string, string][] = [
   ["Hold Scene + pad", "Add pattern to song (Pattern)"],
   ["Hold pad + tap pad", "Copy pattern (Pattern)"],
   ["Hold Scene + pad + tap pad", "Copy only the selected track's clip (Pattern)"],
-  ["Double-tap pad", "Solo (Mixer, Track bottom row)"],
+  ["Double-tap pad", "Solo (Mute, Track bottom row)"],
 ];
 
 const OFF = "#2a2f35", DIM = "#4a525a", WHITE = "#e6e9ec", GREEN = mute("#2fe05a"), BLUE = mute("#3b5bff"), RED = mute("#6b1a1a"), YELLOW = mute("#ffe83b"), CYAN = mute("#3be7ff");
@@ -62,7 +62,7 @@ const trackLeds = (): Led[] => Array.from({ length: 16 }, (_, i) => {
   if (i >= 8) return i - 8 < 4 ? { c: cols[i - 8], blink: i === 9 } : { c: OFF };
   return i < 4 ? { c: i === 2 ? RED : GREEN } : { c: OFF };
 });
-const mixerLeds = (): Led[] => Array.from({ length: 16 }, (_, i) => ({ c: i === 2 ? RED : i === 4 ? YELLOW : i < 12 ? GREEN : mute("#1a5c2a") }));
+const muteLeds = (): Led[] => Array.from({ length: 16 }, (_, i) => ({ c: i === 2 ? RED : i === 4 ? YELLOW : i < 12 ? GREEN : mute("#1a5c2a") }));
 const patternLeds = (): Led[] => Array.from({ length: 16 }, (_, i) => (i === 0 ? { c: GREEN } : i === 2 ? { c: GREEN, blink: true } : { c: i < 4 ? BLUE : OFF }));
 
 function MiniPads({ leds }: { leds: Led[] }) {
@@ -102,10 +102,10 @@ export function Guide() {
     { name: "Play", color: "var(--amber)", leds: playLeds, how: "Start mode", pads: "Drum track: play samples, velocity-sensitive; the last pad hit is selected (pulsing). Keys track: notes C3–D#4 (Cs lit white).", enc: "Drum track: Kit, Pad, Pad 2, Track FX, Mix, Global, Duck. Keys track: Keys, LFO, Track FX, Mix, Global", keys: "Keys track" },
     { name: "Step", color: "var(--cyan)", leds: stepLeds(), how: "Func ×1", pads: "16 steps of the selected track (drum track: the selected pad): top row 1–8, bottom row 9–16. White = playhead, dim = beats.", enc: "Step page: 1 bars (1–4), 2 bar on the pads, 3 swing, 4 quantize; arrows reach the other pages", keys: "Drum track: pick the pad. Keys track: pick the note" },
     { name: "Track", color: "var(--yellow)", leds: trackLeds(), how: "Func ×2", pads: "Top row = select track 1–8 (pulsing = selected). Bottom row = mute track 1–8 (red), double-tap = solo.", enc: "Same pages (Mix: 8 track levels)", keys: "Keys track" },
-    { name: "Mixer", color: "var(--lime)", leds: mixerLeds(), how: "Func ×3", pads: "Pads of the drum track (the last one picked, also from a keys track). Tap = mute (red), double-tap = solo (yellow).", enc: "Same pages", keys: "Keys track" },
+    { name: "Mute", color: "var(--lime)", leds: muteLeds(), how: "Func ×3", pads: "Pads of the drum track (the last one picked, also from a keys track). Tap = mute (red), double-tap = solo (yellow).", enc: "Same pages", keys: "Keys track" },
     { name: "Pattern", color: "var(--violet)", leds: patternLeds(), how: "Func ×4", pads: "Pick a pattern (green). Blue = has notes. While playing the switch is queued (flashing) until the loop ends.", enc: "Same pages", keys: "Keys track" },
-    { name: "Browse", color: "var(--white)", leds: browseLeds, how: "Shift + Enc page ⌃", pads: "Target a pad (flashes white) and audition it. Pad ⌄ / Func = open or load (Kits → Factory is always there; connected folders are listed at the top), Shift + Func on a folder = its samples on pads 1–16, Pad ⌃ / › = up a folder.", enc: "1 or 8 = scroll (auto-preview), 2 or 7 = jump by letter (Shift: by 8). ⌃ / ⌄ arrows = one item", keys: "Keys track" },
-    { name: "Chop", color: "var(--magenta)", leds: chopLeds, how: "After a take, or Shift + Enc page ⌄", pads: "Play slices 1–16 and select their markers. Play = play from the marker, › = add a marker at the playhead (Shift: remove), Func = new drum rack.", enc: "1 scroll, 2 zoom, 3 pick marker, 4 move it (Shift: fine), 5 max slices, 6 sensitivity", keys: "Keys track" },
+    { name: "Browse", color: "var(--white)", leds: browseLeds, how: "Shift + Enc page ⌃", pads: "Target a pad (flashes white) and audition it. Pad ⌄ / Func = open or load (Kits lists the built-in kits first; connected folders are listed at the top), Shift + Func on a folder = its samples on pads 1–16, Pad ⌃ / › = up a folder.", enc: "1 or 8 = scroll (auto-preview), 2 or 7 = jump by letter (Shift: by 8). ⌃ / ⌄ arrows = one item", keys: "Keys track" },
+    { name: "Chop", color: "var(--magenta)", leds: chopLeds, how: "After a take, or Shift + Enc page ⌄", pads: "Play slices 1–16 and select their markers. Pad ⌃ / ⌄ = previous / next marker. Play = play from the marker, › = add a marker at the playhead (Shift: remove), Func = new drum rack.", enc: "1 scroll, 2 zoom, 3 pick marker, 4 move it (Shift: fine), 5 max slices, 6 sensitivity", keys: "Keys track" },
   ];
 
   return (
@@ -177,7 +177,7 @@ export function Guide() {
 
       <section className="g-block">
         <h3><b>02</b> Pad modes</h3>
-        <p className="hint">Func cycles Play → Step → Track → Mixer → Pattern. Browse and Chop sit outside the cycle.</p>
+        <p className="hint">Func cycles Play → Step → Track → Mute → Pattern. Browse and Chop sit outside the cycle.</p>
         <div className="g-modes">
           {modes.map((m) => (
             <article key={m.name} className="g-mode" style={{ "--mode": m.color } as React.CSSProperties}>
@@ -227,7 +227,7 @@ export function Guide() {
             <li>Everything autosaves in this browser. Song tab → Export project to keep a copy with all samples.</li>
             <li>Samples come from connected folders (Connect folder, Chrome / Edge): browsed in place from Sample ▾ or Browse on the Launchkey, and a sample is copied into the browser only when you use it. Folder → pads in Sample ▾ makes the open folder the kit. After a browser restart, click Reconnect next to the folder in Sample ▾.</li>
             <li>Dropping an audio file on an on-screen pad loads just that file.</li>
-            <li>New drum tracks start with the Factory kit. The kit bar (Track tab), the Kit encoder page or Browse → Kits loads a kit; the Kits panel saves, renames, exports, imports (several at once) and deletes them.</li>
+            <li>New drum tracks start with the Factory kit. Built-in genre kits (Lo-Fi, Boom Bap, Hip Hop, Trap, Drill, House, Techno, DnB, Electro) are synthesized like it. The kit bar (Track tab), the Kit encoder page or Browse → Kits loads a kit; the Kits panel saves, renames, exports, imports (several at once) and deletes them.</li>
             <li>Keys tracks: Synth, Sample (one sound with a root note), Pad sample or Multisample, plus a vibrato and a filter LFO (encoder page LFO).</li>
             <li>Record → chop → drum rack: Shift + Record, play, Shift + Record, then Func. The take opens in Chop with its hits marked; adjust with pads, encoders and ›.</li>
           </ul>

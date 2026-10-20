@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { STOCK_KITS } from "../state/types";
 import { Cursor, KITS, ROOT, SAMPLES, fitLine, fitName, fitPath, jumpLetter, listDir, type Entry } from "./tree";
 
 const samples = [
@@ -20,8 +21,8 @@ describe("listDir", () => {
     expect(listDir("Samples/Drums/Kicks", samples, []).map((e) => e.name)).toEqual(["kick 2", "Kick 10"]);
   });
   it("lists kits", () => {
-    expect(listDir(KITS, samples, ["b", "A"]).map((e) => e.name)).toEqual(["Factory", "A", "b"]);
-    expect(listDir(KITS, samples, ["Factory"]).map((e) => e.name)).toEqual(["Factory"]);
+    expect(listDir(KITS, samples, ["b", "A"]).map((e) => e.name)).toEqual([...STOCK_KITS, "A", "b"]);
+    expect(listDir(KITS, samples, ["Factory", "House"]).map((e) => e.name)).toEqual(STOCK_KITS);
   });
 });
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  chopSelected, confirmDeleteSample, deleteSavedKit, stepKit, renameSavedKit, samplesToPads, loadNamedKit, openInChop, saveCurrentKit, samplingLevel, shareTab,
+  chopSelected, confirmDeleteSample, deleteSavedKit, kitNames, stepKit, renameSavedKit, samplesToPads, loadNamedKit, openInChop, saveCurrentKit, samplingLevel, shareTab,
   toggleSampling, unshareTab,
 } from "../actions";
 import { DECAY_MAX } from "../audio/dsp";
@@ -9,7 +9,7 @@ import { engine } from "../audio/engine";
 import { exportKit, importKit } from "../state/projectFile";
 import { download } from "../seq/render";
 import { drumPads, drumTrack, get, set, updatePad, useApp } from "../state/store";
-import { DUCK_ALL, FACTORY_KIT, PAD_COUNT, type SampleSource, type SampleTarget } from "../state/types";
+import { DUCK_ALL, PAD_COUNT, STOCK_KITS, type SampleSource, type SampleTarget } from "../state/types";
 import { Field, Section, Slider } from "./controls";
 import { PALETTE_CHOICES, paletteCss } from "./palette";
 import { Waveform } from "./Waveform";
@@ -229,8 +229,9 @@ function ChopPanel() {
 /** Pick and step through kits for this drum track, like the Keys presets. Launchkey: encoder page Kit, encoder 1. */
 function KitBar() {
   const kit = useApp((s) => drumTrack(s).kit);
-  const kits = useApp((s) => s.kits);
-  const list = [FACTORY_KIT, ...kits];
+  useApp((s) => s.kits); // re-render when kits are saved or deleted
+  const list = kitNames();
+  const saved = list.slice(STOCK_KITS.length);
   const i = list.indexOf(kit);
   return (
     <Section title={`Kit · ${kit || "none"}`} actions={
@@ -238,13 +239,18 @@ function KitBar() {
         <button onClick={() => stepKit(-1)} disabled={i === 0} aria-label="Previous kit">◀</button>
         <select value={i >= 0 ? kit : ""} title="Load a kit onto this drum track (Undo brings the pads back)" onChange={(e) => e.target.value && void loadNamedKit(e.target.value)}>
           {i < 0 && <option value="">{kit || "—"}</option>}
-          <option value={FACTORY_KIT}>{FACTORY_KIT}</option>
-          {kits.length > 0 && <optgroup label="Saved">{kits.map((k) => <option key={k} value={k}>{k}</option>)}</optgroup>}
+          <optgroup label="Built-in">{STOCK_KITS.map((k) => <option key={k} value={k}>{k}</option>)}</optgroup>
+          {saved.length > 0 && <optgroup label="Saved">{saved.map((k) => <option key={k} value={k}>{k}</option>)}</optgroup>}
         </select>
         <button onClick={() => stepKit(1)} disabled={i >= list.length - 1} aria-label="Next kit">▶</button>
       </>
     }>
-      <p className="hint">◀ ▶ load the previous / next kit. Launchkey: encoder page <b>Kit</b>, encoder 1 scrolls the kits.</p>
+      <div className="preset-list">
+        {STOCK_KITS.map((k) => (
+          <button key={k} className={k === kit ? "on" : ""} onClick={() => void loadNamedKit(k)} title={`Built-in synthesized ${k} kit`}>{k}</button>
+        ))}
+      </div>
+      <p className="hint">Built-in kits are synthesized; your saved kits follow them in the list. ◀ ▶ load the previous / next kit. Launchkey: encoder page <b>Kit</b>, encoder 1 scrolls the kits.</p>
     </Section>
   );
 }
@@ -290,7 +296,6 @@ function KitPanel() {
         }}>Rename</button>
       </div>
       <div className="row wrap">
-        <button onClick={() => void loadNamedKit(FACTORY_KIT)} title="The built-in synthesized kit">{FACTORY_KIT}</button>
         {kits.map((k) => (
           <span key={k} className="kit-chip">
             <button className={k === picked ? "on" : ""} onClick={() => { setName(k); setPicked(k); void loadNamedKit(k); }}>{k}</button>

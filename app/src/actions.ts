@@ -2,7 +2,7 @@
 import { engine } from "./audio/engine";
 import { connectTab, disconnectTab, normalize, startRecording, tabConnected, type Recording } from "./audio/recorder";
 import { slicesFromMarkers } from "./audio/chop";
-import { FACTORY_SOUNDS, renderFactoryKit } from "./audio/kit";
+import { renderStockKit, stockLengths, stockSounds } from "./audio/kit";
 import { autoMarkers, chopStop, newChop, takeMarkers } from "./modes/chop";
 import { showTemp } from "./modes/notify";
 import { sequencer } from "./seq/sequencer";
@@ -11,7 +11,7 @@ import { deleteKit, deleteSynthPreset, listKits, loadKit, renameKit, saveKit, sa
 import { padsFromSamples, slicePads } from "./state/pads";
 import { ask } from "./state/confirm";
 import { FACTORY_PRESETS, USER_FOLDER, type SynthPreset } from "./audio/synthPresets";
-import { FACTORY_KIT, MAX_TRACKS, PAD_COUNT, type Pad, type Project, type SampleInfo, type SampleSource } from "./state/types";
+import { FACTORY_KIT, MAX_TRACKS, PAD_COUNT, STOCK_KITS, stockFolder, type Pad, type Project, type SampleInfo, type SampleSource } from "./state/types";
 
 /** Play a pad of the drum track (the pads always play it) and record it when recording. */
 export function playPad(i: number, vel: number) {
@@ -378,24 +378,38 @@ export function samplesToPads(samples: { id: string; name: string }[], kit = "")
   return Math.min(samples.length, PAD_COUNT);
 }
 
-/** The factory kit's pads. Reuses its samples in the library and renders any that were deleted. */
-export async function factoryPads(): Promise<Pad[]> {
-  const lib = Object.values(get().samples).filter((s) => s.folder === FACTORY_KIT);
-  const found = await Promise.all(FACTORY_SOUNDS.map(async (name) => {
+const isStockKit = (name: string) => STOCK_KITS.includes(name);
+const QUIET = /hat|shaker|maraca|tamb|ride|crash|cymbal|brush/i;
+
+/** A stock kit's pads (Factory or a genre kit). Reuses its samples in the library and renders the kit when any are missing. */
+export async function stockKitPads(kit = FACTORY_KIT): Promise<Pad[]> {
+  const folder = stockFolder(kit), names = stockSounds(kit), lengths = stockLengths(kit);
+  const lib = Object.values(get().samples).filter((s) => s.folder === folder);
+  const found = await Promise.all(names.map(async (name) => {
     const id = lib.find((s) => s.name === name)?.id;
     return id && (await engine.ensure(id)) ? id : undefined;
   }));
   const ids = found.every(Boolean)
     ? (found as string[])
-    : await renderFactoryKit().then((kit) => Promise.all(kit.map(({ name, buffer }, i) => found[i] ?? engine.addBuffer(name, buffer, FACTORY_KIT))));
-  const pads = ids.map((sampleId, i) => ({ ...defaultPad(i), name: FACTORY_SOUNDS[i], sampleId }));
-  pads[4].choke = pads[5].choke = 1; // closed hat chokes open hat
-  pads[12].decay = 2; // let the 808 ring
+    : await renderStockKit(kit).then((sounds) => Promise.all(sounds.map(({ name, buffer }, i) => found[i] ?? engine.addBuffer(name, buffer, folder))));
+  // Long sounds (808s, cymbals) ring out instead of being cut at the default tail.
+  // Genre kit samples are normalized, so hats, shakers and cymbals sit lower on their pads.
+  const quiet = (name: string) => kit !== FACTORY_KIT && QUIET.test(name);
+  const pads = ids.map((sampleId, i) => ({
+    ...defaultPad(i), name: names[i], sampleId,
+    decay: Math.max(defaultPad(i).decay, lengths[i]),
+    ...(quiet(names[i]) && { volume: 0.5 }),
+  }));
+  const closed = names.indexOf("Hat Cl"), open = names.indexOf("Hat Op");
+  if (closed >= 0 && open >= 0) pads[closed].choke = pads[open].choke = 1; // closed hat chokes open hat
   return pads;
 }
 
-/** Kits in browsing order: the Factory kit, then the saved ones. */
-export const kitNames = () => [FACTORY_KIT, ...get().kits];
+/** The factory kit's pads. */
+export const factoryPads = () => stockKitPads(FACTORY_KIT);
+
+/** Kits in browsing order: the stock kits, then the saved ones (a saved kit can't take a stock kit's name). */
+export const kitNames = () => [...STOCK_KITS, ...get().kits.filter((k) => !isStockKit(k))];
 
 // Kits load asynchronously: only the latest request lands, and stepping counts from the kit on its way.
 let kitRequest = 0;
@@ -410,7 +424,7 @@ export function cancelKitLoad() {
   pendingKit = null;
 }
 
-/** Load the factory kit or a saved kit onto the pads' drum track and remember it there. */
+/** Load a stock kit or a saved kit onto the pads' drum track and remember it there. */
 export async function loadNamedKit(name: string, undoable = true) {
   const req = ++kitRequest;
   const track = drumTrack().id;
@@ -418,7 +432,7 @@ export async function loadNamedKit(name: string, undoable = true) {
   pendingKit = { name, track, undoable: undoable || (pendingKit?.track === track && pendingKit.undoable) };
   let pads: Pad[] | undefined;
   try {
-    pads = name === FACTORY_KIT ? await factoryPads() : await loadKit(name);
+    pads = isStockKit(name) ? await stockKitPads(name) : await loadKit(name);
     await engine.ensureAll(pads?.flatMap((pad) => (pad.sampleId ? [pad.sampleId] : [])) ?? []);
   } catch (err) {
     if (req === kitRequest) pendingKit = null;
@@ -456,7 +470,7 @@ export async function refreshKits() {
 export async function saveCurrentKit(name: string) {
   name = name.trim();
   if (!name) return;
-  if (name === FACTORY_KIT) return set({ status: `“${FACTORY_KIT}” is the built-in kit – pick another name` });
+  if (isStockKit(name)) return set({ status: `“${name}” is a built-in kit – pick another name` });
   if (get().kits.includes(name) && !(await ask({ title: "Replace kit", message: `A kit called “${name}” already exists. Replace it with these pads?`, ok: "Replace" }))) return;
   await saveKit(name, drumPads());
   await refreshKits();
@@ -468,8 +482,8 @@ export async function saveCurrentKit(name: string) {
 export async function renameSavedKit(from: string, to: string) {
   to = to.trim();
   if (!to || to === from) return false;
-  if (to === FACTORY_KIT) {
-    set({ status: `“${FACTORY_KIT}” is the built-in kit – pick another name` });
+  if (isStockKit(to)) {
+    set({ status: `“${to}” is a built-in kit – pick another name` });
     return false;
   }
   if (get().kits.includes(to) && !(await ask({ title: "Replace kit", message: `A kit called “${to}” already exists. Replace it with “${from}”?`, ok: "Replace" }))) return false;
