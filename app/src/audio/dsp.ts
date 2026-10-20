@@ -104,6 +104,7 @@ export function buildSampleVoice(
   const peak = velGain(vel) * pad.volume;
   const g = amp.gain;
   const attack = Math.max(0.001, pad.attack);
+  g.value = 0; // see buildSynthVoice
   g.setValueAtTime(0, when);
   g.linearRampToValueAtTime(peak, when + attack);
 
@@ -236,7 +237,10 @@ export function buildSynthVoice(
   const top = Math.min(18000, base * Math.pow(2, env * 6));
   const a = Math.max(0.002, s.attack);
   const filterParams = filter2 ? [filter.frequency, filter2.frequency] : [filter.frequency];
+  // Start values set directly too: a live note scheduled at currentTime can reach the audio thread a few ms after
+  // `when`, and until its past events apply the param sits at its default (gain 1 = a loud burst, filter 350 Hz).
   for (const f of filterParams) {
+    f.value = base;
     f.setValueAtTime(base, when);
     f.linearRampToValueAtTime(top, when + a);
     // Own filter decay: it closes fully; otherwise it follows the amp's decay and sustain.
@@ -246,6 +250,7 @@ export function buildSynthVoice(
 
   const peak = velGain(vel) * s.volume * 0.5;
   const g = amp.gain;
+  g.value = 0;
   g.setValueAtTime(0, when);
   g.linearRampToValueAtTime(peak, when + a);
   g.setTargetAtTime(peak * s.sustain, when + a, Math.max(0.01, s.decay) / 3);
