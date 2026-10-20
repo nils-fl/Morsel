@@ -6,6 +6,7 @@ import { STOCK_REV, renderStockKit, stockLengths, stockSounds } from "./audio/ki
 import { DECAY_MAX } from "./audio/dsp";
 import { autoMarkers, chopStop, newChop, takeMarkers } from "./modes/chop";
 import { showTemp } from "./modes/notify";
+import { launchkey } from "./midi/launchkey";
 import { sequencer } from "./seq/sequencer";
 import { addTrack, defaultPad, drumPads, drumTrack, get, keysTrack, set, updateKeys, updateProject, updateTrack, usedSampleIds } from "./state/store";
 import { deleteKit, deleteSynthPreset, listKits, loadKit, renameKit, saveKit, saveSynthPreset } from "./state/persist";
@@ -14,29 +15,35 @@ import { ask } from "./state/confirm";
 import { FACTORY_PRESETS, USER_FOLDER, type SynthPreset } from "./audio/synthPresets";
 import { FACTORY_KIT, MAX_TRACKS, PAD_COUNT, STOCK_KITS, stockFolder, type Pad, type Project, type SampleInfo, type SampleSource } from "./state/types";
 
+/** When a note played now (by the Launchkey message being handled, or on screen) starts. */
+export const liveWhen = () => engine.liveTime(launchkey.eventTime);
+
 /** Play a pad of the drum track (the pads always play it) and record it when recording. */
 export function playPad(i: number, vel: number) {
   const track = drumTrack().id;
-  engine.voices.pad(track, i, vel, engine.now, undefined, true);
+  const when = liveWhen();
+  engine.voices.pad(track, i, vel, when, undefined, true);
   const s = get();
   if (s.selectedPad !== i || s.selectedTrack !== track) set({ selectedPad: i, selectedTrack: track });
-  sequencer.recordPad(track, i, vel);
+  sequencer.recordPad(track, i, vel, when);
 }
 
 export function releasePad(i: number) {
-  engine.voices.releasePad(drumTrack().id, i, engine.now);
+  engine.voices.releasePad(drumTrack().id, i, liveWhen());
 }
 
 /** A note on the keys track (the keybed always plays it). Returns the track, which keyOff needs. */
 export function keyOn(note: number, vel: number, track = keysTrack().id) {
-  engine.voices.keyOn(track, note, vel, engine.now);
-  sequencer.recordKeyOn(track, note, vel);
+  const when = liveWhen();
+  engine.voices.keyOn(track, note, vel, when);
+  sequencer.recordKeyOn(track, note, vel, when);
   return track;
 }
 
 export function keyOff(note: number, track = keysTrack().id) {
-  engine.voices.keyOff(track, note, engine.now);
-  sequencer.recordKeyOff(track, note);
+  const when = liveWhen();
+  engine.voices.keyOff(track, note, when);
+  sequencer.recordKeyOff(track, note, when);
 }
 
 export function togglePlay() {

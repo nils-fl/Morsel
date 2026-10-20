@@ -218,10 +218,10 @@ class Sequencer {
   // ---------- live recording ----------
 
   /** Where a live hit is recorded. `wrapped`: quantised forward past the loop end, onto the next pass. */
-  private recordTick(): { tick: number; pattern: number; len: number; wrapped: boolean } | null {
+  private recordTick(at: number): { tick: number; pattern: number; len: number; wrapped: boolean } | null {
     const s = get();
     if (!s.recording || s.countIn) return null;
-    const pos = this.tickAt();
+    const pos = this.tickAt(at);
     if (!pos || pos.tick < 0) return null;
     const len = patternLength(s.project.patterns[pos.pattern]);
     const tick = quantizeTick(pos.tick, s.quantize, len);
@@ -235,30 +235,31 @@ class Sequencer {
     else if (ev.tick >= this.nextTick) this.skip.add(ev.id);
   }
 
-  recordPad(track: string, pad: number, vel: number) {
-    const r = this.recordTick();
+  /** `at`: the audio time the note sounds (engine.liveTime). */
+  recordPad(track: string, pad: number, vel: number, at: number) {
+    const r = this.recordTick(at);
     if (!r) return;
     this.beginTake();
     const ev = addEvent(r.pattern, track, { tick: r.tick, note: pad, vel, len: get().quantize || 24 });
     this.skipIfAhead(ev, r);
   }
 
-  recordKeyOn(track: string, note: number, vel: number) {
-    const r = this.recordTick();
+  recordKeyOn(track: string, note: number, vel: number, at: number) {
+    const r = this.recordTick(at);
     if (!r) return;
     this.beginTake();
     const ev = addEvent(r.pattern, track, { tick: r.tick, note, vel, len: 24 });
     this.skipIfAhead(ev, r);
-    const pos = this.tickAt();
+    const pos = this.tickAt(at);
     this.openKeys.set(`${track}:${note}`, { id: ev.id, track, tick: pos ? pos.tick : r.tick, pattern: r.pattern });
   }
 
-  recordKeyOff(track: string, note: number) {
+  recordKeyOff(track: string, note: number, at: number) {
     const key = `${track}:${note}`;
     const open = this.openKeys.get(key);
     if (!open) return;
     this.openKeys.delete(key);
-    const pos = this.tickAt();
+    const pos = this.tickAt(at);
     if (!pos) return;
     const len = patternLength(get().project.patterns[open.pattern]);
     let dur = pos.tick - open.tick;

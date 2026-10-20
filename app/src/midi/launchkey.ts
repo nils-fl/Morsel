@@ -69,6 +69,10 @@ export class Launchkey {
   /** How the device's own Shift popup is covered (see ShiftCover); picked in the Lab tab, remembered per browser. */
   shiftCoverMode: ShiftCover = loadShiftCover();
   private shiftTimers: number[] = [];
+  /** performance.now() time the message being handled arrived at (undefined outside a handler): live notes use it. */
+  eventTime: number | undefined;
+  /** How long the last messages waited before their handler ran, ms (newest last; for the Lab's timing probe). */
+  readonly handleDelays: number[] = [];
 
   async init() {
     this.access = await navigator.requestMIDIAccess({ sysex: true });
@@ -321,6 +325,17 @@ export class Launchkey {
   }
 
   private handle(port: "DAW" | "MIDI", m: MIDIMessageEvent) {
+    this.handleDelays.push(performance.now() - m.timeStamp);
+    if (this.handleDelays.length > 500) this.handleDelays.shift();
+    this.eventTime = m.timeStamp;
+    try {
+      this.dispatch(port, m);
+    } finally {
+      this.eventTime = undefined;
+    }
+  }
+
+  private dispatch(port: "DAW" | "MIDI", m: MIDIMessageEvent) {
     const data = [...(m.data ?? [])];
     if (data.length === 0 || data[0] === 0xf8 || data[0] === 0xfe) return;
     if (this.logRaw) this.emit({ type: "raw", port, data });

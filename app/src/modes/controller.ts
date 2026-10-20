@@ -1,5 +1,5 @@
 // Maps Launchkey events to actions per hardware mode, and renders LEDs + display.
-import { allPresets, currentKit, keyOff, keyOn, kitNames, openInChop, playPad, releasePad, sendChopToNewTrack, toggleSampling, togglePlay, toggleRecord } from "../actions";
+import { allPresets, currentKit, keyOff, keyOn, kitNames, liveWhen, openInChop, playPad, releasePad, sendChopToNewTrack, toggleSampling, togglePlay, toggleRecord } from "../actions";
 import { engine } from "../audio/engine";
 import { launchkey } from "../midi/launchkey";
 import { CC, COLOR, type LedMode, type PadLayout } from "../midi/protocol";
@@ -97,7 +97,7 @@ function padReleased(pad: number) {
   const track = playingPads.get(pad);
   if (track !== undefined) {
     playingPads.delete(pad);
-    engine.voices.releasePad(track, pad, engine.now);
+    engine.voices.releasePad(track, pad, liveWhen());
     sequencer.repeatPads.delete(`${track}:${pad}`);
   }
 }
@@ -245,7 +245,7 @@ function onKey(note: number, vel: number, on: boolean) {
     const pad = padForKey(note);
     selectKeys.set(note, pad);
     set({ selectedPad: pad });
-    engine.voices.pad(sel.id, pad, vel, engine.now);
+    engine.voices.pad(sel.id, pad, vel, liveWhen());
     showTemp("Pad", padLabel(sel.id, pad));
     return;
   }

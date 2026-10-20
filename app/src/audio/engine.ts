@@ -5,6 +5,18 @@ import { encodeChannels, toFloat } from "./pcm";
 import { buildClick } from "./dsp";
 import type { SampleInfo } from "../state/types";
 
+/** Default jitter budget for live notes, ms (see Engine.liveTime). */
+export const LIVE_BUDGET_MS = 8;
+const LIVE_BUDGET_KEY = "morsel.liveBudget";
+
+function loadLiveBudget() {
+  try {
+    const v = Number(localStorage.getItem(LIVE_BUDGET_KEY) ?? NaN);
+    if (Number.isFinite(v) && v >= 0 && v <= 50) return v;
+  } catch { /* storage blocked: use the default */ }
+  return LIVE_BUDGET_MS;
+}
+
 const encode = (b: AudioBuffer) => encodeChannels(Array.from({ length: b.numberOfChannels }, (_, c) => b.getChannelData(c)));
 const baseName = (f: File) => f.name.replace(/\.[^.]+$/, "");
 /** The folder a file was picked from with a folder input. */
@@ -31,6 +43,27 @@ class Engine {
 
   get now() {
     return this.ctx.currentTime;
+  }
+
+  /** Jitter budget for live notes, ms; picked in the Lab tab, remembered per browser. 0 = play at once. */
+  liveBudget = loadLiveBudget();
+
+  setLiveBudget(ms: number) {
+    this.liveBudget = ms;
+    try {
+      localStorage.setItem(LIVE_BUDGET_KEY, String(ms));
+    } catch { /* storage blocked */ }
+  }
+
+  /**
+   * When a live note starts: `liveBudget` ms after its input arrived (`stamp`, performance.now() time; now if
+   * unknown). However long the main thread took to get here, every hit sounds the same short delay after it was
+   * played, instead of a random one, and it never starts in the past (where its envelope would start late too).
+   * A hit that waited longer than the budget plays at once.
+   */
+  liveTime(stamp?: number) {
+    const age = stamp === undefined ? 0 : Math.max(0, performance.now() - stamp);
+    return this.ctx.currentTime + Math.max(0, this.liveBudget - age) / 1000;
   }
 
   buffer(id: string) {

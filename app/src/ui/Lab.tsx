@@ -7,6 +7,46 @@ import { Frame, W, H } from "../display/frame";
 import { ScreenPreview } from "./ScreenPreview";
 import { useApp } from "../state/store";
 import { Section } from "./controls";
+import { engine } from "../audio/engine";
+
+const LIVE_BUDGETS = [0, 4, 8, 12, 20];
+
+const pct = (sorted: number[], p: number) => sorted[Math.min(sorted.length - 1, Math.floor((sorted.length * p) / 100))];
+const ms = (v: number | undefined) => (v === undefined ? "—" : `${v.toFixed(1)} ms`);
+
+/** How long Launchkey messages wait for the main thread, against the live-note jitter budget. */
+function TimingProbe() {
+  const [budget, setBudget] = useState(engine.liveBudget);
+  const [, redraw] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => redraw((n) => n + 1), 500);
+    return () => clearInterval(id);
+  }, []);
+  const d = [...launchkey.handleDelays].sort((a, b) => a - b);
+  const over = d.filter((x) => x > budget).length;
+  const ctx = engine.ctx;
+  return (
+    <Section title="Timing" actions={<button onClick={() => (launchkey.handleDelays.length = 0)}>Reset</button>}>
+      <p className="hint">
+        How long the last {d.length} Launchkey messages waited before Morsel handled them. Play pads with the sequencer
+        running and the UI busy to see the worst case. Live notes start the budget after they were played, so a wait
+        under the budget doesn't move the note.
+      </p>
+      <p className="mono">
+        median {ms(pct(d, 50))} · p95 {ms(pct(d, 95))} · p99 {ms(pct(d, 99))} · max {ms(d.at(-1))} · over budget {over}
+      </p>
+      <p className="hint">
+        Audio: {ctx.sampleRate} Hz · base latency {ms(ctx.baseLatency * 1000)} · output latency {ms((ctx.outputLatency ?? 0) * 1000)}
+      </p>
+      <div className="row">
+        <span>Live budget</span>
+        {LIVE_BUDGETS.map((b) => (
+          <button key={b} className={b === budget ? "on" : ""} onClick={() => { engine.setLiveBudget(b); setBudget(b); }}>{b ? `${b} ms` : "off"}</button>
+        ))}
+      </div>
+    </Section>
+  );
+}
 
 const hex = (d: number[]) => d.map((b) => b.toString(16).padStart(2, "0").toUpperCase()).join(" ");
 
@@ -78,6 +118,7 @@ export function Lab() {
         <p className="hint">Outputs: {ports.outputs.join(", ") || "—"}</p>
         <p className="hint">The app takes the Launchkey over, so close Ableton Live first.</p>
       </Section>
+      <TimingProbe />
       <div className="row wrap">
         <Section title="Pad LEDs">
           <p className="hint">Use this to check pad numbering and palette indices. Normal LEDs come back when you leave the Lab.</p>
