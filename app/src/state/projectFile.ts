@@ -5,12 +5,13 @@ import type { engine as Engine } from "../audio/engine";
 import { engine } from "../audio/engine";
 import { encodeChannels, sameAudio } from "../audio/pcm";
 import { readWav, writeWav } from "../audio/wav";
-import { PROJECT_VERSION, drumTrack, get, usedSampleIds, normalizePads, normalizeProject, resetSession, set, updateTrack } from "./store";
+import { DRUMS_ID, PROJECT_VERSION, defaultProject, drumTrack, get, usedSampleIds, normalizePads, normalizeProject, resetSession, set, updateTrack } from "./store";
 import { sequencer } from "../seq/sequencer";
-import { cancelKitLoad } from "../actions";
+import { cancelKitLoad, factoryPads } from "../actions";
 import { releaseAll, setHwMode } from "../modes/controller";
 import { listKits, saveKit } from "./persist";
-import { STOCK_KITS, type Pad, type Project } from "./types";
+import { ask } from "./confirm";
+import { FACTORY_KIT, STOCK_KITS, type Pad, type Project } from "./types";
 import { KIT_FORMAT, PROJECT_FORMAT, ZIP_JSON, isKitFormat, isProjectFormat, sampleFileName } from "./fileFormat";
 
 /** A sample in the JSON: its name and its WAV in the zip. */
@@ -181,6 +182,34 @@ export async function importKit(f: File, eng: typeof Engine) {
   return name;
 }
 
+/** Swap in another project as a fresh session: pattern 1, Play mode, nothing held or queued from the old one, no undo. */
+function openProject(p: Project, status: string) {
+  if (get().playing) sequencer.stop();
+  cancelKitLoad();
+  const drums = p.tracks.find((t) => t.kind === "drum")!.id;
+  const keys = p.tracks.find((t) => t.kind === "keys")!.id;
+  releaseAll();
+  resetSession();
+  setHwMode("play");
+  set({ project: p, undo: [], selectedTrack: drums, drumTrack: drums, keysTrack: keys, status });
+}
+
+/** Replace the project with a new one (the Factory kit and an empty Keys track, like a first start), after asking. */
+export async function newProject() {
+  const { name } = get().project;
+  if (!(await ask({
+    title: "New project",
+    message: `Start a new project? “${name}” is replaced and can't be brought back with Undo, so export it first to keep it.\n\n` +
+      "Its samples stay in the library, and saved kits and presets aren't touched.",
+    ok: "New project",
+    danger: true,
+  }))) return;
+  const p = defaultProject();
+  const pads = await factoryPads();
+  p.tracks = p.tracks.map((t) => (t.id === DRUMS_ID ? { ...t, pads, kit: FACTORY_KIT } : t));
+  openProject(p, "New project");
+}
+
 export async function importProject(f: File, eng: typeof Engine) {
   const { file, wavs } = await readFile(f);
   if (!isProjectFormat(file.format)) throw new Error("Not a Morsel project");
@@ -198,13 +227,5 @@ export async function importProject(f: File, eng: typeof Engine) {
       sample: { ...t.keys.sample, sampleId: t.keys.sample.sampleId ? idMap.get(t.keys.sample.sampleId) ?? null : null },
     },
   }));
-  if (get().playing) sequencer.stop();
-  cancelKitLoad();
-  const drums = p.tracks.find((t) => t.kind === "drum")!.id;
-  const keys = p.tracks.find((t) => t.kind === "keys")!.id;
-  // A fresh session on the new project: pattern 1, Play mode, nothing held or queued from the old one.
-  releaseAll();
-  resetSession();
-  setHwMode("play");
-  set({ project: p, undo: [], selectedTrack: drums, drumTrack: drums, keysTrack: keys, status: `Imported ${p.name}` });
+  openProject(p, `Imported ${p.name}`);
 }

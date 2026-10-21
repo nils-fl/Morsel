@@ -225,7 +225,7 @@ export function Guide() {
           <ul className="g-notes">
             <li>Everything follows the selected track: Shift + Pad ⌃ / ⌄ steps through them, and the Track tab, the on-screen pads, the encoder pages and the Launchkey screen show only that track.</li>
             <li>Close Ableton Live first: Morsel puts the Launchkey in DAW mode and takes over its pads, encoders, buttons and screen.</li>
-            <li>Everything autosaves in this browser. Song tab → Export project to keep a copy with all samples.</li>
+            <li>Everything autosaves in this browser. Song tab → Export project to keep a copy with all samples, New project to start over.</li>
             <li>Samples come from connected folders (Connect folder, Chrome / Edge): browsed in place from Sample ▾ or Browse on the Launchkey, and a sample is copied into the browser only when you use it. Folder → pads in Sample ▾ makes the open folder the kit. After a browser restart, click Reconnect next to the folder in Sample ▾.</li>
             <li>Dropping an audio file on an on-screen pad loads just that file.</li>
             <li>New drum tracks start with the Factory kit. Built-in genre kits (Lo-Fi, Boom Bap, Hip Hop, Trap, Drill, House, Techno, DnB, Electro) are synthesized like it. The kit bar (Track tab), the Kit encoder page or Browse → Kits loads a kit; the Kits panel saves, renames, exports, imports (several at once) and deletes them.</li>
