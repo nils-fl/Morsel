@@ -8,6 +8,13 @@ import { applyTheme, savedTheme } from "./ui/theme";
 // Before anything renders, so a light page doesn't flash dark.
 applyTheme(savedTheme());
 
+// Offline start and installing as an app (sw.js, written by the build). Not in dev, where it would serve stale modules.
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch((err: unknown) => console.warn("Morsel: no offline support", err));
+  });
+}
+
 const root = document.getElementById("root")!;
 
 boot().then(

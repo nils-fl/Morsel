@@ -19,6 +19,7 @@
     "og-image": "node scripts/og-image.mjs"
   },
   "dependencies": {
+    "fflate": "^0.8.3",
     "idb-keyval": "^6.3.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

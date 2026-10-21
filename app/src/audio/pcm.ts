@@ -26,3 +26,18 @@ export function encodeChannels(channels: Float32Array[]): Int16Array<ArrayBuffer
   const pcm = channels.map(toInt16);
   return pcm.length > 1 && pcm.every((c) => same(c, pcm[0])) ? [pcm[0]] : pcm;
 }
+
+/**
+ * Whether two samples' channels hold the same audio as stored: within one 16-bit step (a sample added this session is
+ * still the float the browser decoded), and a single channel matches stereo with two identical sides.
+ */
+export function sameAudio(a: Float32Array[], b: Float32Array[]) {
+  if (!a.length || !b.length || a[0].length !== b[0].length) return false;
+  if (a.length !== b.length && Math.min(a.length, b.length) !== 1) return false;
+  const clip = (v: number) => Math.max(-1, Math.min(1, v));
+  for (let c = 0; c < Math.max(a.length, b.length); c++) {
+    const x = a[Math.min(c, a.length - 1)], y = b[Math.min(c, b.length - 1)];
+    for (let i = 0; i < x.length; i++) if (Math.abs(clip(x[i]) - clip(y[i])) > 1 / 0x7fff) return false;
+  }
+  return true;
+}

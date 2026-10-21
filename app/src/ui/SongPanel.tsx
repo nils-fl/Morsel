@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { engine } from "../audio/engine";
 import { removeUnusedSamples } from "../actions";
 import { arrangement, download, encodeWav, renderToBuffer } from "../seq/render";
+import { PROJECT_ACCEPT, PROJECT_EXT } from "../state/fileFormat";
 import { exportProject, importProject } from "../state/projectFile";
 import { get, patternHasNotes, set, updateProject, useApp } from "../state/store";
 import { Section } from "./controls";
@@ -77,9 +78,9 @@ export function SongPanel() {
       <Section title="Project">
         <div className="row">
           <input value={useApp((s) => s.project.name)} onChange={(e) => updateProject((p) => ({ ...p, name: e.target.value }), false)} />
-          <button onClick={async () => download(await exportProject(), `${get().project.name}.morsel.json`)}>Export project</button>
+          <button onClick={async () => download(await exportProject(), `${get().project.name}${PROJECT_EXT}`)}>Export project</button>
           <button onClick={() => importInput.current?.click()}>Import project…</button>
-          <input ref={importInput} type="file" accept=".json" hidden onChange={async (e) => {
+          <input ref={importInput} type="file" accept={PROJECT_ACCEPT} hidden onChange={async (e) => {
             const f = e.target.files?.[0];
             e.target.value = "";
             if (!f) return;

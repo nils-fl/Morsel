@@ -6,6 +6,7 @@ import {
 import { DECAY_MAX } from "../audio/dsp";
 import { hz } from "../params";
 import { engine } from "../audio/engine";
+import { KIT_ACCEPT, KIT_EXT } from "../state/fileFormat";
 import { exportKit, importKit } from "../state/projectFile";
 import { download } from "../seq/render";
 import { drumPads, drumTrack, set, updatePad, useApp } from "../state/store";
@@ -216,13 +217,13 @@ function KitPanel() {
   return (
     <Section title="Kits" actions={
       <>
-        <button onClick={() => kitInput.current?.click()} title="Import one or more .morsel-kit.json files">Import kits…</button>
+        <button onClick={() => kitInput.current?.click()} title="Import one or more .morsel-kit files">Import kits…</button>
         <button disabled={!name.trim()} title="Save the pads as a kit file with their samples, to share or keep" onClick={() => {
-          void exportKit(name.trim(), drumPads()).then((blob) => download(blob, `${name.trim()}.morsel-kit.json`));
+          void exportKit(name.trim(), drumPads()).then((blob) => download(blob, `${name.trim()}${KIT_EXT}`));
         }}>Export kit…</button>
       </>
     }>
-      <input ref={kitInput} type="file" accept=".json" multiple hidden onChange={async (e) => {
+      <input ref={kitInput} type="file" accept={KIT_ACCEPT} multiple hidden onChange={async (e) => {
         const files = [...(e.target.files ?? [])];
         e.target.value = "";
         const failed: string[] = [];

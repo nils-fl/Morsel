@@ -1,4 +1,5 @@
-// Renders the link preview (public/og-image.png, 1200x630) and the home-screen icon (public/apple-touch-icon.png).
+// Renders the link preview (public/og-image.png, 1200x630), the home-screen icon (public/apple-touch-icon.png) and the
+// installed app's icons (public/icon-192.png, public/icon-512.png).
 // The preview is the Launchkey screen showing the boot logo (src/display/bootAnim.ts) above a lit 2x8 pad grid.
 // Needs rsvg-convert on the PATH (brew install librsvg). Run: npm run og-image
 import { spawnSync } from "node:child_process";
@@ -98,6 +99,8 @@ try {
     .replace(/ stroke="[^"]*"/g, "");
   const touch = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" fill="${PANEL_2}"/><g transform="translate(3 3) scale(.8125)">${favicon}</g></svg>`;
   rsvg(touch, resolve(publicDir, "apple-touch-icon.png"), 180, 180);
+  // The installed app's icons (manifest.webmanifest): the same square.
+  for (const size of [192, 512]) rsvg(touch, resolve(publicDir, `icon-${size}.png`), size, size);
 } finally {
   await vite.close();
 }

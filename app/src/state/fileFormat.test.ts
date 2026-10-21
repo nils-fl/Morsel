@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { KIT_FORMAT, PROJECT_FORMAT, isKitFormat, isProjectFormat } from "./fileFormat";
+import { KIT_FORMAT, PROJECT_FORMAT, isKitFormat, isProjectFormat, sampleFileName } from "./fileFormat";
 
 describe("file formats", () => {
   it("exports as Morsel", () => {
@@ -16,5 +16,12 @@ describe("file formats", () => {
     expect(isProjectFormat("morsel-kit")).toBe(false);
     expect(isKitFormat("morsel")).toBe(false);
     expect(isProjectFormat(undefined)).toBe(false);
+  });
+  it("names sample files safely and uniquely", () => {
+    const taken = new Set<string>();
+    expect(sampleFileName("Kick", taken)).toBe("samples/Kick.wav");
+    expect(sampleFileName("kick", taken)).toBe("samples/kick (2).wav");
+    expect(sampleFileName('a/b:c*?"<>|\u0001', taken)).toBe("samples/a_b_c_______.wav");
+    expect(sampleFileName(" .. ", taken)).toBe("samples/sample.wav");
   });
 });

@@ -1,5 +1,7 @@
 import { scheduleNote, Voices } from "../audio/voices";
 import { engine, type VoiceEngine } from "../audio/engine";
+import { toInt16 } from "../audio/pcm";
+import { writeWav } from "../audio/wav";
 import { loadVoiceWorklet } from "../audio/worklet/voiceNode";
 import { clipOf, patternLength, trackLength } from "../state/store";
 import type { NoteEvent, Project, Track } from "../state/types";
@@ -59,33 +61,8 @@ export async function renderToBuffer(p: Project, order: number[], voiceEngine: V
 }
 
 export function encodeWav(buf: AudioBuffer): Blob {
-  const ch = buf.numberOfChannels;
-  const n = buf.length;
-  const data = new DataView(new ArrayBuffer(44 + n * ch * 2));
-  const str = (o: number, s: string) => [...s].forEach((c, i) => data.setUint8(o + i, c.charCodeAt(0)));
-  str(0, "RIFF");
-  data.setUint32(4, 36 + n * ch * 2, true);
-  str(8, "WAVE");
-  str(12, "fmt ");
-  data.setUint32(16, 16, true);
-  data.setUint16(20, 1, true);
-  data.setUint16(22, ch, true);
-  data.setUint32(24, buf.sampleRate, true);
-  data.setUint32(28, buf.sampleRate * ch * 2, true);
-  data.setUint16(32, ch * 2, true);
-  data.setUint16(34, 16, true);
-  str(36, "data");
-  data.setUint32(40, n * ch * 2, true);
-  const chans = Array.from({ length: ch }, (_, c) => buf.getChannelData(c));
-  let o = 44;
-  for (let i = 0; i < n; i++) {
-    for (let c = 0; c < ch; c++) {
-      const v = Math.max(-1, Math.min(1, chans[c][i]));
-      data.setInt16(o, v < 0 ? v * 0x8000 : v * 0x7fff, true);
-      o += 2;
-    }
-  }
-  return new Blob([data], { type: "audio/wav" });
+  const chans = Array.from({ length: buf.numberOfChannels }, (_, c) => toInt16(buf.getChannelData(c)));
+  return new Blob([writeWav(chans, buf.sampleRate)], { type: "audio/wav" });
 }
 
 export function download(blob: Blob, name: string) {

@@ -1,24 +1,24 @@
-// Single-file project export: project JSON plus all referenced samples (16-bit PCM, base64).
+// Project and kit export: a zip with the project (or kit) as JSON and every referenced sample as a 16-bit WAV in
+// samples/. Single-file JSON exports from before (samples as base64 16-bit PCM) still import.
+import { strFromU8, strToU8, unzip, zip, type Unzipped, type Zippable } from "fflate";
 import type { engine as Engine } from "../audio/engine";
 import { engine } from "../audio/engine";
-import { toInt16 } from "../audio/pcm";
+import { encodeChannels, sameAudio } from "../audio/pcm";
+import { readWav, writeWav } from "../audio/wav";
 import { PROJECT_VERSION, drumTrack, get, usedSampleIds, normalizePads, normalizeProject, resetSession, set, updateTrack } from "./store";
 import { sequencer } from "../seq/sequencer";
 import { cancelKitLoad } from "../actions";
 import { releaseAll, setHwMode } from "../modes/controller";
 import { listKits, saveKit } from "./persist";
 import { STOCK_KITS, type Pad, type Project } from "./types";
-import { KIT_FORMAT, PROJECT_FORMAT, isKitFormat, isProjectFormat } from "./fileFormat";
+import { KIT_FORMAT, PROJECT_FORMAT, ZIP_JSON, isKitFormat, isProjectFormat, sampleFileName } from "./fileFormat";
 
-interface FileSample { name: string; sampleRate: number; channels: string[] }
+/** A sample in the JSON: its name and its WAV in the zip. */
+interface FileSample { name: string; file: string }
 interface ProjectFile { format: typeof PROJECT_FORMAT; version: number; project: Project; samples: Record<string, FileSample> }
 
-function toB64(data: Float32Array) {
-  const bytes = new Uint8Array(toInt16(data).buffer);
-  let s = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(s);
-}
+// On sample kits the fastest deflate level takes off nearly as much as the default (tails and silence, about a third).
+const WAV_LEVEL = 1;
 
 function fromB64(b64: string) {
   const bin = atob(b64);
@@ -30,47 +30,70 @@ function fromB64(b64: string) {
 
 async function encodeSamples(ids: Iterable<string>) {
   const samples: Record<string, FileSample> = {};
+  const wavs: Record<string, Uint8Array> = {};
+  const taken = new Set<string>();
   for (const id of ids) {
     const buf = await engine.ensure(id);
     if (!buf) continue;
-    samples[id] = {
-      name: get().samples[id]?.name ?? id,
-      sampleRate: buf.sampleRate,
-      channels: Array.from({ length: buf.numberOfChannels }, (_, c) => toB64(buf.getChannelData(c))),
-    };
+    const name = get().samples[id]?.name ?? id;
+    const file = sampleFileName(name, taken);
+    wavs[file] = writeWav(encodeChannels(Array.from({ length: buf.numberOfChannels }, (_, c) => buf.getChannelData(c))), buf.sampleRate);
+    samples[id] = { name, file };
   }
-  return samples;
+  return { samples, wavs };
+}
+
+async function zipFile(json: object, wavs: Record<string, Uint8Array>): Promise<Blob> {
+  const entries: Zippable = { [ZIP_JSON]: strToU8(JSON.stringify(json)) };
+  for (const [file, data] of Object.entries(wavs)) entries[file] = [data, { level: WAV_LEVEL }];
+  const bytes = await new Promise<Uint8Array>((resolve, reject) => zip(entries, (err, out) => (err ? reject(err) : resolve(out))));
+  return new Blob([bytes as Uint8Array<ArrayBuffer>], { type: "application/zip" });
 }
 
 export async function exportProject(): Promise<Blob> {
   const project = get().project;
-  const file: ProjectFile = { format: PROJECT_FORMAT, version: PROJECT_VERSION, project, samples: await encodeSamples(usedSampleIds(project)) };
-  return new Blob([JSON.stringify(file)], { type: "application/json" });
+  const { samples, wavs } = await encodeSamples(usedSampleIds(project));
+  const file: ProjectFile = { format: PROJECT_FORMAT, version: PROJECT_VERSION, project, samples };
+  return zipFile(file, wavs);
 }
 
 /** A kit file (the format importKit reads) with the pads and their samples. */
 export async function exportKit(name: string, pads: Pad[]): Promise<Blob> {
-  const ids = new Set(pads.flatMap((pad) => (pad.sampleId ? [pad.sampleId] : [])));
-  const file = { format: KIT_FORMAT, version: 1, name, pads, samples: await encodeSamples(ids) };
-  return new Blob([JSON.stringify(file)], { type: "application/json" });
+  const { samples, wavs } = await encodeSamples(new Set(pads.flatMap((pad) => (pad.sampleId ? [pad.sampleId] : []))));
+  return zipFile({ format: KIT_FORMAT, version: 1, name, pads, samples }, wavs);
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
+/** A sample's audio from the file: its WAV in the zip, or base64 channels in a JSON export from before. */
+function sampleAudio(id: string, s: Record<string, unknown>, wavs: Unzipped): { rate: unknown; chans: Float32Array<ArrayBuffer>[] } {
+  if (typeof s.file === "string") {
+    const bytes = wavs[s.file];
+    if (!bytes) throw new Error(`Sample ${id}: ${s.file} is missing`);
+    try {
+      const { sampleRate, channels } = readWav(bytes);
+      return { rate: sampleRate, chans: channels };
+    } catch (err) {
+      throw new Error(`Sample ${id}: ${(err as Error).message}`);
+    }
+  }
+  if (!Array.isArray(s.channels)) throw new Error(`Sample ${id}: no audio channels`);
+  try {
+    return { rate: s.sampleRate, chans: s.channels.map((c) => fromB64(String(c))) };
+  } catch {
+    throw new Error(`Sample ${id}: corrupt audio data`);
+  }
+}
+
 /** Decode and check every sample before anything touches the library, so a bad file changes nothing. */
-function decodeSamples(samples: unknown): Map<string, { name: string; buffer: AudioBuffer }> {
+function decodeSamples(samples: unknown, wavs: Unzipped): Map<string, { name: string; buffer: AudioBuffer }> {
   if (!isObj(samples)) throw new Error("Missing samples");
   const out = new Map<string, { name: string; buffer: AudioBuffer }>();
   for (const [id, s] of Object.entries(samples)) {
-    if (!isObj(s) || !Array.isArray(s.channels) || !s.channels.length || s.channels.length > 32) throw new Error(`Sample ${id}: no audio channels`);
-    const rate = s.sampleRate;
+    if (!isObj(s)) throw new Error(`Sample ${id}: no audio channels`);
+    const { rate, chans } = sampleAudio(id, s, wavs);
+    if (!chans.length || chans.length > 32) throw new Error(`Sample ${id}: no audio channels`);
     if (typeof rate !== "number" || !(rate >= 3000 && rate <= 768000)) throw new Error(`Sample ${id}: bad sample rate`);
-    let chans: Float32Array<ArrayBuffer>[];
-    try {
-      chans = s.channels.map((c) => fromB64(String(c)));
-    } catch {
-      throw new Error(`Sample ${id}: corrupt audio data`);
-    }
     if (!chans[0].length || chans.some((c) => c.length !== chans[0].length)) throw new Error(`Sample ${id}: corrupt audio data`);
     const buffer = new AudioBuffer({ length: chans[0].length, numberOfChannels: chans.length, sampleRate: rate });
     chans.forEach((d, c) => buffer.copyToChannel(d, c));
@@ -79,25 +102,23 @@ function decodeSamples(samples: unknown): Map<string, { name: string; buffer: Au
   return out;
 }
 
-function sameAudio(a: AudioBuffer, b: AudioBuffer) {
-  if (a.length !== b.length || a.sampleRate !== b.sampleRate || a.numberOfChannels !== b.numberOfChannels) return false;
-  for (let c = 0; c < a.numberOfChannels; c++) {
-    const x = a.getChannelData(c), y = b.getChannelData(c);
-    for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false;
-  }
-  return true;
-}
+const channels = (b: AudioBuffer) => Array.from({ length: b.numberOfChannels }, (_, c) => b.getChannelData(c));
+const sameBuffer = (a: AudioBuffer, b: AudioBuffer) => a.sampleRate === b.sampleRate && sameAudio(channels(a), channels(b));
 
-/** Add decoded samples to the library, reusing an identical sample (same name, folder and audio) when there is one. */
+/**
+ * Add decoded samples to the library, reusing a sample with the same name and audio when there is one: in `folder`
+ * if possible (so a kit's samples stay in its folder), else in any folder. Projects and exported kits carry no folder,
+ * so without that a project re-imported, or a kit exported and imported again, would copy every sample.
+ */
 async function addSamples(eng: typeof Engine, decoded: Map<string, { name: string; buffer: AudioBuffer }>, folder?: string) {
   const idMap = new Map<string, string>();
   const library = Object.values(get().samples);
   for (const [oldId, { name, buffer }] of decoded) {
     let existing: string | undefined;
-    for (const s of library) {
-      if (s.name !== name || s.folder !== folder) continue;
+    const candidates = library.filter((s) => s.name === name).sort((a, b) => Number(b.folder === folder) - Number(a.folder === folder));
+    for (const s of candidates) {
       const b = await eng.ensure(s.id);
-      if (b && sameAudio(b, buffer)) {
+      if (b && sameBuffer(b, buffer)) {
         existing = s.id;
         break;
       }
@@ -107,15 +128,30 @@ async function addSamples(eng: typeof Engine, decoded: Map<string, { name: strin
   return idMap;
 }
 
-async function readJson(f: File): Promise<Record<string, unknown>> {
+/** The file's JSON and, for a zip, its WAVs by path. */
+async function readFile(f: File): Promise<{ file: Record<string, unknown>; wavs: Unzipped }> {
+  const bytes = new Uint8Array(await f.arrayBuffer());
+  let json = bytes;
+  let wavs: Unzipped = {};
+  if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
+    // "PK": a zip. Only the JSON and the samples are unpacked.
+    try {
+      wavs = await new Promise<Unzipped>((resolve, reject) =>
+        unzip(bytes, { filter: (e) => e.name === ZIP_JSON || e.name.startsWith("samples/") }, (err, out) => (err ? reject(err) : resolve(out))));
+    } catch {
+      throw new Error("Corrupt zip file");
+    }
+    if (!wavs[ZIP_JSON]) throw new Error("Not a Morsel file");
+    json = wavs[ZIP_JSON];
+  }
   let data: unknown;
   try {
-    data = JSON.parse(await f.text());
+    data = JSON.parse(strFromU8(json));
   } catch {
-    throw new Error("Not a JSON file");
+    throw new Error("Not a Morsel file");
   }
   if (!isObj(data)) throw new Error("Not a Morsel file");
-  return data;
+  return { file: data, wavs };
 }
 
 /** First free kit name: "Name", then "Name (2)", "Name (3)", ... */
@@ -128,11 +164,11 @@ async function freeKitName(name: string) {
 
 /** Load a kit file onto the selected drum track's pads, add its samples to the library and save it under its name. Returns the name. */
 export async function importKit(f: File, eng: typeof Engine) {
-  const file = await readJson(f);
+  const { file, wavs } = await readFile(f);
   if (!isKitFormat(file.format)) throw new Error("Not a Morsel kit");
   if (typeof file.version === "number" && file.version > PROJECT_VERSION) throw new Error("Made by a newer Morsel");
   if (!Array.isArray(file.pads)) throw new Error("Kit has no pads");
-  const decoded = decodeSamples(file.samples);
+  const decoded = decodeSamples(file.samples, wavs);
   const folder = typeof file.folder === "string" ? file.folder : undefined;
   const idMap = await addSamples(eng, decoded, folder);
   const pads = normalizePads((file.pads as unknown[]).map((p) => (isObj(p) ? (p as Partial<Pad>) : {})))
@@ -146,11 +182,11 @@ export async function importKit(f: File, eng: typeof Engine) {
 }
 
 export async function importProject(f: File, eng: typeof Engine) {
-  const file = await readJson(f);
+  const { file, wavs } = await readFile(f);
   if (!isProjectFormat(file.format)) throw new Error("Not a Morsel project");
   if (!isObj(file.project)) throw new Error("File has no project");
   if (typeof file.version === "number" && file.version > PROJECT_VERSION) throw new Error("Made by a newer Morsel");
-  const decoded = decodeSamples(file.samples);
+  const decoded = decodeSamples(file.samples, wavs);
   const p = normalizeProject(file.project);
   const idMap = await addSamples(eng, decoded);
   p.tracks = p.tracks.map((t) => ({

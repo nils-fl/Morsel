@@ -11,6 +11,8 @@ import { execFile } from "node:child_process";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { basename, extname, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
+import { strToU8, zipSync } from "fflate";
+import { createServer } from "vite";
 
 const run = promisify(execFile);
 const [packsDir, outArg] = process.argv.slice(2);
@@ -19,6 +21,12 @@ if (!packsDir) {
   process.exit(1);
 }
 const outDir = resolve(outArg ?? join(import.meta.dirname, "../../kits"));
+
+// The app's own file format code, so the kits are written exactly as Export kit writes them.
+const vite = await createServer({ root: resolve(import.meta.dirname, ".."), logLevel: "error", server: { middlewareMode: true }, appType: "custom" });
+const { writeWav } = await vite.ssrLoadModule("/src/audio/wav.ts");
+const { KIT_EXT, ZIP_JSON, sampleFileName } = await vite.ssrLoadModule("/src/state/fileFormat.ts");
+await vite.close();
 
 const AUDIO = /\.(wav|aiff?|flac|mp3|ogg|m4a)$/i;
 // Loops and phrases, not one-shots.
@@ -107,7 +115,7 @@ async function duration(file) {
   }
 }
 
-/** Decode to 44.1 kHz stereo, cut to `maxSec` with a short fade, normalise to -1 dB; base64 16-bit per channel. */
+/** Decode to 44.1 kHz stereo, cut to `maxSec` with a short fade, normalise to -1 dB; a 16-bit WAV (mono if both sides are the same). */
 async function encode(file, maxSec) {
   const { stdout } = await run(
     "ffmpeg",
@@ -130,9 +138,9 @@ async function encode(file, maxSec) {
       const tail = frames - i <= fade ? (frames - i) / fade : 1;
       pcm[i] = Math.max(-1, Math.min(1, f32[2 * i + c] * gain * tail)) * 0x7fff;
     }
-    return Buffer.from(pcm.buffer).toString("base64");
+    return pcm;
   });
-  return { sampleRate: SR, channels };
+  return writeWav(channels, SR);
 }
 
 // "Neekeetone - Jungle Sample Pack Vol.3" → "Jungle Vol.3": vendor prefix and "Sample Pack" dropped.
@@ -181,6 +189,8 @@ async function buildPack(pack) {
     const pick = picker(lists, v);
     const pads = [];
     const samples = {};
+    const wavs = {};
+    const taken = new Set();
     for (const [label, cats, volume, color] of LAYOUT) {
       let rel = null, cat = null;
       for (const c of cats) if ((rel = pick(c))) { cat = c; break; }
@@ -190,7 +200,9 @@ async function buildPack(pack) {
       }
       const id = `s${pads.length}`;
       const name = basename(rel, extname(rel)).slice(0, 40);
-      samples[id] = { name, ...(await encode(join(dir, rel), MAX_SEC[cat] ?? MAX_DEFAULT)) };
+      const file = sampleFileName(name, taken);
+      wavs[file] = [await encode(join(dir, rel), MAX_SEC[cat] ?? MAX_DEFAULT), { level: 1 }];
+      samples[id] = { name, file };
       pads.push({ name: label, sampleId: id, color, volume, decay: 2, ...(HATS.has(label) ? { choke: 1 } : {}) });
     }
     // Two packs can shorten to the same name: number the second rather than overwrite the first.
@@ -198,8 +210,8 @@ async function buildPack(pack) {
     for (let i = 2; usedNames.has(name); i++) name = `${kitName(pack) || "Kit"}${variants > 1 ? ` ${"AB"[v]}` : ""} (${i})`;
     usedNames.add(name);
     const file = { format: "morsel-kit", version: 1, name, folder: `Kits/${name}`, pads, samples };
-    const path = join(outDir, `${name}.morsel-kit.json`);
-    await writeFile(path, JSON.stringify(file));
+    const path = join(outDir, `${name}${KIT_EXT}`);
+    await writeFile(path, zipSync({ [ZIP_JSON]: strToU8(JSON.stringify(file)), ...wavs }));
     written.push(path);
     console.log(`+ ${name}: ${pads.filter((p) => p.sampleId).length}/16 pads from ${pack}`);
   }
