@@ -4,16 +4,17 @@ import {
   toggleSampling, unshareTab,
 } from "../actions";
 import { DECAY_MAX } from "../audio/dsp";
-import { DUCK_PAGE, duckSourceLabel, duckTargetLabel, duckTargets, hz, padLabel, setDuck } from "../params";
+import { hz } from "../params";
 import { engine } from "../audio/engine";
 import { exportKit, importKit } from "../state/projectFile";
 import { download } from "../seq/render";
-import { drumPads, drumTrack, get, set, updatePad, useApp } from "../state/store";
-import { DUCK_ALL, PAD_COUNT, STOCK_KITS, type SampleSource, type SampleTarget } from "../state/types";
+import { drumPads, drumTrack, set, updatePad, useApp } from "../state/store";
+import { PAD_COUNT, STOCK_KITS, type SampleSource, type SampleTarget } from "../state/types";
 import { Field, Section, Slider } from "./controls";
 import { PALETTE_CHOICES, paletteCss } from "./palette";
 import { Waveform } from "./Waveform";
 import { SamplePicker } from "./SamplePicker";
+import { DuckPanel, SidechainInputs } from "./Sidechain";
 import { connectFolder, diskSupported } from "../browse/disk";
 import { folderLabel, folderSamples } from "../browse/source";
 
@@ -101,7 +102,8 @@ export function PadEditor() {
         <KitPanel />
         <SamplingPanel />
         <ChopPanel />
-        <SidechainPanel />
+        <SidechainInputs />
+        <DuckPanel />
       </div>
     </div>
   );
@@ -153,57 +155,6 @@ function SamplingPanel() {
         </div>
       )}
       <div className="meter"><div style={{ width: `${Math.min(100, level * 100)}%` }} /></div>
-    </Section>
-  );
-}
-
-function SidechainPanel() {
-  const duck = useApp((s) => s.project.duck);
-  useApp((s) => s.project.tracks); // track and pad names in the labels
-  const onDuckPage = useApp((s) => s.encPage === DUCK_PAGE);
-  const [level, setLevel] = useState(1);
-  useEffect(() => {
-    if (!duck.on) return;
-    let raf = 0;
-    const tick = () => {
-      setLevel(engine.voices.duckLevel(duck.target));
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [duck.on, duck.target]);
-
-  return (
-    <Section title="Sidechain" actions={
-      <button className={duck.on ? "on" : ""} onClick={() => setDuck({ on: !duck.on })}>{duck.on ? "On" : "Off"}</button>
-    }>
-      <p className="hint" title="Launchkey: on the Duck encoder page, hitting a pad makes it the input">
-        Input hits dip the target. Launchkey: <b>Duck</b> page{onDuckPage ? " (open)" : ""}, hit a pad = input.
-      </p>
-      <div className="row wrap">
-        <Field label="Input">
-          <select value={`${duck.sourceTrack}:${duck.sourcePad}`} title={duckSourceLabel()} onChange={(e) => {
-            const [track, pad] = e.target.value.split(":");
-            setDuck({ sourceTrack: track, sourcePad: Number(pad) });
-          }}>
-            {get().project.tracks.filter((t) => t.kind === "drum").map((t) => (
-              <optgroup key={t.id} label={t.name}>
-                {Array.from({ length: PAD_COUNT }, (_, i) => <option key={i} value={`${t.id}:${i}`}>{padLabel(t.id, i)}</option>)}
-              </optgroup>
-            ))}
-          </select>
-        </Field>
-        <Field label="Target">
-          <select value={duck.target} onChange={(e) => setDuck({ target: e.target.value })}>
-            {duckTargets().map((t) => <option key={t} value={t}>{t === DUCK_ALL ? "All others" : duckTargetLabel(t)}</option>)}
-          </select>
-        </Field>
-      </div>
-      <Slider label="Depth" value={duck.depth} min={0} max={1} format={pct} onChange={(v) => setDuck({ depth: v })} />
-      <Slider label="Attack" value={duck.attack} min={0} max={0.05} step={0.001} format={ms} onChange={(v) => setDuck({ attack: v })} />
-      <Slider label="Hold" value={duck.hold} min={0} max={0.5} step={0.01} format={ms} onChange={(v) => setDuck({ hold: v })} />
-      <Slider label="Release" value={duck.release} min={0.02} max={1} step={0.01} format={ms} onChange={(v) => setDuck({ release: v })} />
-      <div className="meter duck-meter" title="Gain reduction on the target"><div style={{ width: `${Math.round((1 - (duck.on ? level : 1)) * 100)}%` }} /></div>
     </Section>
   );
 }

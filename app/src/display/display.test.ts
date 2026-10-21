@@ -187,7 +187,7 @@ describe("headers", () => {
   it("fits every footer hint next to its tag", () => {
     const f = new Frame();
     for (const [tag, text] of [["TRACK", "Up:pick Dn:mute"], ["MUTE", "1x mute 2x solo"], ["PATTERN", "Hold+tap copy"], ["PATTERN", "Next: P16"],
-      ["STEP", "2bars Sw54 Q1/16"], ["KEYS", "Synth: Warm Pad*"], ["DUCK", "On T1P1>All 85%"], ["KIT", "No kit"]]) {
+      ["STEP", "2bars Sw54 Q1/16"], ["KEYS", "Synth: Warm Pad*"], ["DUCK", "On In8 100% 16p"], ["SIDE", "P16 In8 (8 in)"], ["KIT", "No kit"]]) {
       expect(footer(f, tag, text)).toBe(text);
     }
   });

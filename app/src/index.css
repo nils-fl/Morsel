@@ -308,6 +308,10 @@ p.hint { margin: 0 0 8px; }
 .tab-state.on { color: var(--ok); }
 .duck-meter { margin-top: 6px; }
 .duck-meter div { background: var(--amber); transition: none; }
+.inputs { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.inputs li { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.duck-pads { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 3px; margin-top: 6px; }
+.duck-pads button { padding: 2px 0; min-width: 0; }
 
 /* Chop editor */
 .chop-tools { margin-top: 0; }

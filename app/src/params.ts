@@ -2,8 +2,8 @@
 import { DECAY_MAX, cutoffHz, padQDb, synthQDb } from "./audio/dsp";
 import type { Visual } from "./modes/notify";
 import { QUANTIZE_OPTIONS, REPEAT_OPTIONS } from "./seq/timing";
-import { drumPads, get, keysTrack, setTrackBars, trackBars, parseDuckTarget, selectedTrack, set, trackById, updateKeys, updatePad, updateProject, updateTrack } from "./state/store";
-import { DUCK_ALL, MAX_TRACKS, PAD_COUNT, type DuckSettings, type DuckTarget, type KeysLfo, type Pad, type SampleInfo, type SynthParams, type TrackFx, type TrackKind, type Wave } from "./state/types";
+import { defaultDuck, drumPads, get, inputOf, keysTrack, padDucks, parseInput, setDuckPad, setTrackBars, setTrackDuck, toggleSidechainInput, trackBars, selectedTrack, set, trackById, updateKeys, updatePad, updateProject, updateTrack } from "./state/store";
+import { MAX_TRACKS, type KeysLfo, type Pad, type SampleInfo, type SidechainInput, type SynthParams, type TrackDuck, type TrackFx, type TrackKind, type Wave } from "./state/types";
 import { allPresets, applyPreset, currentKit, kitNames, stepKit } from "./actions";
 import { jumpFolder, presetEdited } from "./audio/synthPresets";
 import { noteName } from "./ui/notes";
@@ -137,37 +137,26 @@ export function padLabel(trackId: string, pad: number, withTrack = false) {
   return `${withTrack && t ? `${t.name} ` : ""}P${pad + 1} ${t?.pads[pad]?.name ?? ""}`.trim();
 }
 
-/** "All", a track name, or "Drums P1 Kick" for a duck target. */
-export function duckTargetLabel(target: DuckTarget) {
-  const parsed = parseDuckTarget(target);
-  if (!parsed) return "All";
-  if (parsed.pad !== null) return padLabel(parsed.track, parsed.pad, get().project.tracks.filter((t) => t.kind === "drum").length > 1);
-  return trackById(get().project, parsed.track)?.name ?? "?";
+/** "In2 P1 Kick" (with the track's name when there are several drum tracks), or "None". */
+export function inputLabel(input: SidechainInput | null) {
+  const p = get().project;
+  const n = input === null ? -1 : p.sidechain.indexOf(input);
+  if (input === null || n < 0) return "None";
+  const { track, pad } = parseInput(input);
+  return `In${n + 1} ${padLabel(track, pad, p.tracks.filter((t) => t.kind === "drum").length > 1)}`;
 }
 
-/** Short form for the screen footer: "All", "T2" or "T1P3". */
-function duckTargetShort(target: DuckTarget) {
-  const parsed = parseDuckTarget(target);
-  if (!parsed) return "All";
-  const n = get().project.tracks.findIndex((t) => t.id === parsed.track) + 1;
-  return parsed.pad === null ? `T${n}` : `T${n}P${parsed.pad + 1}`;
-}
+/** The selected drum pad's input number (1-based), or 0 when it isn't one. */
+const padInput = () => get().project.sidechain.indexOf(inputOf(get().selectedTrack, get().selectedPad)) + 1;
 
-export const duckSourceLabel = () => padLabel(duckNow().sourceTrack, duckNow().sourcePad, get().project.tracks.filter((t) => t.kind === "drum").length > 1);
-
-/** Targets in encoder order: all others, each whole track, then each pad of each drum track. */
-export function duckTargets(): DuckTarget[] {
-  const tracks = get().project.tracks;
-  return [DUCK_ALL, ...tracks.map((t) => t.id), ...tracks.filter((t) => t.kind === "drum").flatMap((t) => Array.from({ length: PAD_COUNT }, (_, i) => `${t.id}:${i}`))];
-}
-
-/** Duck sources in encoder order: each pad of each drum track. */
-function duckSources() {
-  return get().project.tracks.filter((t) => t.kind === "drum").flatMap((t) => Array.from({ length: PAD_COUNT }, (_, pad) => ({ track: t.id, pad })));
-}
-
-const duckNow = () => get().project.duck;
-export const setDuck = (patch: Partial<DuckSettings>) => updateProject((p) => ({ ...p, duck: { ...p.duck, ...patch } }), false);
+/** The selected track's ducker. */
+const duckNow = () => selectedTrack().duck ?? defaultDuck();
+/** Drum tracks: how many pads dip ("12p"). */
+const duckedPads = () => {
+  const t = selectedTrack();
+  return t.kind === "drum" ? t.pads.filter((_, i) => padDucks(t, i)).length : 0;
+};
+export const setDuck = (patch: Partial<TrackDuck>) => setTrackDuck(get().selectedTrack, patch);
 export const duckVisual = (): Visual => {
   const d = duckNow();
   return { kind: "duck", depth: d.depth, attack: d.attack, hold: d.hold, release: d.release };
@@ -185,7 +174,8 @@ function duckParam(name: string, key: "depth" | "attack" | "hold" | "release", l
   };
 }
 
-const sourceIndex = () => Math.max(0, duckSources().findIndex((x) => x.track === duckNow().sourceTrack && x.pad === duckNow().sourcePad));
+/** Inputs a keys track can pick, in encoder order: none, then Input 1, 2, … */
+const duckInputs = (): (SidechainInput | null)[] => [null, ...get().project.sidechain];
 
 // ---------- track FX (selected track) ----------
 
@@ -376,6 +366,46 @@ const STEP_PAGE_DEF: Page = {
   ],
 };
 
+/** The Duck page's encoders 1-6, on every track. */
+const DUCK_PARAMS: Param[] = [
+  {
+    name: "Duck",
+    value: () => (duckNow().on ? 1 : 0),
+    range: [0, 1],
+    nudge: (d) => setDuck({ on: d > 0 }),
+    format: () => (duckNow().on ? "On" : "Off"),
+  },
+  {
+    name: "Input",
+    value: () => Math.max(0, duckInputs().indexOf(duckNow().input)),
+    get range(): [number, number] {
+      return [0, Math.max(1, duckInputs().length - 1)];
+    },
+    nudge: (d) => {
+      const list = duckInputs();
+      setDuck({ input: list[clamp(list.indexOf(duckNow().input) + Math.sign(d), 0, list.length - 1)] });
+    },
+    format: () => inputLabel(duckNow().input),
+  },
+  duckParam("Depth", "depth", 0, 1, 0.02, pct),
+  duckParam("Attack", "attack", 0, 0.05, 0.001, ms),
+  duckParam("Hold", "hold", 0, 0.5, 0.01, ms),
+  duckParam("Release", "release", 0.02, 1, 0.01, ms),
+];
+
+/** Drum tracks: whether the selected pad dips (the input pad never does). */
+const DUCK_PAD_PARAM: Param = {
+  name: "Pad",
+  value: () => (padDucks(selectedTrack(), get().selectedPad) ? 1 : 0),
+  range: [0, 1],
+  nudge: (d) => setDuckPad(get().selectedTrack, get().selectedPad, d > 0),
+  format: () => {
+    const t = selectedTrack(), pad = get().selectedPad;
+    if (t.duck.input === inputOf(t.id, pad)) return `P${pad + 1} input`;
+    return `P${pad + 1} ${padDucks(t, pad) ? "ducks" : "off"}`;
+  },
+};
+
 export const PAGES: Page[] = [
   {
     // Like the Keys page's presets: encoder 1 loads the previous / next kit as you turn.
@@ -531,57 +561,46 @@ export const PAGES: Page[] = [
     ],
   },
   {
-    name: "Duck",
-    tag: "DUCK",
-    // The sidechain input is a drum pad, so it is set from drum tracks.
+    name: "Sidechain",
+    tag: "SIDE",
+    // Drum pads are the sidechain inputs: hit a pad to pick it, encoder 1 makes it an input.
     kind: "drum",
     summary: () => {
-      const d = duckNow();
-      const n = get().project.tracks.findIndex((t) => t.id === d.sourceTrack) + 1;
-      return d.on ? `On T${n}P${d.sourcePad + 1}>${duckTargetShort(d.target)} ${pct(d.depth)}` : "Off";
+      const n = padInput();
+      return `P${get().selectedPad + 1} ${n ? `In${n}` : "Off"} (${get().project.sidechain.length} in)`;
     },
     params: [
       {
-        name: "Duck",
-        value: () => (duckNow().on ? 1 : 0),
-        range: [0, 1],
-        nudge: (d) => setDuck({ on: d > 0 }),
-        format: () => (duckNow().on ? "On" : "Off"),
-      },
-      {
         name: "Input",
-        value: sourceIndex,
-        get range(): [number, number] {
-          return [0, duckSources().length - 1];
-        },
+        value: () => (padInput() ? 1 : 0),
+        range: [0, 1],
         nudge: (d) => {
-          const list = duckSources();
-          const next = list[clamp(sourceIndex() + Math.sign(d), 0, list.length - 1)];
-          setDuck({ sourceTrack: next.track, sourcePad: next.pad });
+          if ((d > 0) !== !!padInput()) toggleSidechainInput(get().selectedTrack, get().selectedPad);
         },
-        format: duckSourceLabel,
+        format: () => (padInput() ? `Input ${padInput()}` : "Off"),
       },
-      {
-        name: "Target",
-        value: () => duckTargets().indexOf(duckNow().target),
-        get range(): [number, number] {
-          return [0, duckTargets().length - 1];
-        },
-        nudge: (d) => {
-          const list = duckTargets();
-          setDuck({ target: list[clamp(list.indexOf(duckNow().target) + Math.sign(d), 0, list.length - 1)] });
-        },
-        format: () => duckTargetLabel(duckNow().target),
-      },
-      duckParam("Depth", "depth", 0, 1, 0.02, pct),
-      duckParam("Attack", "attack", 0, 0.05, 0.001, ms),
-      duckParam("Hold", "hold", 0, 0.5, 0.01, ms),
-      duckParam("Release", "release", 0.02, 1, 0.01, ms),
     ],
+  },
+  {
+    name: "Duck",
+    tag: "DUCK",
+    // Every track ducks from one of the drum pads made sidechain inputs: a keys track as a whole, a drum track the
+    // pads it ducks (encoder 7 switches the selected pad; hit a pad to pick it).
+    summary: () => {
+      const d = duckNow();
+      const n = d.input === null ? 0 : get().project.sidechain.indexOf(d.input) + 1;
+      const pads = selectedTrack().kind === "drum" ? ` ${duckedPads()}p` : "";
+      return d.on ? `On ${n ? `In${n}` : "no input"} ${pct(d.depth)}${pads}` : "Off";
+    },
+    get params(): Param[] {
+      return selectedTrack().kind === "drum" ? [...DUCK_PARAMS, DUCK_PAD_PARAM] : DUCK_PARAMS;
+    },
   },
   STEP_PAGE_DEF,
 ];
+
 export const DUCK_PAGE = PAGES.findIndex((p) => p.tag === "DUCK");
+export const SIDECHAIN_PAGE = PAGES.findIndex((p) => p.tag === "SIDE");
 export const STEP_PAGE = PAGES.findIndex((p) => p.tag === "STEP");
 
 /** Indexes of the encoder pages a track of this kind shows, in order; in Step mode the Step page comes first. */
@@ -598,10 +617,16 @@ export function stepPage(page: number, dir: 1 | -1, kind = selectedTrack().kind)
   return list[Math.max(0, Math.min(list.length - 1, i + dir))];
 }
 
-/** Keep the encoder page on one the selected track shows (Pad or Keys after switching kind). */
+/** Where a page that the other track kind doesn't show goes: a drum track's Sidechain (inputs) to the keys track's Duck. */
+const PAGE_PAIRS: Record<string, string> = { SIDE: "DUCK" };
+
+/** Keep the encoder page on one the selected track shows: the paired page (Sidechain -> Duck), else the first (Kit or Keys). */
 export function fixPage() {
   const s = get();
-  if (!pagesFor(selectedTrack(s).kind).includes(s.encPage)) set({ encPage: pagesFor(selectedTrack(s).kind)[0] });
+  const list = pagesFor(selectedTrack(s).kind);
+  if (list.includes(s.encPage)) return;
+  const pair = PAGES.findIndex((p) => p.tag === PAGE_PAIRS[PAGES[s.encPage]?.tag]);
+  set({ encPage: list.includes(pair) ? pair : list[0] });
 }
 
 

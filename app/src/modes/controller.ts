@@ -3,11 +3,11 @@ import { allPresets, currentKit, keyOff, keyOn, kitNames, liveWhen, openInChop, 
 import { engine } from "../audio/engine";
 import { launchkey } from "../midi/launchkey";
 import { CC, COLOR, type LedMode, type PadLayout } from "../midi/protocol";
-import { DUCK_PAGE, PAGES, STEP_PAGE, duckSourceLabel, duckTargetLabel, fixPage, keysSampleList, padLabel, pagesFor, presetLabel, setDuck, stepPage, turnEncoder } from "../params";
+import { DUCK_PAGE, PAGES, STEP_PAGE, fixPage, inputLabel, keysSampleList, padLabel, pagesFor, presetLabel, stepPage, turnEncoder } from "../params";
 import { makeTicker, sequencer } from "../seq/sequencer";
 import { PPQN, REPEAT_OPTIONS, STEP_TICKS } from "../seq/timing";
 import {
-  type AppState, clearTrack, clipOf, copyClip, copyPattern, drumPads, drumTrack, get, patternHasNotes, selectTrack,
+  type AppState, clearTrack, clipOf, copyClip, copyPattern, drumPads, drumTrack, get, padDucks, patternHasNotes, selectTrack,
   selectedTrack, set, stepTrack, store, togglePadFlag, toggleStep, toggleTrackFlag, trackAudible, trackBars, trackLength, undo, updateProject, PAD_COLORS,
 } from "../state/store";
 import type { HwMode, KeysInstrument, Track } from "../state/types";
@@ -290,12 +290,7 @@ function onPad(pad: number, vel: number) {
         keysPads.set(pad, { note, track: keyOn(note, vel, sel.id) });
         break;
       }
-      // On the Duck page the pad you hit becomes the sidechain input.
       const drums = drumTrack(s);
-      if (s.encPage === DUCK_PAGE && (s.project.duck.sourceTrack !== drums.id || s.project.duck.sourcePad !== pad)) {
-        setDuck({ sourceTrack: drums.id, sourcePad: pad });
-        showTemp("Duck input", duckSourceLabel());
-      }
       playingPads.set(pad, drums.id);
       // Scene held: note repeat, playing or stopped (then on its own clock).
       if (sequencer.repeatOn) {
@@ -616,10 +611,11 @@ function screenFor(s: AppState, overlay: Overlay | null): Frame | null {
         });
       }
       if (s.encPage === DUCK_PAGE) {
-        const d = p.duck;
+        const d = t.duck;
+        const target = t.kind === "drum" ? `${t.pads.filter((_, i) => padDucks(t, i)).length} pads` : t.name;
         return duckScreen({
-          ...d, track: trackLabel(s), status, source: duckSourceLabel(), target: duckTargetLabel(d.target),
-          level: engine.voices.duckLevel(d.target), summary: PAGES[DUCK_PAGE].summary(),
+          ...d, track: trackLabel(s), status, source: inputLabel(d.input), target,
+          level: engine.voices.duckLevel(t.id), summary: PAGES[DUCK_PAGE].summary(),
         });
       }
       if (t.kind === "keys") {

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { engine } from "../audio/engine";
 import { FX_FILTER_NAMES, hz, setFx } from "../params";
-import { parseDuckTarget, selectTrack, toggleTrackFlag, updateProject, updateTrack, useApp } from "../state/store";
-import { DUCK_ALL, type Returns, type Track, type TrackFx } from "../state/types";
+import { selectTrack, toggleTrackFlag, updateProject, updateTrack, useApp } from "../state/store";
+import { type Returns, type Track, type TrackFx } from "../state/types";
 import { Field, Section, Slider } from "./controls";
 import { PALETTE_CHOICES, paletteCss } from "./palette";
 
@@ -27,23 +27,20 @@ export function Mixer() {
   );
 }
 
-/** Ducker gain reduction on this track (whole-track or one of its pads), 0..1. */
+/** Sidechain gain reduction on a keys track that ducks, 0..1; null when it doesn't. */
 function useDuckGr(t: Track) {
-  const duck = useApp((s) => s.project.duck);
-  const parsed = parseDuckTarget(duck.target);
-  const hit = duck.on && (duck.target === DUCK_ALL || parsed?.track === t.id);
+  const hit = !!t.duck?.on && t.duck.input !== null;
   const [gr, setGr] = useState(0);
   useEffect(() => {
     if (!hit) return;
     let raf = 0;
     const tick = () => {
-      // "All": this track's own dip, except on the source's rack, where the other pads dip.
-      setGr(1 - engine.voices.duckLevel(duck.target === DUCK_ALL && t.id !== duck.sourceTrack ? t.id : duck.target));
+      setGr(1 - engine.voices.duckLevel(t.id));
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [hit, duck.target, duck.sourceTrack, t.id]);
+  }, [hit, t.id]);
   return hit ? gr : null;
 }
 

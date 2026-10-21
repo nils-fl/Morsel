@@ -3,8 +3,8 @@ import type { SynthPreset } from "../audio/synthPresets";
 import { useStore } from "zustand";
 import { COLOR } from "../midi/protocol";
 import { BAR_TICKS } from "../seq/timing";
-import type { ChopSession, Clip, DuckSettings, DuckTarget, HwMode, KeysInstrument, KeysLfo, KeysSample, NoteEvent, Pad, Pattern, Project, Returns, SampleInfo, SampleSource, SampleTarget, SynthParams, Tab, Track, TrackFx, TrackKind, Wave, Zone } from "./types";
-import { DUCK_ALL, MAX_TRACKS, PAD_COUNT, PATTERN_COUNT } from "./types";
+import type { ChopSession, Clip, HwMode, KeysInstrument, KeysLfo, KeysSample, NoteEvent, Pad, Pattern, Project, Returns, SampleInfo, SampleSource, SampleTarget, SidechainInput, SynthParams, Tab, Track, TrackDuck, TrackFx, TrackKind, Wave, Zone } from "./types";
+import { MAX_TRACKS, PAD_COUNT, PATTERN_COUNT } from "./types";
 
 export const PAD_COLORS = [
   COLOR.red, COLOR.orange, COLOR.yellow, COLOR.lime, COLOR.green, COLOR.mint, COLOR.cyan, COLOR.sky,
@@ -141,7 +141,20 @@ export function defaultTrack(kind: TrackKind, id: string, index = 0, name?: stri
     sendA: 0,
     sendB: 0,
     fx: defaultFx(),
+    duck: defaultDuck(kind),
   };
+}
+
+/** Defaults that audibly pump: a quarter-note-ish dip at most tempos. */
+export const defaultDuck = (kind: TrackKind = "keys"): TrackDuck => ({
+  on: false, input: null, depth: 0.85, attack: 0.005, hold: 0.06, release: 0.3,
+  ...(kind === "drum" ? { pads: Array<boolean>(PAD_COUNT).fill(true) } : {}),
+});
+
+/** Whether a pad of a drum track dips when its duck's input is hit (never the input pad itself). */
+export function padDucks(t: Track, pad: number) {
+  if (t.kind !== "drum" || !(t.duck.pads?.[pad] ?? true)) return false;
+  return t.duck.input !== inputOf(t.id, pad);
 }
 
 /** Ids of the two tracks a fresh (or migrated v1) project starts with. */
@@ -162,13 +175,12 @@ export const defaultProject = (): Project => ({
   tracks: [defaultTrack("drum", DRUMS_ID, 0), defaultTrack("keys", KEYS_ID, 1)],
   patterns: Array.from({ length: PATTERN_COUNT }, emptyPattern),
   song: [{ pattern: 0, repeats: 1 }],
-  // Defaults that audibly pump: a quarter-note-ish dip at most tempos.
-  duck: { on: false, sourceTrack: DRUMS_ID, sourcePad: 0, target: DUCK_ALL, depth: 0.85, attack: 0.005, hold: 0.06, release: 0.3 },
+  sidechain: [],
   returns: defaultReturns(),
 });
 
-/** Bumped when the saved project shape changes (3: keys sample source, LFO, kit names); files from a newer version are refused, older ones get defaults. */
-export const PROJECT_VERSION = 3;
+/** Bumped when the saved project shape changes (3: keys sample source, LFO, kit names; 4: sidechain inputs, ducks per keys track); files from a newer version are refused, older ones get defaults. */
+export const PROJECT_VERSION = 4;
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const num = (v: unknown, lo: number, hi: number, fallback: number) => (typeof v === "number" && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : fallback);
@@ -197,15 +209,7 @@ export function migrateV1(raw: Record<string, unknown>): Record<string, unknown>
     const keyEvents = events.filter((e) => e.track === 16).map(({ track: _t, ...e }) => e);
     return { bars: pat.bars, clips: { [DRUMS_ID]: { events: drumEvents }, [KEYS_ID]: { events: keyEvents } } };
   });
-  const duck = isObj(raw.duck) ? raw.duck : {};
-  const oldTarget = typeof duck.target === "number" ? duck.target : -1;
-  const target = oldTarget === 16 ? KEYS_ID : oldTarget >= 0 && oldTarget < PAD_COUNT ? `${DRUMS_ID}:${oldTarget}` : DUCK_ALL;
-  return {
-    ...raw,
-    tracks: [drums, keys],
-    patterns,
-    duck: { ...duck, sourceTrack: DRUMS_ID, sourcePad: duck.source, target },
-  };
+  return { ...raw, tracks: [drums, keys], patterns };
 }
 
 function normalizeKeys(raw: unknown, drumIds: string[]): KeysInstrument {
@@ -287,6 +291,22 @@ function normalizeTrack(raw: Record<string, unknown>, index: number, ids: Set<st
     sendA: num(raw.sendA, 0, 1, 0),
     sendB: num(raw.sendB, 0, 1, 0),
     fx: normalizeFx(raw.fx),
+    duck: normalizeTrackDuck(raw.duck, kind),
+  };
+}
+
+/** The input is checked once the project's inputs are known. */
+function normalizeTrackDuck(raw: unknown, kind: TrackKind): TrackDuck {
+  const d = defaultDuck(kind);
+  if (!isObj(raw)) return d;
+  return {
+    on: bool(raw.on, d.on),
+    input: typeof raw.input === "string" ? raw.input : null,
+    depth: num(raw.depth, 0, 1, d.depth),
+    attack: num(raw.attack, 0, 0.05, d.attack),
+    hold: num(raw.hold, 0, 0.5, d.hold),
+    release: num(raw.release, 0.02, 1, d.release),
+    ...(d.pads ? { pads: d.pads.map((on, i) => (Array.isArray(raw.pads) ? bool(raw.pads[i], on) : on)) } : {}),
   };
 }
 
@@ -329,21 +349,19 @@ function normalizePattern(raw: unknown, tracks: Track[], seen: Set<string>): Pat
   return { bars: Math.max(bars, ...Object.values(clips).map((c) => c.bars ?? 1)), clips };
 }
 
-function normalizeDuck(raw: unknown, d: DuckSettings, tracks: Track[]): DuckSettings {
-  if (!isObj(raw)) return { ...d, sourceTrack: tracks.find((t) => t.kind === "drum")!.id };
-  const drums = tracks.filter((t) => t.kind === "drum");
-  const sourceTrack = drums.find((t) => t.id === raw.sourceTrack)?.id ?? drums[0].id;
-  return {
-    on: bool(raw.on, d.on),
-    sourceTrack,
-    sourcePad: Math.round(num(raw.sourcePad, 0, PAD_COUNT - 1, d.sourcePad)),
-    target: typeof raw.target === "string" && duckTargetValid(tracks, raw.target) ? raw.target : DUCK_ALL,
-    depth: num(raw.depth, 0, 1, d.depth),
-    attack: num(raw.attack, 0, 0.05, d.attack),
-    hold: num(raw.hold, 0, 0.5, d.hold),
-    release: num(raw.release, 0.02, 1, d.release),
+/** Sidechain inputs that are pads of existing drum tracks, each once. */
+function normalizeSidechain(raw: unknown, tracks: Track[]): SidechainInput[] {
+  const ok = (x: unknown): x is string => {
+    if (typeof x !== "string") return false;
+    const { track, pad } = parseInput(x);
+    return tracks.some((t) => t.id === track && t.kind === "drum") && Number.isInteger(pad) && pad >= 0 && pad < PAD_COUNT;
   };
+  return [...new Set(Array.isArray(raw) ? raw.filter(ok) : [])];
 }
+
+/** Keys tracks listen to inputs that exist, or to none. */
+const fixDuckInputs = (tracks: Track[], sidechain: SidechainInput[]): Track[] =>
+  tracks.map((t) => (t.duck.input !== null && !sidechain.includes(t.duck.input) ? { ...t, duck: { ...t.duck, input: null } } : t));
 
 function normalizeReturns(raw: unknown): Returns {
   const d = defaultReturns();
@@ -355,27 +373,21 @@ function normalizeReturns(raw: unknown): Returns {
   };
 }
 
-/** Split a duck target into its track and (for one pad) pad. */
-export function parseDuckTarget(t: DuckTarget): { track: string; pad: number | null } | null {
-  if (t === DUCK_ALL) return null;
-  const i = t.lastIndexOf(":");
-  return i < 0 ? { track: t, pad: null } : { track: t.slice(0, i), pad: Number(t.slice(i + 1)) };
+/** A sidechain input's drum track and pad. */
+export function parseInput(input: SidechainInput): { track: string; pad: number } {
+  const i = input.lastIndexOf(":");
+  return { track: input.slice(0, i), pad: Number(input.slice(i + 1)) };
 }
-
-function duckTargetValid(tracks: Track[], t: string) {
-  if (t === DUCK_ALL) return true;
-  const parsed = parseDuckTarget(t)!;
-  const track = tracks.find((x) => x.id === parsed.track);
-  if (!track) return false;
-  return parsed.pad === null || (track.kind === "drum" && Number.isInteger(parsed.pad) && parsed.pad >= 0 && parsed.pad < PAD_COUNT);
-}
+export const inputOf = (trackId: string, pad: number): SidechainInput => `${trackId}:${pad}`;
 
 /** Rebuild a saved or imported project on top of the defaults, so fields added later (or damaged ones) can't break playback. */
 export function normalizeProject(input: unknown): Project {
   const d = defaultProject();
   if (!isObj(input)) return d;
   const raw = Array.isArray(input.tracks) ? input : migrateV1(input);
-  const tracks = normalizeTracks(raw.tracks);
+  const base = normalizeTracks(raw.tracks);
+  const sidechain = normalizeSidechain(raw.sidechain, base);
+  const tracks = fixDuckInputs(base, sidechain);
   const seen = new Set<string>();
   return {
     name: typeof raw.name === "string" ? raw.name : d.name,
@@ -386,7 +398,7 @@ export function normalizeProject(input: unknown): Project {
     song: Array.isArray(raw.song)
       ? raw.song.flatMap((st) => (isObj(st) && typeof st.pattern === "number" && st.pattern >= 0 && st.pattern < PATTERN_COUNT ? [{ pattern: st.pattern, repeats: num(st.repeats, 1, 64, 1) }] : []))
       : d.song,
-    duck: normalizeDuck(raw.duck, d.duck, tracks),
+    sidechain,
     returns: normalizeReturns(raw.returns),
   };
 }
@@ -626,27 +638,23 @@ export function addTrack(kind: TrackKind, opts: { name?: string; pads?: Pad[]; k
   return id;
 }
 
-/** Remove a track with its clips. References to it (duck, chromatic keys) fall back to another track. Undoable. */
+/** Remove a track with its clips and sidechain inputs. Chromatic keys fall back to another drum track. Undoable. */
 export function removeTrack(id: string) {
   const p = get().project;
   if (!canRemoveTrack(p, id)) return;
   updateProject((pr) => {
     const tracks = pr.tracks.filter((t) => t.id !== id);
     const firstDrum = tracks.find((t) => t.kind === "drum")!.id;
-    const target = parseDuckTarget(pr.duck.target);
+    const sidechain = pr.sidechain.filter((x) => parseInput(x).track !== id);
     return {
       ...pr,
-      tracks: tracks.map((t) => (t.keys && t.keys.sourceTrack === id ? { ...t, keys: { ...t.keys, sourceTrack: firstDrum } } : t)),
+      tracks: fixDuckInputs(tracks.map((t) => (t.keys && t.keys.sourceTrack === id ? { ...t, keys: { ...t.keys, sourceTrack: firstDrum } } : t)), sidechain),
       patterns: pr.patterns.map((pat) => {
         const { [id]: _gone, ...clips } = pat.clips;
         // It may have been the longest clip.
         return { bars: Math.max(1, ...tracks.map((t) => clips[t.id]?.bars ?? pat.bars)), clips };
       }),
-      duck: {
-        ...pr.duck,
-        sourceTrack: pr.duck.sourceTrack === id ? firstDrum : pr.duck.sourceTrack,
-        target: target?.track === id ? DUCK_ALL : pr.duck.target,
-      },
+      sidechain,
     };
   });
   const s = get();
@@ -776,6 +784,37 @@ export function copyClip(from: number, to: number, trackId: string) {
   const src = freshIds(clipOf(p.patterns[from], trackId));
   const bars = trackBars(p.patterns[from], trackId);
   updatePattern(to, (pat) => resizeClips({ ...pat, clips: { ...pat.clips, [trackId]: src } }, p.tracks, { [trackId]: bars }));
+}
+
+// ---------- sidechain ----------
+
+/** Make a drum pad a sidechain input (the next number), or stop it being one; tracks listening to it stop ducking. */
+export function toggleSidechainInput(trackId: string, pad: number) {
+  const input = inputOf(trackId, pad);
+  updateProject((p) => {
+    const sidechain = p.sidechain.includes(input) ? p.sidechain.filter((x) => x !== input) : [...p.sidechain, input];
+    return { ...p, sidechain, tracks: fixDuckInputs(p.tracks, sidechain) };
+  });
+}
+
+/** Change a track's ducker. Turning it on without an input picks the first one (on a drum track, one of another track's pads if there is one). */
+export function setTrackDuck(trackId: string, patch: Partial<TrackDuck>) {
+  updateProject((p) => ({
+    ...p,
+    tracks: p.tracks.map((t) => {
+      if (t.id !== trackId) return t;
+      const duck = { ...t.duck, ...patch };
+      if (duck.on && duck.input === null) duck.input = p.sidechain.find((x) => parseInput(x).track !== t.id) ?? p.sidechain[0] ?? null;
+      return { ...t, duck };
+    }),
+  }), false);
+}
+
+/** Whether a pad of a drum track dips with the track's ducker. */
+export function setDuckPad(trackId: string, pad: number, on: boolean) {
+  const t = trackById(get().project, trackId);
+  if (!t?.duck.pads || t.duck.pads[pad] === on) return;
+  setTrackDuck(trackId, { pads: t.duck.pads.map((x, i) => (i === pad ? on : x)) });
 }
 
 // ---------- mute / solo ----------

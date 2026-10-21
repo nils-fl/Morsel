@@ -27,10 +27,10 @@ function driveCurve(drive: number) {
 export class TrackStrip {
   /** Instruments that aren't pads (keys voices) connect here. */
   readonly input: GainNode;
-  /** Drum tracks: per pad, mute/solo gain, then the pad's own ducker gain, into `input`. */
+  /** Drum tracks: per pad, mute/solo gain, then the pad's sidechain ducker gain, into `input`. */
   readonly padBus: GainNode[] = [];
   readonly padDuck: GainNode[] = [];
-  /** The whole track's ducker gain, after the fader. */
+  /** The track's sidechain ducker gain, after the fader (keys tracks). */
   readonly duck: GainNode;
   private filter: BiquadFilterNode;
   private eq: BiquadFilterNode[];

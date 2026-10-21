@@ -58,7 +58,7 @@ function solo(p: Project, track: Track, events: Omit<NoteEvent, "id">[]): Projec
     tracks: [{ ...track, sendA: 0, sendB: 0, mute: false, solo: false }],
     patterns: [{ bars: 1, clips: { [track.id]: { events: events.map((e, i) => ({ ...e, id: `n${i}` })) } } }],
     song: [],
-    duck: { ...p.duck, on: false },
+    sidechain: [],
   };
 }
 

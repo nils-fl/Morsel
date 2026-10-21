@@ -1,8 +1,8 @@
 // Instrument layer: turns "pad i / key note on track t" into voices on a context, through that track's
 // mixer strip. Used by the live engine and by the offline renderer.
-import { defaultPad, padAudible, parseDuckTarget, trackAudible, trackById } from "../state/store";
-import type { DuckTarget, KeysLfo, NoteEvent, Pad, Project, SynthParams, Track } from "../state/types";
-import { DUCK_ALL, PAD_COUNT } from "../state/types";
+import { defaultPad, inputOf, padAudible, padDucks, trackAudible, trackById } from "../state/store";
+import type { KeysLfo, NoteEvent, Pad, Project, SidechainInput, SynthParams, Track } from "../state/types";
+import { PAD_COUNT } from "../state/types";
 import { applyDuck, duckRamp } from "./duck";
 import { buildSampleVoice, buildSynthVoice, reverseBuffer, type Voice } from "./dsp";
 import { ReturnFx, TrackStrip } from "./trackFx";
@@ -140,40 +140,36 @@ export class Voices {
     const v = this.sampleVoice(t, i, pad.sampleId, effective, vel, when);
     if (!v) return null;
     this.track(this.padVoices, `${trackId}:${i}`, v);
-    if (p.duck.on && p.duck.sourceTrack === trackId && p.duck.sourcePad === i) this.duck(when);
+    if (p.sidechain.length) this.duck(inputOf(trackId, i), when);
     if (pad.mode === "gate" && lenSec !== undefined) v.stop(when + lenSec);
     return v;
   }
 
-  /** The gain nodes a duck target dips. */
-  private duckNodes(target: DuckTarget): GainNode[] {
+  /** A hit on a sidechain input dips every track listening to it, each with its own envelope: a keys track as a
+   *  whole, a drum track the pads it ducks (never the input pad). Same depth for every hit, like a ducker keyed
+   *  from the trigger. */
+  private duck(input: SidechainInput, when: number) {
     const p = this.getProject();
-    const d = p.duck;
-    if (target === DUCK_ALL) {
-      return p.tracks.flatMap((t) => {
-        const s = this.strip(t);
-        // The source's own rack: every pad but the source. Every other track: the whole track.
-        return t.id === d.sourceTrack ? s.padDuck.filter((_, i) => i !== d.sourcePad) : [s.duck];
-      });
+    if (!p.sidechain.includes(input)) return;
+    const at = Math.max(when, this.ctx.currentTime);
+    for (const t of p.tracks) {
+      if (!t.duck.on || t.duck.input !== input) continue;
+      const points = duckRamp(at, t.duck);
+      for (const g of this.duckGains(t)) applyDuck(g.gain, points);
     }
-    const parsed = parseDuckTarget(target)!;
-    const t = trackById(p, parsed.track);
-    if (!t) return [];
+  }
+
+  /** The gain nodes a track's ducker moves. */
+  private duckGains(t: Track): GainNode[] {
     const s = this.strip(t);
-    return parsed.pad === null ? [s.duck] : [s.padDuck[parsed.pad]].filter(Boolean);
+    return t.kind === "keys" ? [s.duck] : s.padDuck.filter((_, i) => padDucks(t, i));
   }
 
-  /** Dip the duck target(s). Same depth for every hit, like a ducker keyed from the trigger. */
-  private duck(when: number) {
-    const d = this.getProject().duck;
-    const points = duckRamp(Math.max(when, this.ctx.currentTime), d);
-    for (const g of this.duckNodes(d.target)) applyDuck(g.gain, points);
-  }
-
-  /** Current ducker gain of a target (1 = not ducked), or of the deepest-ducked one for DUCK_ALL. */
-  duckLevel(target: DuckTarget): number {
-    const nodes = this.duckNodes(target);
-    return nodes.length ? Math.min(...nodes.map((g) => g.gain.value)) : 1;
+  /** Current ducker gain of a track (1 = not ducked; on a drum track, its deepest-ducked pad). */
+  duckLevel(trackId: string): number {
+    const t = trackById(this.getProject(), trackId);
+    const gains = t ? this.duckGains(t) : [];
+    return gains.length ? Math.min(...gains.map((g) => g.gain.value)) : 1;
   }
 
   releasePad(trackId: string, i: number, when: number) {

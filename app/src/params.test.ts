@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { PAGES, pagesFor } from "./params";
-import { defaultProject, get, set, updateKeys, updateProject } from "./state/store";
+import { DUCK_PAGE, PAGES, SIDECHAIN_PAGE, fixPage, pagesFor } from "./params";
+import { defaultProject, get, set, updateKeys } from "./state/store";
 
 // The actions pull in the sequencer's worker clock; the pages only need the preset list.
 vi.mock("./actions", () => ({ allPresets: () => [], applyPreset: () => {}, currentKit: () => "", kitNames: () => [], stepKit: () => "" }));
@@ -9,12 +9,25 @@ const tags = (kind: "drum" | "keys") => pagesFor(kind).map((i) => PAGES[i].tag);
 
 describe("encoder pages per track kind", () => {
   it("shows the Pad pages only on drum tracks and the Keys page only on keys tracks", () => {
-    expect(tags("drum")).toEqual(["KIT", "PAD", "PAD2", "FX", "MIX", "GLB", "DUCK"]);
-    expect(tags("keys")).toEqual(["KEYS", "LFO", "FX", "MIX", "GLB"]);
+    expect(tags("drum")).toEqual(["KIT", "PAD", "PAD2", "FX", "MIX", "GLB", "SIDE", "DUCK"]);
+    expect(tags("keys")).toEqual(["KEYS", "LFO", "FX", "MIX", "GLB", "DUCK"]);
   });
 
   it("keeps the keys synth off the Global page", () => {
     expect(PAGES.find((p) => p.tag === "GLB")!.params.map((p) => p.name)).toEqual(["Tempo", "Swing", "Quantize", "Repeat"]);
+  });
+
+  it("stays on Duck across track kinds, goes from Sidechain to Duck, and from other missing pages to the first", () => {
+    set({ selectedTrack: "drums", encPage: SIDECHAIN_PAGE });
+    set({ selectedTrack: "keys" });
+    fixPage();
+    expect(get().encPage).toBe(DUCK_PAGE);
+    set({ selectedTrack: "drums" });
+    fixPage();
+    expect(get().encPage).toBe(DUCK_PAGE);
+    set({ encPage: PAGES.findIndex((p) => p.tag === "PAD"), selectedTrack: "keys" });
+    fixPage();
+    expect(PAGES[get().encPage].tag).toBe("KEYS");
   });
 });
 
@@ -44,7 +57,7 @@ describe("Keys page", () => {
 describe("Step page", () => {
   it("comes first in Step mode only", () => {
     expect(tags("drum")).not.toContain("STEP");
-    expect(pagesFor("keys", true).map((i) => PAGES[i].tag)).toEqual(["STEP", "KEYS", "LFO", "FX", "MIX", "GLB"]);
+    expect(pagesFor("keys", true).map((i) => PAGES[i].tag)).toEqual(["STEP", "KEYS", "LFO", "FX", "MIX", "GLB", "DUCK"]);
   });
 
   it("sets the selected track's length, dropping its notes past the end, and keeps the bar view inside it", () => {
@@ -75,9 +88,27 @@ describe("screen text", () => {
     p.swing = 54;
     set({ project: p, currentPattern: 0, quantize: 24, undo: [] });
     expect(PAGES.find((pg) => pg.tag === "STEP")!.summary()).toBe("2bars Sw54 Q1/16");
-    expect(PAGES.find((pg) => pg.tag === "DUCK")!.summary()).toBe("Off");
-    updateProject((pr) => ({ ...pr, duck: { ...pr.duck, on: true, depth: 0.85 } }), false);
-    expect(PAGES.find((pg) => pg.tag === "DUCK")!.summary()).toBe("On T1P1>All 85%");
+    set({ selectedTrack: "drums", selectedPad: 2 });
+    const side = PAGES.find((pg) => pg.tag === "SIDE")!;
+    expect(side.summary()).toBe("P3 Off (0 in)");
+    side.params[0].nudge(1, false);
+    expect(side.summary()).toBe("P3 In1 (1 in)");
+    set({ selectedTrack: "keys" });
+    const duck = PAGES.find((pg) => pg.tag === "DUCK")!;
+    expect(duck.summary()).toBe("Off");
+    duck.params[0].nudge(1, false);
+    expect(duck.summary()).toBe("On In1 85%");
+    expect(duck.params.map((x) => x.name)).toEqual(["Duck", "Input", "Depth", "Attack", "Hold", "Release"]);
+    // A drum track ducks pad by pad; its own input pad never dips. Encoder 7 switches the selected pad.
+    set({ selectedTrack: "drums", selectedPad: 2 });
+    duck.params[0].nudge(1, false);
+    expect(duck.summary()).toBe("On In1 85% 15p");
+    expect(duck.params[6].format()).toBe("P3 input");
+    set({ selectedPad: 5 });
+    expect(duck.params[6].format()).toBe("P6 ducks");
+    duck.params[6].nudge(-1, false);
+    expect(duck.params[6].format()).toBe("P6 off");
+    expect(duck.summary()).toBe("On In1 85% 14p");
     updateKeys({ type: "synth" });
     expect(PAGES.find((pg) => pg.tag === "KEYS")!.summary()).toMatch(/^Synth: /);
     expect(PAGES.find((pg) => pg.tag === "KIT")!.params[0].format()).toBe("None");

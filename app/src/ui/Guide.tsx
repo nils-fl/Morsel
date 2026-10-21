@@ -13,8 +13,8 @@ const CONTROLS: Record<ControlId, { name: string; does: string; shift?: string }
   octave: { name: "Oct − / Oct +", does: "Shift the keyboard by octaves (handled by the Launchkey). Step mode on a drum track picks pads from the lowest 16 keys at the default octave." },
   arpScale: { name: "Arp / Scale", does: "The Launchkey's own arpeggiator and scale mode. They work on the keys while Morsel plays them." },
   encUp: { name: "Encoder page ⌃", does: "Previous encoder page (the arrows next to the encoders) of the selected track. Lit when there is a page to go to. Browse: previous item.", shift: "Enter / leave Browse (drum tracks)" },
-  encDown: { name: "Encoder page ⌄", does: "Next encoder page of the selected track (drum tracks: Kit, Pad, Pad 2, Track FX, Mix, Global, Duck; keys tracks: Keys, LFO, Track FX, Mix, Global; Step mode adds Step first). Browse: next item. Chop: nothing.", shift: "Enter / leave Chop (the selected pad's sample, or the open chop)" },
-  screen: { name: "Screen", does: "The header names the selected track (T2 Keys 1) and, on the right, the pattern and transport (P1 PLAY, REC, COUNT, SAMPLE), on every mode screen. Below in Play: the selected pad's waveform (Pad pages), the preset or sample list (Keys page), the duck curve (Duck), or the page's 8 encoders with their values (LFO, Track FX, Mix, Global). Otherwise: the 16-step grid (Step), the sample browser (Browse), the zoomed take with its slice markers (Chop), or the 16 pads as cells (Track, Mute, Pattern). The footer names the mode or encoder page with its values. Switching mode or track pops up where you landed. Turning an encoder pops up its value (on the 8-encoder screens the cell lights up instead); the filters show their curve. Holding Shift shows what Shift does with each button." },
+  encDown: { name: "Encoder page ⌄", does: "Next encoder page of the selected track (drum tracks: Kit, Pad, Pad 2, Track FX, Mix, Global, Sidechain, Duck; keys tracks: Keys, LFO, Track FX, Mix, Global, Duck; Step mode adds Step first). Browse: next item. Chop: nothing.", shift: "Enter / leave Chop (the selected pad's sample, or the open chop)" },
+  screen: { name: "Screen", does: "The header names the selected track (T2 Keys 1) and, on the right, the pattern and transport (P1 PLAY, REC, COUNT, SAMPLE), on every mode screen. Below in Play: the selected pad's waveform (Pad pages), the preset or sample list (Keys page), the duck curve (Duck), or the page's encoders with their values (LFO, Track FX, Mix, Global, Sidechain). Otherwise: the 16-step grid (Step), the sample browser (Browse), the zoomed take with its slice markers (Chop), or the 16 pads as cells (Track, Mute, Pattern). The footer names the mode or encoder page with its values. Switching mode or track pops up where you landed. Turning an encoder pops up its value (on the 8-encoder screens the cell lights up instead); the filters show their curve. Holding Shift shows what Shift does with each button." },
   encoders: { name: "Encoders 1–8", does: "Edit the parameters of the current encoder page (see below). Browse and Chop use them their own way (see Pad modes).", shift: "Fine steps. Keys page encoder 1: jump to the next preset folder (Bass, Lead, Keys…)" },
   play: { name: "Play", does: "Start / stop. Chop: play the take from the selected marker / stop.", shift: "Metronome on / off. Chop: start / stop the sequencer" },
   record: { name: "Record", does: "Stopped: 1-bar count-in, then overdub. During the count-in: call it off. Playing: recording on / off.", shift: "Sample (audio input, master or a shared browser tab); press again to stop. The take opens in Chop with its hits marked, or goes on the selected pad (Track tab → Sample)." },
@@ -40,7 +40,8 @@ const SHORTCUTS: [string, string][] = [
   ["Shift + Enc page ⌄", "Chop on / off"],
   ["Func", "Chop: slices → new drum rack"],
   ["Shift + Encoder", "Fine steps"],
-  ["Pad on Duck page", "Make it the sidechain input"],
+  ["Sidechain page: pad + enc 1", "Make the pad a sidechain input"],
+  ["Duck page (drums): pad + enc 7", "Does the pad duck?"],
   ["Hold Scene + pads", "Note repeat (Play)"],
   ["Hold Scene + pad", "Add pattern to song (Pattern)"],
   ["Hold pad + tap pad", "Copy pattern (Pattern)"],
@@ -99,7 +100,7 @@ export function Guide() {
   const browseLeds: Led[] = pads.map((p, i) => (i === selected ? { c: WHITE, blink: true } : { c: p.sampleId ? `color-mix(in srgb, ${paletteCss(p.color)} 35%, ${OFF})` : OFF }));
 
   const modes = [
-    { name: "Play", color: "var(--amber)", leds: playLeds, how: "Start mode", pads: "Drum track: play samples, velocity-sensitive; the last pad hit is selected (pulsing). Keys track: notes C3–D#4 (Cs lit white).", enc: "Drum track: Kit, Pad, Pad 2, Track FX, Mix, Global, Duck. Keys track: Keys, LFO, Track FX, Mix, Global", keys: "Keys track" },
+    { name: "Play", color: "var(--amber)", leds: playLeds, how: "Start mode", pads: "Drum track: play samples, velocity-sensitive; the last pad hit is selected (pulsing). Keys track: notes C3–D#4 (Cs lit white).", enc: "Drum track: Kit, Pad, Pad 2, Track FX, Mix, Global, Sidechain, Duck. Keys track: Keys, LFO, Track FX, Mix, Global, Duck", keys: "Keys track" },
     { name: "Step", color: "var(--cyan)", leds: stepLeds(), how: "Func ×1", pads: "16 steps of the selected track (drum track: the selected pad): top row 1–8, bottom row 9–16. White = playhead, dim = beats.", enc: "Step page: 1 track length (1–4 bars), 2 bar on the pads, 3 swing, 4 quantize; arrows reach the other pages", keys: "Drum track: pick the pad. Keys track: pick the note" },
     { name: "Track", color: "var(--yellow)", leds: trackLeds(), how: "Func ×2", pads: "Top row = select track 1–8 (pulsing = selected). Bottom row = mute track 1–8 (red), double-tap = solo.", enc: "Same pages (Mix: 8 track levels)", keys: "Keys track" },
     { name: "Mute", color: "var(--lime)", leds: muteLeds(), how: "Func ×3", pads: "Pads of the drum track (the last one picked, also from a keys track). Tap = mute (red), double-tap = solo (yellow).", enc: "Same pages", keys: "Keys track" },
@@ -196,7 +197,7 @@ export function Guide() {
       <div className="g-split">
         <section className="g-block">
           <h3><b>03</b> Encoder pages</h3>
-          <p className="hint">Switch with the ⌃ / ⌄ arrows right of the encoders. Drum tracks show Kit (encoder 1 scrolls the kits, like the Keys presets), Pad, Pad 2 and Duck; keys tracks show Keys (its encoders follow the sound source: synth, Sample or Pad sample) and LFO. Track FX, Mix and Global are on both. Hold Shift for fine steps.</p>
+          <p className="hint">Switch with the ⌃ / ⌄ arrows right of the encoders. Drum tracks show Kit (encoder 1 scrolls the kits, like the Keys presets), Pad, Pad 2 and Sidechain; keys tracks show Keys (its encoders follow the sound source: synth, Sample or Pad sample) and LFO. Track FX, Mix, Global and Duck are on both; on a drum track the Duck page's encoder 7 switches whether the selected pad ducks. Hold Shift for fine steps.</p>
           {PAGES.map((pg, n) => (
             <div key={pg.name} className="g-page">
               <div className="g-page-tag"><b>{pg.tag}</b><span>{pg.stepOnly ? "Step mode" : `${n + 1}/${PAGES.filter((x) => !x.stepOnly).length}`}</span></div>

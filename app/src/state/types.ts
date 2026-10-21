@@ -120,6 +120,8 @@ export interface Track {
   sendA: number;
   sendB: number;
   fx: TrackFx;
+  /** Ducked by a sidechain input: a keys track as a whole, a drum track pad by pad. */
+  duck: TrackDuck;
 }
 
 /** A note in a clip. On drum tracks `note` is the pad index (0..15). */
@@ -161,29 +163,25 @@ export interface Project {
   tracks: Track[];
   patterns: Pattern[];
   song: SongStep[];
-  duck: DuckSettings;
+  /** Sidechain inputs, in order (Input 1, Input 2, …): drum pads whose hits duck the keys tracks listening to them. */
+  sidechain: SidechainInput[];
   returns: Returns;
 }
 
-/**
- * Who a duck dips: every pad and track but the source (DUCK_ALL), a whole track (its id),
- * or one pad of a drum track (`${trackId}:${pad}`).
- */
-export type DuckTarget = string;
+/** A sidechain input: one pad of a drum track, as `${trackId}:${pad}`. */
+export type SidechainInput = string;
 
-/** Sidechain ducker: hits on the source pad dip the target. */
-export interface DuckSettings {
+/** A track's sidechain ducker: each hit of its input dips the track (on a drum track, the pads in `pads`) and lets it recover. */
+export interface TrackDuck {
   on: boolean;
-  sourceTrack: string; // a drum track
-  sourcePad: number; // 0..15
-  target: DuckTarget;
+  input: SidechainInput | null;
   depth: number; // 0..1
   attack: number; // seconds, 0..0.05
   hold: number; // seconds at full depth before recovering, 0..0.5
   release: number; // seconds, 0.02..1
+  /** Drum tracks: which pads dip (16 flags). The input pad itself never dips. */
+  pads?: boolean[];
 }
-
-export const DUCK_ALL = "all";
 
 export type HwMode = "play" | "step" | "track" | "mute" | "pattern" | "browse" | "chop";
 

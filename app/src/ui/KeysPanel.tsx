@@ -8,6 +8,7 @@ import { folderLabel, folderSamples } from "../browse/source";
 import type { KeysLfo, KeysSample, SynthParams, Wave, Zone } from "../state/types";
 import { Field, Section, Slider } from "./controls";
 import { SamplePicker } from "./SamplePicker";
+import { DuckPanel } from "./Sidechain";
 import { noteName, rootFromName } from "./notes";
 
 const WAVES: Wave[] = ["sawtooth", "square", "triangle", "sine"];
@@ -169,6 +170,8 @@ export function KeysPanel() {
           <Slider label="Filter depth" value={keys.lfo.filterDepth} min={0} max={1} step={0.01} format={(v) => (v ? `±${(v * 2).toFixed(1)} oct` : "Off")} onChange={(v) => upLfo({ filterDepth: v })} />
         </div>
       </Section>
+
+      <DuckPanel />
 
       <Section title="Try it">
         <MiniKeyboard />

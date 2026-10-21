@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  DRUMS_ID, KEYS_ID, addEvent, addTrack, clipOf, markUndo, canRemoveTrack, copyClip, copyPattern, defaultPad, doubleClip, setTrackBars, trackBars, defaultProject, fixSelection, get, migrateV1, normalizeProject, removeTrack, resetSession, selectTrack, set, stepTrack, undo,
+  DRUMS_ID, KEYS_ID, addEvent, addTrack, clipOf, markUndo, canRemoveTrack, copyClip, copyPattern, defaultPad, doubleClip, setTrackBars, setTrackDuck, setDuckPad, padDucks, toggleSidechainInput, trackBars, defaultProject, fixSelection, get, migrateV1, normalizeProject, removeTrack, resetSession, selectTrack, set, stepTrack, undo,
 } from "./store";
-import { DUCK_ALL, MAX_TRACKS, PATTERN_COUNT, type NoteEvent, type Project } from "./types";
+import { MAX_TRACKS, PATTERN_COUNT, type NoteEvent, type Project } from "./types";
 
 const ev = (id: string, tick: number, note: number): NoteEvent => ({ id, tick, note, vel: 100, len: 10 });
 const reset = (p: Project = defaultProject()) => set({ project: p, undo: [], selectedTrack: DRUMS_ID, drumTrack: DRUMS_ID, keysTrack: KEYS_ID });
@@ -62,11 +62,15 @@ describe("normalizeProject", () => {
     expect(ids.slice(0, 2)).toEqual(["x", "xd"]);
   });
 
-  it("resets a duck target or source that points at a missing track", () => {
-    const d = normalizeProject({ tracks: [{ id: "d", kind: "drum" }, { id: "k", kind: "keys" }], duck: { on: true, sourceTrack: "nope", sourcePad: 40, target: "nope:3", depth: 3 } }).duck;
-    expect(d).toMatchObject({ on: true, sourceTrack: "d", sourcePad: 15, target: DUCK_ALL, depth: 1 });
-    expect(normalizeProject({ tracks: [{ id: "d", kind: "drum" }, { id: "k", kind: "keys" }], duck: { target: "d:3" } }).duck.target).toBe("d:3");
-    expect(normalizeProject({ tracks: [{ id: "d", kind: "drum" }, { id: "k", kind: "keys" }], duck: { target: "k:3" } }).duck.target).toBe(DUCK_ALL); // keys tracks have no pads
+  it("keeps sidechain inputs that are pads of drum tracks, once each, and drops keys inputs that are gone", () => {
+    const p = normalizeProject({
+      tracks: [{ id: "d", kind: "drum" }, { id: "k", kind: "keys", duck: { on: true, input: "d:9", depth: 3 } }, { id: "k2", kind: "keys", duck: { on: true, input: "d:3" } }],
+      sidechain: ["d:3", "nope:1", "k:2", "d:16", "d:3", 7, "d:0"],
+    });
+    expect(p.sidechain).toEqual(["d:3", "d:0"]);
+    expect(p.tracks[0].duck).toMatchObject({ on: false, input: null, pads: Array(16).fill(true) });
+    expect(p.tracks[1].duck).toMatchObject({ on: true, input: null, depth: 1 });
+    expect(p.tracks[2].duck).toMatchObject({ on: true, input: "d:3" });
   });
 });
 
@@ -106,11 +110,10 @@ describe("v1 migration", () => {
     expect(pat.clips[KEYS_ID].events).toEqual([{ id: "b", tick: 96, note: 64, vel: 90, len: 48 }]);
   });
 
-  it("moves the ducker over", () => {
-    expect(normalizeProject(v1).duck).toMatchObject({ on: true, sourceTrack: DRUMS_ID, sourcePad: 2, target: KEYS_ID, depth: 0.5 });
-    expect(normalizeProject({ ...v1, duck: { target: 7 } }).duck.target).toBe(`${DRUMS_ID}:7`);
-    expect(normalizeProject({ ...v1, duck: { target: -1 } }).duck.target).toBe(DUCK_ALL);
-    expect(normalizeProject({ name: "Old" }).duck).toEqual(defaultProject().duck);
+  it("drops the old ducker", () => {
+    const p = normalizeProject(v1);
+    expect(p.sidechain).toEqual([]);
+    expect(p.tracks.find((t) => t.id === KEYS_ID)!.duck).toEqual(defaultProject().tracks[1].duck);
   });
 
   it("keeps the Keys preset name, and gives old projects the default", () => {
@@ -153,15 +156,16 @@ describe("tracks", () => {
       project: {
         ...p,
         patterns: p.patterns.map((pat, i) => (i === 0 ? { ...pat, clips: { [id]: { events: [ev("a", 0, 1)] }, [DRUMS_ID]: { events: [ev("b", 0, 2)] } } } : pat)),
-        duck: { ...p.duck, sourceTrack: id, target: `${id}:4` },
-        tracks: p.tracks.map((t) => (t.keys ? { ...t, keys: { ...t.keys, type: "chromatic" as const, sourceTrack: id } } : t)),
+        sidechain: [`${id}:4`, `${DRUMS_ID}:0`],
+        tracks: p.tracks.map((t) => (t.keys ? { ...t, keys: { ...t.keys, type: "chromatic" as const, sourceTrack: id }, duck: { ...t.duck!, on: true, input: `${id}:4` } } : t)),
       },
     });
     removeTrack(id);
     const after = get().project;
     expect(after.tracks.map((t) => t.id)).toEqual([DRUMS_ID, KEYS_ID]);
     expect(Object.keys(after.patterns[0].clips)).toEqual([DRUMS_ID]);
-    expect(after.duck).toMatchObject({ sourceTrack: DRUMS_ID, target: DUCK_ALL });
+    expect(after.sidechain).toEqual([`${DRUMS_ID}:0`]);
+    expect(after.tracks[1].duck).toMatchObject({ on: true, input: null });
     expect(keysOf(after).sourceTrack).toBe(DRUMS_ID);
     expect(get().selectedTrack).toBe(DRUMS_ID);
     expect(get().drumTrack).toBe(DRUMS_ID);
@@ -208,6 +212,46 @@ describe("copyPattern / copyClip", () => {
     expect(pat.clips[DRUMS_ID].events.map((e) => e.note)).toEqual([0, 1]);
     expect(pat.clips[KEYS_ID]).toMatchObject({ bars: 1 });
     expect(pat.clips[KEYS_ID].events.map((e) => e.id)).toEqual(["q"]);
+  });
+});
+
+describe("sidechain", () => {
+  it("numbers inputs in the order they were made; a keys track turned on picks the first, and loses a removed one", () => {
+    reset();
+    toggleSidechainInput(DRUMS_ID, 4);
+    toggleSidechainInput(DRUMS_ID, 0);
+    expect(get().project.sidechain).toEqual([`${DRUMS_ID}:4`, `${DRUMS_ID}:0`]);
+    setTrackDuck(KEYS_ID, { on: true });
+    expect(get().project.tracks[1].duck).toMatchObject({ on: true, input: `${DRUMS_ID}:4` });
+    toggleSidechainInput(DRUMS_ID, 4);
+    expect(get().project.sidechain).toEqual([`${DRUMS_ID}:0`]);
+    expect(get().project.tracks[1].duck!.input).toBeNull();
+    undo();
+    expect(get().project.tracks[1].duck!.input).toBe(`${DRUMS_ID}:4`);
+  });
+
+  it("lets a drum track duck pad by pad, never its own input pad, and keeps the pads on load", () => {
+    reset();
+    toggleSidechainInput(DRUMS_ID, 0);
+    setTrackDuck(DRUMS_ID, { on: true });
+    const drums = () => get().project.tracks[0];
+    expect(drums().duck).toMatchObject({ on: true, input: `${DRUMS_ID}:0` });
+    expect(padDucks(drums(), 0)).toBe(false); // the kick doesn't duck itself
+    expect(padDucks(drums(), 1)).toBe(true);
+    setDuckPad(DRUMS_ID, 1, false);
+    expect(padDucks(drums(), 1)).toBe(false);
+    const loaded = normalizeProject(JSON.parse(JSON.stringify(get().project)));
+    expect(loaded.tracks[0].duck.pads!.slice(0, 3)).toEqual([true, false, true]);
+    expect(normalizeProject({ tracks: [{ id: "d", kind: "drum", duck: { pads: [false, "x"] } }] }).tracks[0].duck.pads!.slice(0, 3)).toEqual([false, true, true]);
+  });
+
+  it("turns a drum track's duck on with another track's input when there is one", () => {
+    reset();
+    const other = addTrack("drum")!;
+    toggleSidechainInput(DRUMS_ID, 0);
+    toggleSidechainInput(other, 3);
+    setTrackDuck(DRUMS_ID, { on: true });
+    expect(get().project.tracks[0].duck.input).toBe(`${other}:3`);
   });
 });
 
