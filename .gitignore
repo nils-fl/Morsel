@@ -9,3 +9,6 @@ kits/*.morsel-kit
 kits/*.morsel-kit.json
 kits/*.launchkit-kit.json
 .wrangler/
+
+# Measurements of third-party sounds (Ableton, Novation) used to tune the stock sounds
+reference/

@@ -7,14 +7,12 @@
 // picks), a smaller one one kit, a pack without kicks, snares and hats none. Kits use the same pad
 // layout as the Factory kit family: kick, snare, clap, rim, closed hat, open hat, shaker, perc on the
 // bottom row, second picks, toms, cymbal and an extra on the top row.
-import { execFile } from "node:child_process";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { basename, extname, join, relative, resolve } from "node:path";
-import { promisify } from "node:util";
 import { strToU8, zipSync } from "fflate";
 import { createServer } from "vite";
+import { categorize, duration, pool, run, walk } from "./lib/samples.mjs";
 
-const run = promisify(execFile);
 const [packsDir, outArg] = process.argv.slice(2);
 if (!packsDir) {
   console.error('Usage: node scripts/make-kits.mjs "<packs folder>" [out folder]');
@@ -28,28 +26,11 @@ const { writeWav } = await vite.ssrLoadModule("/src/audio/wav.ts");
 const { KIT_EXT, ZIP_JSON, sampleFileName } = await vite.ssrLoadModule("/src/state/fileFormat.ts");
 await vite.close();
 
-const AUDIO = /\.(wav|aiff?|flac|mp3|ogg|m4a)$/i;
 // Loops and phrases, not one-shots.
 const NOT_ONE_SHOT = /loop|break|fill|\btops?\b|groove|starter|song|phrase|\d{2,3} ?bpm|bpm ?\d{2,3}|chop|slice|ableton/i;
 const SR = 44100;
 const MAX_SEC = { cymbal: 3, hatOpen: 2.5, fx: 2.5, b808: 2.5 };
 const MAX_DEFAULT = 1.6;
-
-// First match wins, so the specific ones come first.
-const CATEGORIES = [
-  ["b808", /808/],
-  ["kick", /kick|kck|\bbd\b|bass ?drum/],
-  ["rim", /\brim|side ?stick|\bstick/],
-  ["clap", /clap|snap|clp/],
-  ["snare", /snare|snr|\bsd\b/],
-  ["hatOpen", /open|\boh\b|\bohh?\b|hat ?op/],
-  ["hatClosed", /hat|\bhh\b|\bch\b|\bchh\b|closed/],
-  ["cymbal", /crash|ride|cymbal|splash|china/],
-  ["tom", /\btoms?\b|tom ?(lo|mid|hi)|floor ?tom/],
-  ["shaker", /shak|tamb|maraca|cabasa/],
-  ["perc", /perc|conga|bongo|cowbell|clave|block|wood|tabla|bell|foley|knock|click/],
-  ["fx", /\bfx\b|vox|vocal|chant|shout|scratch/],
-];
 
 // Pad layout (pad 1 = bottom left): [name, category fallbacks…, volume, colour].
 const LAYOUT = [
@@ -71,49 +52,6 @@ const LAYOUT = [
   ["808 / FX", ["b808", "fx", "perc", "kick"], 0.6, 53],
 ];
 const HATS = new Set(["Hat Cl", "Hat Op", "Hat 2"]);
-
-async function walk(dir) {
-  const out = [];
-  for (const e of await readdir(dir, { withFileTypes: true })) {
-    const p = join(dir, e.name);
-    if (e.isDirectory()) out.push(...(await walk(p)));
-    else if (AUDIO.test(e.name)) out.push(p);
-  }
-  return out;
-}
-
-// "NKTJ_160_Sd" → "nktj 160 sd": underscores and dashes count as word breaks for \b.
-const words = (s) => s.toLowerCase().replace(/[_\-.]+/g, " ");
-
-function categorize(rel) {
-  const name = words(basename(rel, extname(rel)));
-  const folders = words(rel.split("/").slice(0, -1).join("/"));
-  // The file name decides first; the folder (e.g. "Kicks", "OH") only when the name says nothing.
-  for (const text of [name, folders]) for (const [cat, re] of CATEGORIES) if (re.test(text)) return cat;
-  return null;
-}
-
-/** Run up to `limit` promises at a time. */
-async function pool(items, limit, fn) {
-  const out = new Array(items.length);
-  let next = 0;
-  await Promise.all(Array.from({ length: limit }, async () => {
-    while (next < items.length) {
-      const i = next++;
-      out[i] = await fn(items[i]);
-    }
-  }));
-  return out;
-}
-
-async function duration(file) {
-  try {
-    const { stdout } = await run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file]);
-    return parseFloat(stdout) || Infinity;
-  } catch {
-    return Infinity;
-  }
-}
 
 /** Decode to 44.1 kHz stereo, cut to `maxSec` with a short fade, normalise to -1 dB; a 16-bit WAV (mono if both sides are the same). */
 async function encode(file, maxSec) {
