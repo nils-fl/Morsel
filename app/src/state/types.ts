@@ -133,10 +133,13 @@ export interface NoteEvent {
 
 export interface Clip {
   events: NoteEvent[];
+  /** The clip's own loop length (1-4 bars); missing = the pattern's length. Clips loop on their own while playing. */
+  bars?: number;
 }
 
-/** A sequence: a length and one clip per track (by track id; a track without one is silent here). */
+/** A sequence: one clip per track (by track id; a track without one is silent here). */
 export interface Pattern {
+  /** The longest clip: the pattern switches and counts its song repeats after this many bars. */
   bars: number;
   clips: Record<string, Clip>;
 }

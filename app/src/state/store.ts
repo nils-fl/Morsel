@@ -302,7 +302,9 @@ function normalizeTracks(raw: unknown): Track[] {
   return tracks.map((t) => (t.kind === "keys" ? { ...t, keys: normalizeKeys(rawById.get(t.id)?.keys, drumIds) } : t));
 }
 
-function normalizeClip(raw: unknown, track: Track, bars: number, seen: Set<string>): Clip {
+function normalizeClip(raw: unknown, track: Track, patternBars: number, seen: Set<string>): Clip {
+  const own = isObj(raw) && raw.bars !== undefined ? num(Math.round(Number(raw.bars)), 1, 4, patternBars) : undefined;
+  const bars = own ?? patternBars;
   const events = (isObj(raw) && Array.isArray(raw.events) ? raw.events : []).flatMap((e): NoteEvent[] => {
     if (!isObj(e) || typeof e.tick !== "number" || e.tick < 0 || e.tick >= bars * BAR_TICKS) return [];
     if (track.kind === "drum" && (typeof e.note !== "number" || e.note < 0 || e.note >= PAD_COUNT)) return [];
@@ -312,7 +314,7 @@ function normalizeClip(raw: unknown, track: Track, bars: number, seen: Set<strin
     seen.add(id);
     return [{ id, tick: e.tick, note: Math.round(num(e.note, 0, 127, 60)), vel: num(e.vel, 1, 127, 100), len: num(e.len, 1, Number.MAX_SAFE_INTEGER, 1) }];
   });
-  return { events };
+  return own === undefined ? { events } : { events, bars: own };
 }
 
 function normalizePattern(raw: unknown, tracks: Track[], seen: Set<string>): Pattern {
@@ -323,7 +325,8 @@ function normalizePattern(raw: unknown, tracks: Track[], seen: Set<string>): Pat
     const c = isObj(raw.clips) ? raw.clips[t.id] : undefined;
     if (c !== undefined) clips[t.id] = normalizeClip(c, t, bars, seen);
   }
-  return { bars, clips };
+  // The pattern is as long as its longest clip.
+  return { bars: Math.max(bars, ...Object.values(clips).map((c) => c.bars ?? 1)), clips };
 }
 
 function normalizeDuck(raw: unknown, d: DuckSettings, tracks: Track[]): DuckSettings {
@@ -636,7 +639,8 @@ export function removeTrack(id: string) {
       tracks: tracks.map((t) => (t.keys && t.keys.sourceTrack === id ? { ...t, keys: { ...t.keys, sourceTrack: firstDrum } } : t)),
       patterns: pr.patterns.map((pat) => {
         const { [id]: _gone, ...clips } = pat.clips;
-        return { ...pat, clips };
+        // It may have been the longest clip.
+        return { bars: Math.max(1, ...tracks.map((t) => clips[t.id]?.bars ?? pat.bars)), clips };
       }),
       duck: {
         ...pr.duck,
@@ -668,26 +672,57 @@ export function updatePattern(index: number, fn: (pat: Pattern) => Pattern, undo
   updateProject((p) => ({ ...p, patterns: p.patterns.map((pat, j) => (j === index ? fn(pat) : pat)) }), undoable);
 }
 
-/** Every clip of a pattern trimmed to `bars`. */
-export const trimClips = (pat: Pattern, bars: number): Pattern["clips"] =>
-  Object.fromEntries(Object.entries(pat.clips).map(([id, c]) => [id, { events: c.events.filter((e) => e.tick < bars * BAR_TICKS) }]));
-
-/** Set a pattern's length (1-4 bars, every track); notes past the new end are dropped. */
-export function setPatternBars(index: number, bars: number, undoable = true) {
-  bars = Math.max(1, Math.min(4, Math.round(bars)));
-  updatePattern(index, (p) => (p.bars === bars ? p : { bars, clips: trimClips(p, bars) }), undoable);
-  if (index === get().currentPattern && get().stepPage >= bars) set({ stepPage: bars - 1 });
-}
-
 const EMPTY_CLIP: Clip = { events: [] };
 export const clipOf = (pat: Pattern, trackId: string): Clip => pat.clips[trackId] ?? EMPTY_CLIP;
 export const patternHasNotes = (pat: Pattern) => Object.values(pat.clips).some((c) => c.events.length > 0);
 
 export function updateClip(patternIndex: number, trackId: string, fn: (events: NoteEvent[]) => NoteEvent[], undoable = true) {
-  updatePattern(patternIndex, (pat) => ({ ...pat, clips: { ...pat.clips, [trackId]: { events: fn(clipOf(pat, trackId).events) } } }), undoable);
+  updatePattern(patternIndex, (pat) => {
+    const clip = clipOf(pat, trackId);
+    return { ...pat, clips: { ...pat.clips, [trackId]: { ...clip, events: fn(clip.events) } } };
+  }, undoable);
 }
 
+/** The pattern's length in ticks: its longest clip. */
 export const patternLength = (pat: Pattern) => pat.bars * BAR_TICKS;
+/** A track's loop length in a pattern, in bars and in ticks. */
+export const trackBars = (pat: Pattern, trackId: string) => pat.clips[trackId]?.bars ?? pat.bars;
+export const trackLength = (pat: Pattern, trackId: string) => trackBars(pat, trackId) * BAR_TICKS;
+
+/**
+ * Give every track's clip its own length (from `lengths`, else what it has now), drop notes past the ends, and make
+ * the pattern as long as its longest clip.
+ */
+export function resizeClips(pat: Pattern, tracks: Track[], lengths: Record<string, number> = {}): Pattern {
+  const clips: Pattern["clips"] = {};
+  for (const t of tracks) {
+    const bars = Math.max(1, Math.min(4, Math.round(lengths[t.id] ?? trackBars(pat, t.id))));
+    clips[t.id] = { events: clipOf(pat, t.id).events.filter((e) => e.tick < bars * BAR_TICKS), bars };
+  }
+  return { bars: Math.max(1, ...Object.values(clips).map((c) => c.bars!)), clips };
+}
+
+/** Set one track's loop length (1-4 bars) in a pattern; notes past its new end are dropped. */
+export function setTrackBars(index: number, trackId: string, bars: number, undoable = true) {
+  const pat = get().project.patterns[index];
+  if (trackBars(pat, trackId) === bars) return;
+  updatePattern(index, (p) => resizeClips(p, get().project.tracks, { [trackId]: bars }), undoable);
+  const s = get();
+  if (index === s.currentPattern && trackId === s.selectedTrack && s.stepPage >= bars) set({ stepPage: Math.max(0, bars - 1) });
+}
+
+/** Double a track's clip: its notes repeat after its current length (up to 4 bars). */
+export function doubleClip(index: number, trackId: string) {
+  const pat = get().project.patterns[index];
+  const bars = trackBars(pat, trackId);
+  if (bars * 2 > 4) return;
+  const shift = bars * BAR_TICKS;
+  updatePattern(index, (p) => {
+    const events = clipOf(p, trackId).events;
+    const doubled = { ...p, clips: { ...p.clips, [trackId]: { events: [...events, ...events.map((e) => ({ ...e, id: newId(), tick: e.tick + shift }))] } } };
+    return resizeClips(doubled, get().project.tracks, { [trackId]: bars * 2 });
+  });
+}
 
 let idCounter = 0;
 export const newId = () => `${Date.now().toString(36)}-${(idCounter++).toString(36)}`;
@@ -723,7 +758,7 @@ export function clearTrack(patternIndex: number, trackId: string, pad?: number) 
   updateClip(patternIndex, trackId, (events) => (pad === undefined ? [] : events.filter((e) => e.note !== pad)));
 }
 
-const freshIds = (c: Clip): Clip => ({ events: c.events.map((e) => ({ ...e, id: newId() })) });
+const freshIds = (c: Clip): Clip => ({ ...c, events: c.events.map((e) => ({ ...e, id: newId() })) });
 
 /** Overwrite pattern `to` with a copy of `from` (fresh event ids, so the two never share notes). Undoable. */
 export function copyPattern(from: number, to: number) {
@@ -734,13 +769,13 @@ export function copyPattern(from: number, to: number) {
   });
 }
 
-/** Overwrite one track's clip in pattern `to` with its clip from `from` (notes past `to`'s length are dropped). Undoable. */
+/** Overwrite one track's clip in pattern `to` with its clip from `from`, length included. Undoable. */
 export function copyClip(from: number, to: number, trackId: string) {
   if (from === to) return;
   const p = get().project;
-  const len = patternLength(p.patterns[to]);
   const src = freshIds(clipOf(p.patterns[from], trackId));
-  updateClip(to, trackId, () => src.events.filter((e) => e.tick < len));
+  const bars = trackBars(p.patterns[from], trackId);
+  updatePattern(to, (pat) => resizeClips({ ...pat, clips: { ...pat.clips, [trackId]: src } }, p.tracks, { [trackId]: bars }));
 }
 
 // ---------- mute / solo ----------

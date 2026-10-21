@@ -1,6 +1,6 @@
 import { engine } from "../audio/engine";
 import { scheduleNote } from "../audio/voices";
-import { addEvent, clipOf, get, markUndo, patternLength, set, setEventLength } from "../state/store";
+import { addEvent, clipOf, get, markUndo, patternLength, set, setEventLength, trackLength } from "../state/store";
 import type { Clip, NoteEvent } from "../state/types";
 import { BAR_TICKS, PPQN, quantizeTick, secondsPerTick, swingOffsetTicks } from "./timing";
 
@@ -41,14 +41,17 @@ class Sequencer {
   private repeatTicker = makeTicker(() => this.pumpRepeat());
   private repeatClock = false;
   private repeatNext = 0;
+  /**
+   * Ticks since the current pattern started. It keeps counting while the pattern repeats, so each track loops at
+   * its own length (a 3-bar track drifts against a 4-bar one), and starts again from 0 when the pattern changes.
+   */
   private nextTick = 0;
   private nextTime = 0;
   private pattern = 0;
   private songIndex = 0;
   private songRepeat = 0;
-  private skip = new Set<string>();
-  /** Recorded notes that sounded live just before the loop end but were quantised to the next pass. */
-  private skipNextPass = new Set<string>();
+  /** Recorded notes that already sounded live: event id → the tick (as `nextTick`) the scheduler must not play it at. */
+  private skip = new Map<string, number>();
   private anchors: Anchor[] = [];
   /** Keys held while recording, by `${track}:${note}`. */
   private openKeys = new Map<string, { id: string; track: string; tick: number; pattern: number }>();
@@ -82,7 +85,6 @@ class Sequencer {
     this.nextTime = engine.now + 0.05;
     this.anchors = [];
     this.skip.clear();
-    this.skipNextPass.clear();
     set({ playing: true, countIn: !!opts.countIn, currentPattern: this.pattern, queuedPattern: null });
     this.pump();
     this.ticker(TIMER_MS);
@@ -96,7 +98,7 @@ class Sequencer {
     this.ensureRepeatClock(); // pads still held for note repeat keep going
   }
 
-  /** Song position (ticks, fractional) at audio time `at`. Negative during count-in. */
+  /** Ticks (fractional) since the playing pattern started, at audio time `at`. Negative during count-in. */
   tickAt(at = engine.now): { tick: number; pattern: number } | null {
     if (!get().playing) return null;
     const spt = secondsPerTick(get().project.bpm);
@@ -106,6 +108,13 @@ class Sequencer {
     }
     const a = this.anchors[0];
     return a ? { tick: a.tick, pattern: a.pattern } : null;
+  }
+
+  /** Where a track is in its own loop at audio time `at` (ticks, fractional). Negative during count-in. */
+  trackTickAt(trackId: string, at = engine.now): { tick: number; pattern: number } | null {
+    const pos = this.tickAt(at);
+    if (!pos || pos.tick < 0) return pos;
+    return { tick: pos.tick % trackLength(get().project.patterns[pos.pattern], trackId), pattern: pos.pattern };
   }
 
   private pump() {
@@ -129,22 +138,26 @@ class Sequencer {
         if (s.metronome && tick % PPQN === 0) engine.click(t, tick % BAR_TICKS === 0);
         const when = t + swingOffsetTicks(tick, p.swing) * spt;
         for (const track of p.tracks) {
-          const evs = eventsByTick(clipOf(pat, track.id)).get(tick);
+          const evs = eventsByTick(clipOf(pat, track.id)).get(tick % trackLength(pat, track.id));
           if (!evs) continue;
           for (const e of evs) {
-            if (this.skip.delete(e.id)) continue;
+            if (this.skip.get(e.id) === tick) {
+              this.skip.delete(e.id);
+              continue;
+            }
             scheduleNote(engine.voices, track, e, when, e.len * spt);
           }
         }
         if (this.repeatOn && this.repeatPads.size && tick % s.repeatRate === 0) {
           const recording = s.recording && !s.countIn;
           for (const { track, pad, vel } of this.repeatPads.values()) {
+            const local = tick % trackLength(pat, track);
             // Held across the loop while recording: the note from the last pass is already there and has just played.
-            if (recording && eventsByTick(clipOf(pat, track)).get(tick)?.some((e) => e.note === pad)) continue;
+            if (recording && eventsByTick(clipOf(pat, track)).get(local)?.some((e) => e.note === pad)) continue;
             engine.voices.pad(track, pad, vel, when, s.repeatRate * spt, true);
             if (recording) {
               this.beginTake();
-              addEvent(this.pattern, track, { tick, note: pad, vel, len: s.repeatRate });
+              addEvent(this.pattern, track, { tick: local, note: pad, vel, len: s.repeatRate });
             }
           }
         }
@@ -153,7 +166,7 @@ class Sequencer {
       this.nextTick++;
       this.nextTime += spt;
       if (this.nextTick === 0 && s.countIn) set({ countIn: false });
-      if (this.nextTick >= len) this.wrap();
+      if (this.nextTick > 0 && this.nextTick % len === 0) this.passEnd();
     }
     const cutoff = now - 1;
     while (this.anchors.length > 2 && this.anchors[1].time < cutoff) this.anchors.shift();
@@ -187,10 +200,8 @@ class Sequencer {
     }
   }
 
-  private wrap() {
-    this.nextTick = 0;
-    this.skip = this.skipNextPass;
-    this.skipNextPass = new Set();
+  /** The end of a pass of the pattern (its longest clip): count song repeats, switch to a queued pattern. */
+  private passEnd() {
     const s = get();
     let next = this.pattern;
     if (s.songMode && s.project.song.length) {
@@ -202,6 +213,10 @@ class Sequencer {
       next = s.project.song[this.songIndex].pattern;
     } else if (s.queuedPattern !== null) {
       next = s.queuedPattern;
+    }
+    if (next !== this.pattern) {
+      this.nextTick = 0;
+      this.skip.clear();
     }
     this.pattern = next;
     if (next !== s.currentPattern || s.queuedPattern !== null) set({ currentPattern: next, queuedPattern: null });
@@ -217,27 +232,30 @@ class Sequencer {
 
   // ---------- live recording ----------
 
-  /** Where a live hit is recorded. `wrapped`: quantised forward past the loop end, onto the next pass. */
-  private recordTick(at: number): { tick: number; pattern: number; len: number; wrapped: boolean } | null {
+  /**
+   * Where a live hit on `track` is recorded: `tick` in the track's clip, and `at`, the pattern tick it lands on (the
+   * next pass of the clip when quantised forward past its end).
+   */
+  private recordTick(track: string, at: number): { tick: number; pattern: number; at: number } | null {
     const s = get();
     if (!s.recording || s.countIn) return null;
     const pos = this.tickAt(at);
     if (!pos || pos.tick < 0) return null;
-    const len = patternLength(s.project.patterns[pos.pattern]);
-    const tick = quantizeTick(pos.tick, s.quantize, len);
-    return { tick, pattern: pos.pattern, len, wrapped: tick < pos.tick - len / 2 };
+    const len = trackLength(s.project.patterns[pos.pattern], track);
+    const local = pos.tick % len;
+    const tick = quantizeTick(local, s.quantize, len);
+    const wrapped = tick < local - len / 2;
+    return { tick, pattern: pos.pattern, at: Math.round(pos.tick - local) + tick + (wrapped ? len : 0) };
   }
 
-  private skipIfAhead(ev: NoteEvent, r: { pattern: number; len: number; wrapped: boolean }) {
+  private skipIfAhead(ev: NoteEvent, r: { pattern: number; at: number }) {
     // The note already sounded live; don't play it again when the scheduler reaches it.
-    if (r.pattern !== this.pattern) return;
-    if (r.wrapped && this.nextTick > r.len / 2) this.skipNextPass.add(ev.id); // scheduler hasn't wrapped yet
-    else if (ev.tick >= this.nextTick) this.skip.add(ev.id);
+    if (r.pattern === this.pattern && r.at >= this.nextTick) this.skip.set(ev.id, r.at);
   }
 
   /** `at`: the audio time the note sounds (engine.liveTime). */
   recordPad(track: string, pad: number, vel: number, at: number) {
-    const r = this.recordTick(at);
+    const r = this.recordTick(track, at);
     if (!r) return;
     this.beginTake();
     const ev = addEvent(r.pattern, track, { tick: r.tick, note: pad, vel, len: get().quantize || 24 });
@@ -245,7 +263,7 @@ class Sequencer {
   }
 
   recordKeyOn(track: string, note: number, vel: number, at: number) {
-    const r = this.recordTick(at);
+    const r = this.recordTick(track, at);
     if (!r) return;
     this.beginTake();
     const ev = addEvent(r.pattern, track, { tick: r.tick, note, vel, len: 24 });
@@ -261,7 +279,8 @@ class Sequencer {
     this.openKeys.delete(key);
     const pos = this.tickAt(at);
     if (!pos) return;
-    const len = patternLength(get().project.patterns[open.pattern]);
+    // Both are pattern ticks; the pattern may have started again in between.
+    const len = trackLength(get().project.patterns[open.pattern], open.track);
     let dur = pos.tick - open.tick;
     if (dur < 0) dur += len;
     setEventLength(open.pattern, open.track, open.id, Math.round(dur));

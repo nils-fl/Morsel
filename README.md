@@ -11,7 +11,7 @@ A browser-based groovebox for the **Novation Launchkey Mini MK4 25**. Morsel put
 - **16-pad sampler**: velocity-sensitive pads with start/end, pitch, attack/decay, HP/LP filters with resonance, pan and volume. Pad pressure (aftertouch) opens the filters on note-repeat hits.
 - **Pad modes** (cycle with Func):
   - **Play**: play the pads.
-  - **Step**: 16-step grid for the selected track (on a drum track, the selected pad; on a keys track, the last key you played is the note). Step mode opens the **Step** encoder page: 1 = pattern length (1–4 bars, every track; shortening drops the notes past the end, Undo brings them back), 2 = the bar on the pads, 3 = swing, 4 = quantize. The arrows still reach the track's other pages, and leaving Step mode returns to the page you were on.
+  - **Step**: 16-step grid for the selected track (on a drum track, the selected pad; on a keys track, the last key you played is the note). Step mode opens the **Step** encoder page: 1 = the selected track's length (1–4 bars; shortening drops the notes past the end, Undo brings them back), 2 = the bar on the pads, 3 = swing, 4 = quantize. The arrows still reach the track's other pages, and leaving Step mode returns to the page you were on.
   - **Track**: top pad row selects tracks 1–8, bottom row mutes them (double-tap = solo).
   - **Mixer**: tap a pad of the drum track (the last one picked) to mute it, double-tap to solo.
   - **Pattern**: switch patterns; while playing, the switch waits until the loop ends.
@@ -21,7 +21,7 @@ A browser-based groovebox for the **Novation Launchkey Mini MK4 25**. Morsel put
   - The encoder pages hide what doesn't apply. Drum tracks: Kit, Pad, Pad 2, Track FX, Mix, Global, Duck. Keys tracks: Keys, LFO, Track FX, Mix, Global. The Keys page follows the sound source: synth (preset, waves, detune, filter, envelope), Sample (sample from the library, root note, attack, release, cutoff, resonance) or Pad sample (source pad).
   - On a keys track the 16 pads play notes C3–D#4 of that track and record into its clip.
   - The keybed always plays the last keys track you picked, so on a drum track you can still drum and play keys at once.
-- **Sequencer**: 16 patterns (sequences) of 1–4 bars, each holding one clip per track, with live recording (count-in, overdub), quantize, swing, note repeat, metronome and undo.
+- **Sequencer**: 16 patterns (sequences), each holding one clip per track. Every clip has its own length (1–4 bars) and loops on its own, so a 3-bar clip drifts against a 4-bar one; the pattern is as long as its longest clip, and switches patterns and counts song repeats after that. A new pattern starts all its clips together. Live recording (count-in, overdub), quantize, swing, note repeat, metronome and undo.
 - **Keys**: an instrument per keys track, played from the keybed (or the pads) and recorded into that track's clip. The Launchkey's Arp and Scale still work. Four sources:
   - **Synth**: two oscillators, filter (12 or 24 dB) and envelope, plus sub oscillator, noise, drive, key tracking, velocity to filter and a separate filter decay, with presets.
   - **Sample**: one sound of its own (load, drop or pick from the library) with a root note, attack, release, cutoff and resonance.

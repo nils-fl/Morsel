@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { sequencer } from "../seq/sequencer";
-import { clearTrack, clipOf, copyClip, patternLength, selectTrack, set, useApp } from "../state/store";
+import { clearTrack, clipOf, copyClip, selectTrack, set, trackBars, trackLength, useApp } from "../state/store";
 import { Section } from "./controls";
 import { paletteCss } from "./palette";
 
@@ -45,15 +45,16 @@ export function Matrix() {
             <button className="mx-num" onClick={() => sequencer.selectPattern(i)}>{i + 1}</button>
             {p.tracks.map((t) => {
               const clip = clipOf(pat, t.id);
-              const steps = pat.bars * 16;
-              // Density strip: one tick per 16th that has a note.
-              const lit = new Set(clip.events.map((e) => Math.floor((e.tick / patternLength(pat)) * steps)));
+              const bars = trackBars(pat, t.id);
+              const steps = bars * 16;
+              // Density strip: one tick per 16th that has a note, over the clip's own length.
+              const lit = new Set(clip.events.map((e) => Math.floor((e.tick / trackLength(pat, t.id)) * steps)));
               return (
                 <button
                   key={t.id}
                   className={`mx-cell ${clip.events.length ? "used" : ""} ${i === current && t.id === selected ? "sel" : ""}`}
                   style={{ "--trk": paletteCss(t.color), "--steps": steps } as React.CSSProperties}
-                  title={`${t.name} · sequence ${i + 1}: ${clip.events.length} note${clip.events.length === 1 ? "" : "s"}`}
+                  title={`${t.name} · sequence ${i + 1}: ${clip.events.length} note${clip.events.length === 1 ? "" : "s"}, ${bars} bar${bars === 1 ? "" : "s"}`}
                   onClick={() => {
                     selectTrack(t.id);
                     if (i !== current) sequencer.selectPattern(i);

@@ -7,8 +7,8 @@ import { DUCK_PAGE, PAGES, STEP_PAGE, duckSourceLabel, duckTargetLabel, fixPage,
 import { makeTicker, sequencer } from "../seq/sequencer";
 import { PPQN, REPEAT_OPTIONS, STEP_TICKS } from "../seq/timing";
 import {
-  type AppState, clearTrack, clipOf, copyClip, copyPattern, drumPads, drumTrack, get, patternHasNotes, patternLength, selectTrack,
-  selectedTrack, set, stepTrack, store, togglePadFlag, toggleStep, toggleTrackFlag, trackAudible, undo, updateProject, PAD_COLORS,
+  type AppState, clearTrack, clipOf, copyClip, copyPattern, drumPads, drumTrack, get, patternHasNotes, selectTrack,
+  selectedTrack, set, stepTrack, store, togglePadFlag, toggleStep, toggleTrackFlag, trackAudible, trackBars, trackLength, undo, updateProject, PAD_COLORS,
 } from "../state/store";
 import type { HwMode, KeysInstrument, Track } from "../state/types";
 import { noteForKeysPad, stepForPad } from "./stepMap";
@@ -144,8 +144,8 @@ export function initController() {
     else if (!s.chop && prev.chop) exitChopHw();
     // Switching between a drum and a keys track: stay on an encoder page that track has.
     if (s.selectedTrack !== prev.selectedTrack || s.project.tracks !== prev.project.tracks) fixPage();
-    // The bar on the step pads must exist in the current pattern (a shorter one may have been picked).
-    const bars = s.project.patterns[s.currentPattern].bars;
+    // The bar on the step pads must exist in the selected track's clip (a shorter one may have been picked).
+    const bars = trackBars(s.project.patterns[s.currentPattern], s.selectedTrack);
     if (s.stepPage >= bars) set({ stepPage: bars - 1 });
   });
   launchkey.on((e) => {
@@ -307,9 +307,9 @@ function onPad(pad: number, vel: number) {
     }
     case "step": {
       const pat = s.project.patterns[s.currentPattern];
-      const tick = (s.stepPage * 16 + stepForPad(pad)) * STEP_TICKS;
-      if (tick >= patternLength(pat)) break;
       const t = selectedTrack(s);
+      const tick = (s.stepPage * 16 + stepForPad(pad)) * STEP_TICKS;
+      if (tick >= trackLength(pat, t.id)) break;
       const note = t.kind === "drum" ? s.selectedPad : keysStepNote(t);
       toggleStep(s.currentPattern, t.id, tick, STEP_TICKS, note, Math.max(vel, 40));
       break;
@@ -483,7 +483,7 @@ function onButton(button: string, down: boolean) {
     case "padDown": {
       const dir = button === "padUp" ? -1 : 1;
       if (s.hwMode === "step") {
-        const bars = s.project.patterns[s.currentPattern].bars;
+        const bars = trackBars(s.project.patterns[s.currentPattern], s.selectedTrack);
         const page = Math.max(0, Math.min(bars - 1, s.stepPage + dir));
         set({ stepPage: page });
         showTemp("Bar", `${page + 1} / ${bars}`);
@@ -557,8 +557,8 @@ const onEncoderScreen = (s: AppState) => s.hwMode === "play" && !INSTRUMENT_TAGS
 
 function stepsOf(s: AppState) {
   const pat = s.project.patterns[s.currentPattern];
-  const len = patternLength(pat);
   const t = selectedTrack(s);
+  const len = trackLength(pat, t.id);
   const events = clipOf(pat, t.id).events.filter((e) => t.kind !== "drum" || e.note === s.selectedPad);
   return Array.from({ length: 16 }, (_, step) => {
     const tick = (s.stepPage * 16 + step) * STEP_TICKS;
@@ -567,7 +567,7 @@ function stepsOf(s: AppState) {
 }
 
 function playheadStep(s: AppState) {
-  const pos = sequencer.tickAt();
+  const pos = sequencer.trackTickAt(s.selectedTrack);
   if (!pos || pos.tick < 0 || pos.pattern !== s.currentPattern) return -1;
   const step = Math.floor(pos.tick / STEP_TICKS) - s.stepPage * 16;
   return step >= 0 && step < 16 ? step : -1;
@@ -698,7 +698,7 @@ function screenFor(s: AppState, overlay: Overlay | null): Frame | null {
         track: trackLabel(s),
         status,
         item: t.kind === "drum" ? trackItemName(s, t) : `Note ${noteName(keysStepNote(t))}`,
-        bar: s.stepPage, bars: p.patterns[s.currentPattern].bars,
+        bar: s.stepPage, bars: trackBars(p.patterns[s.currentPattern], t.id),
         steps: stepsOf(s), playhead: playheadStep(s),
         pageTag: PAGES[s.encPage].tag, pageInfo: PAGES[s.encPage].summary(),
       });
@@ -800,7 +800,7 @@ function padArrowLeds(s: AppState) {
     const m = chopMarkerArrows();
     return { up: m.up ? LED_FULL : 0, down: m.down ? LED_FULL : 0 };
   }
-  const [pos, last] = s.hwMode === "step" ? [s.stepPage, s.project.patterns[s.currentPattern].bars - 1] : [s.currentPattern, 15];
+  const [pos, last] = s.hwMode === "step" ? [s.stepPage, trackBars(s.project.patterns[s.currentPattern], s.selectedTrack) - 1] : [s.currentPattern, 15];
   return { up: pos > 0 ? LED_FULL : 0, down: pos < last ? LED_FULL : 0 };
 }
 
@@ -821,7 +821,7 @@ function padLeds(s: AppState) {
   const p = s.project;
   const steps = s.hwMode === "step" ? stepsOf(s) : [];
   const head = s.hwMode === "step" ? playheadStep(s) : -1;
-  const len = patternLength(p.patterns[s.currentPattern]);
+  const len = trackLength(p.patterns[s.currentPattern], s.selectedTrack);
   const leds: { color: number; mode?: LedMode }[] = [];
   for (let i = 0; i < 16; i++) {
     let color: number = COLOR.off;

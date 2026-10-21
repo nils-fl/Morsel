@@ -1,7 +1,7 @@
 import { scheduleNote, Voices } from "../audio/voices";
 import { engine, type VoiceEngine } from "../audio/engine";
 import { loadVoiceWorklet } from "../audio/worklet/voiceNode";
-import { clipOf, patternLength } from "../state/store";
+import { clipOf, patternLength, trackLength } from "../state/store";
 import type { NoteEvent, Project, Track } from "../state/types";
 import { secondsPerTick, swingOffsetTicks } from "./timing";
 
@@ -17,15 +17,28 @@ export function arrangement(p: Project, song: boolean, pattern: number, loops = 
 /**
  * Every note of the arrangement with its absolute tick, in time order. Choke groups cut the voices already
  * scheduled and the ducker cancels later ramps, so notes must be scheduled as they sound, not as they were entered.
+ * Like the sequencer, each clip loops at its own length for as long as its pattern keeps playing.
  */
 export function orderedEvents(p: Project, order: number[]): { track: Track; event: NoteEvent; tick: number }[] {
   const out: { track: Track; event: NoteEvent; tick: number }[] = [];
   let offset = 0;
-  for (const i of order) {
+  let start = 0; // where the playing pattern started (it keeps going while the same pattern repeats)
+  order.forEach((i, k) => {
     const pat = p.patterns[i];
-    for (const track of p.tracks) for (const event of clipOf(pat, track.id).events) out.push({ track, event, tick: offset + event.tick });
-    offset += patternLength(pat);
-  }
+    if (k > 0 && i !== order[k - 1]) start = offset;
+    const end = offset + patternLength(pat);
+    for (const track of p.tracks) {
+      const len = trackLength(pat, track.id);
+      // The clip's passes that overlap this pass of the pattern.
+      for (let from = start + Math.floor((offset - start) / len) * len; from < end; from += len) {
+        for (const event of clipOf(pat, track.id).events) {
+          const tick = from + event.tick;
+          if (tick >= offset && tick < end) out.push({ track, event, tick });
+        }
+      }
+    }
+    offset = end;
+  });
   return out.sort((a, b) => a.tick - b.tick);
 }
 

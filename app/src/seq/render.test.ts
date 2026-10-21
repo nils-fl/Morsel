@@ -16,4 +16,17 @@ describe("orderedEvents", () => {
     expect(out.map((x) => x.tick)).toEqual([0, 100, 300, 384 + 50, 384 * 3, 384 * 3 + 100, 384 * 3 + 300]);
     expect(out[1].track.id).toBe(KEYS_ID);
   });
+
+  it("loops each clip at its own length while its pattern repeats, and starts them together when it changes", () => {
+    const p = defaultProject();
+    const BAR = 384;
+    // Drums 3 bars, keys 4: the pattern is 4 bars long, and the drums drift against it.
+    p.patterns[0] = { bars: 4, clips: { [DRUMS_ID]: { events: [ev("d", 0)], bars: 3 }, [KEYS_ID]: { events: [ev("k", 0)], bars: 4 } } };
+    p.patterns[1] = { bars: 1, clips: { [DRUMS_ID]: { events: [ev("x", 0)] } } };
+    const out = orderedEvents(p, [0, 0, 1, 0]);
+    const at = (id: string) => out.filter((x) => x.event.id === id).map((x) => x.tick / BAR);
+    expect(at("d")).toEqual([0, 3, 6, 9, 12]); // after pattern 2 (bar 9), pattern 1 starts over
+    expect(at("k")).toEqual([0, 4, 9]);
+    expect(at("x")).toEqual([8]);
+  });
 });

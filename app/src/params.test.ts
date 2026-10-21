@@ -47,14 +47,18 @@ describe("Step page", () => {
     expect(pagesFor("keys", true).map((i) => PAGES[i].tag)).toEqual(["STEP", "KEYS", "LFO", "FX", "MIX", "GLB"]);
   });
 
-  it("sets the pattern length, dropping notes past the end, and keeps the bar view inside it", () => {
+  it("sets the selected track's length, dropping its notes past the end, and keeps the bar view inside it", () => {
     const p = defaultProject();
     p.patterns[0] = { bars: 2, clips: { drums: { events: [{ id: "a", tick: 0, note: 0, vel: 100, len: 10 }, { id: "b", tick: 400, note: 1, vel: 100, len: 10 }] } } };
-    set({ project: p, currentPattern: 0, stepPage: 1, undo: [] });
+    set({ project: p, currentPattern: 0, selectedTrack: "drums", stepPage: 1, undo: [] });
     const bars = PAGES.find((pg) => pg.tag === "STEP")!.params[0];
     bars.nudge(-1, false);
-    expect(get().project.patterns[0].bars).toBe(1);
-    expect(get().project.patterns[0].clips.drums.events.map((e) => e.id)).toEqual(["a"]);
+    const pat = get().project.patterns[0];
+    expect(pat.clips.drums).toMatchObject({ bars: 1 });
+    expect(pat.clips.drums.events.map((e) => e.id)).toEqual(["a"]);
+    // The keys track keeps its 2 bars, and the pattern runs as long as it.
+    expect(pat.clips.keys.bars).toBe(2);
+    expect(pat.bars).toBe(2);
     expect(get().stepPage).toBe(0);
     bars.nudge(1, false);
     bars.nudge(1, false);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DRUMS_ID, KEYS_ID, addEvent, addTrack, clipOf, markUndo, canRemoveTrack, copyClip, copyPattern, defaultPad, defaultProject, fixSelection, get, migrateV1, normalizeProject, removeTrack, resetSession, selectTrack, set, stepTrack, undo,
+  DRUMS_ID, KEYS_ID, addEvent, addTrack, clipOf, markUndo, canRemoveTrack, copyClip, copyPattern, defaultPad, doubleClip, setTrackBars, trackBars, defaultProject, fixSelection, get, migrateV1, normalizeProject, removeTrack, resetSession, selectTrack, set, stepTrack, undo,
 } from "./store";
 import { DUCK_ALL, MAX_TRACKS, PATTERN_COUNT, type NoteEvent, type Project } from "./types";
 
@@ -196,16 +196,47 @@ describe("copyPattern / copyClip", () => {
     expect(get().project.patterns[3].clips[DRUMS_ID].events.map((e) => e.id)).toEqual(["z"]);
   });
 
-  it("copyClip replaces one track's clip only, trimmed to the target's length", () => {
+  it("copyClip replaces one track's clip only, with its length", () => {
     const p = defaultProject();
     p.patterns[0] = { bars: 2, clips: { [DRUMS_ID]: { events: [ev("a", 0, 0), ev("late", 500, 1)] }, [KEYS_ID]: { events: [ev("k", 0, 60)] } } };
     p.patterns[1] = { bars: 1, clips: { [DRUMS_ID]: { events: [ev("z", 0, 5)] }, [KEYS_ID]: { events: [ev("q", 0, 62)] } } };
     reset(p);
     copyClip(0, 1, DRUMS_ID);
     const pat = get().project.patterns[1];
-    expect(pat.bars).toBe(1);
-    expect(pat.clips[DRUMS_ID].events.map((e) => e.note)).toEqual([0]);
+    expect(pat.bars).toBe(2);
+    expect(pat.clips[DRUMS_ID]).toMatchObject({ bars: 2 });
+    expect(pat.clips[DRUMS_ID].events.map((e) => e.note)).toEqual([0, 1]);
+    expect(pat.clips[KEYS_ID]).toMatchObject({ bars: 1 });
     expect(pat.clips[KEYS_ID].events.map((e) => e.id)).toEqual(["q"]);
+  });
+});
+
+describe("track lengths", () => {
+  it("keeps each clip's own length on load, and makes the pattern as long as the longest", () => {
+    const p = normalizeProject({ ...defaultProject(), patterns: [{ bars: 1, clips: { [DRUMS_ID]: { events: [ev("a", 0, 0), ev("b", 384 * 2, 1)], bars: 3 }, [KEYS_ID]: { events: [ev("c", 384, 60)], bars: 9 } } }] });
+    const pat = p.patterns[0];
+    expect(pat.bars).toBe(4);
+    expect(pat.clips[DRUMS_ID]).toMatchObject({ bars: 3 });
+    expect(pat.clips[DRUMS_ID].events.map((e) => e.id)).toEqual(["a", "b"]);
+    expect(pat.clips[KEYS_ID]).toMatchObject({ bars: 4 });
+  });
+
+  it("shortening every track shortens the pattern; Double repeats one track's notes", () => {
+    const p = defaultProject();
+    p.patterns[0] = { bars: 4, clips: { [DRUMS_ID]: { events: [ev("a", 0, 0), ev("late", 384 * 3, 1)] } } };
+    reset(p);
+    setTrackBars(0, DRUMS_ID, 1);
+    expect(get().project.patterns[0].bars).toBe(4); // keys still 4 bars
+    setTrackBars(0, KEYS_ID, 2);
+    let pat = get().project.patterns[0];
+    expect(pat.bars).toBe(2);
+    expect(pat.clips[DRUMS_ID].events.map((e) => e.id)).toEqual(["a"]);
+    expect(trackBars(pat, DRUMS_ID)).toBe(1);
+    doubleClip(0, DRUMS_ID);
+    pat = get().project.patterns[0];
+    expect(trackBars(pat, DRUMS_ID)).toBe(2);
+    expect(pat.clips[DRUMS_ID].events.map((e) => e.tick)).toEqual([0, 384]);
+    expect(trackBars(pat, KEYS_ID)).toBe(2);
   });
 });
 

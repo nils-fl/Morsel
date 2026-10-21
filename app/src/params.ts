@@ -2,7 +2,7 @@
 import { DECAY_MAX, cutoffHz, padQDb, synthQDb } from "./audio/dsp";
 import type { Visual } from "./modes/notify";
 import { QUANTIZE_OPTIONS, REPEAT_OPTIONS } from "./seq/timing";
-import { drumPads, get, keysTrack, setPatternBars, parseDuckTarget, selectedTrack, set, trackById, updateKeys, updatePad, updateProject, updateTrack } from "./state/store";
+import { drumPads, get, keysTrack, setTrackBars, trackBars, parseDuckTarget, selectedTrack, set, trackById, updateKeys, updatePad, updateProject, updateTrack } from "./state/store";
 import { DUCK_ALL, MAX_TRACKS, PAD_COUNT, type DuckSettings, type DuckTarget, type KeysLfo, type Pad, type SampleInfo, type SynthParams, type TrackFx, type TrackKind, type Wave } from "./state/types";
 import { allPresets, applyPreset, currentKit, kitNames, stepKit } from "./actions";
 import { jumpFolder, presetEdited } from "./audio/synthPresets";
@@ -336,39 +336,40 @@ const QUANTIZE = optionParam("Quantize", QUANTIZE_OPTIONS, "quantize");
 
 // ---------- step page ----------
 
-const curPattern = () => get().project.patterns[get().currentPattern];
+/** The selected track's loop length in the current pattern. */
+const curBars = () => trackBars(get().project.patterns[get().currentPattern], get().selectedTrack);
 const barsText = (n: number) => `${n} bar${n === 1 ? "" : "s"}`;
 let lastBarsTurn = -Infinity;
 
-/** Step mode's own page: the pattern's length and the bar on the pads, plus swing and quantize. */
+/** Step mode's own page: the selected track's length and the bar on the pads, plus swing and quantize. */
 const STEP_PAGE_DEF: Page = {
   name: "Step",
   tag: "STEP",
   stepOnly: true,
-  summary: () => `${curPattern().bars}bar${curPattern().bars === 1 ? "" : "s"} Sw${get().project.swing} Q${QUANTIZE.format()}`,
+  summary: () => `${curBars()}bar${curBars() === 1 ? "" : "s"} Sw${get().project.swing} Q${QUANTIZE.format()}`,
   params: [
     {
       name: "Bars",
-      value: () => curPattern().bars,
+      value: () => curBars(),
       range: [1, 4],
       nudge: (d) => {
-        const bars = clamp(curPattern().bars + Math.sign(d), 1, 4);
-        if (bars === curPattern().bars) return;
+        const bars = clamp(curBars() + Math.sign(d), 1, 4);
+        if (bars === curBars()) return;
         // Shrinking drops the notes past the end; turns in quick succession share one undo step.
         const now = performance.now();
-        setPatternBars(get().currentPattern, bars, now - lastBarsTurn > 2000);
+        setTrackBars(get().currentPattern, get().selectedTrack, bars, now - lastBarsTurn > 2000);
         lastBarsTurn = now;
       },
-      format: () => barsText(curPattern().bars),
+      format: () => barsText(curBars()),
     },
     {
       name: "Bar",
       value: () => get().stepPage + 1,
       get range(): [number, number] {
-        return [1, Math.max(2, curPattern().bars)];
+        return [1, Math.max(2, curBars())];
       },
-      nudge: (d) => set({ stepPage: clamp(get().stepPage + Math.sign(d), 0, curPattern().bars - 1) }),
-      format: () => `${get().stepPage + 1}/${curPattern().bars}`,
+      nudge: (d) => set({ stepPage: clamp(get().stepPage + Math.sign(d), 0, curBars() - 1) }),
+      format: () => `${get().stepPage + 1}/${curBars()}`,
     },
     SWING,
     QUANTIZE,
