@@ -2,22 +2,26 @@ import { engine } from "../audio/engine";
 import { scheduleNote } from "../audio/voices";
 import { addEvent, clipOf, get, markUndo, patternLength, set, setEventLength, trackLength } from "../state/store";
 import type { Clip, NoteEvent } from "../state/types";
-import { BAR_TICKS, PPQN, quantizeTick, secondsPerTick, swingOffsetTicks } from "./timing";
+import { BAR_TICKS, PPQN, quantizeTick, secondsPerTick, soundTick, swingOffsetTicks } from "./timing";
 
 const LOOKAHEAD = 0.12; // seconds scheduled ahead
 const TIMER_MS = 20;
 
-const indexCache = new WeakMap<Clip, Map<number, NoteEvent[]>>();
-export function eventsByTick(clip: Clip) {
-  let m = indexCache.get(clip);
+const indexCache = new WeakMap<Clip, Map<number, Map<number, NoteEvent[]>>>();
+/** A clip's notes by the tick they sound on (nudge included) in a loop of `length` ticks. */
+export function eventsByTick(clip: Clip, length: number) {
+  let byLength = indexCache.get(clip);
+  if (!byLength) indexCache.set(clip, (byLength = new Map()));
+  let m = byLength.get(length);
   if (!m) {
     m = new Map();
     for (const e of clip.events) {
-      const list = m.get(e.tick) ?? [];
+      const at = soundTick(e, length);
+      const list = m.get(at) ?? [];
       list.push(e);
-      m.set(e.tick, list);
+      m.set(at, list);
     }
-    indexCache.set(clip, m);
+    byLength.set(length, m);
   }
   return m;
 }
@@ -138,22 +142,25 @@ class Sequencer {
         if (s.metronome && tick % PPQN === 0) engine.click(t, tick % BAR_TICKS === 0);
         const when = t + swingOffsetTicks(tick, p.swing) * spt;
         for (const track of p.tracks) {
-          const evs = eventsByTick(clipOf(pat, track.id)).get(tick % trackLength(pat, track.id));
+          const trackLen = trackLength(pat, track.id);
+          const evs = eventsByTick(clipOf(pat, track.id), trackLen).get(tick % trackLen);
           if (!evs) continue;
           for (const e of evs) {
             if (this.skip.get(e.id) === tick) {
               this.skip.delete(e.id);
               continue;
             }
-            scheduleNote(engine.voices, track, e, when, e.len * spt);
+            // Swing goes by the note's step, so a nudged note keeps its swing.
+            scheduleNote(engine.voices, track, e, t + swingOffsetTicks(e.tick, p.swing) * spt, e.len * spt);
           }
         }
         if (this.repeatOn && this.repeatPads.size && tick % s.repeatRate === 0) {
           const recording = s.recording && !s.countIn;
           for (const { track, pad, vel } of this.repeatPads.values()) {
-            const local = tick % trackLength(pat, track);
+            const trackLen = trackLength(pat, track);
+            const local = tick % trackLen;
             // Held across the loop while recording: the note from the last pass is already there and has just played.
-            if (recording && eventsByTick(clipOf(pat, track)).get(local)?.some((e) => e.note === pad)) continue;
+            if (recording && eventsByTick(clipOf(pat, track), trackLen).get(local)?.some((e) => e.note === pad)) continue;
             engine.voices.pad(track, pad, vel, when, s.repeatRate * spt, true);
             if (recording) {
               this.beginTake();

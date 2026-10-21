@@ -1,6 +1,8 @@
 export const PPQN = 96;
 export const STEP_TICKS = PPQN / 4; // a 16th note
 export const BAR_TICKS = PPQN * 4;
+/** How far a note can be nudged off its step, in ticks: just under half a step. */
+export const MAX_NUDGE = STEP_TICKS / 2 - 1;
 
 export const secondsPerTick = (bpm: number) => 60 / bpm / PPQN;
 
@@ -32,3 +34,8 @@ export const REPEAT_OPTIONS = [
   { label: "1/16T", ticks: PPQN / 6 },
   { label: "1/32", ticks: STEP_TICKS / 2 },
 ];
+
+/** The tick a note sounds on in a loop of `length` ticks: its own tick plus its nudge, wrapped. */
+export function soundTick(e: { tick: number; nudge?: number }, length: number): number {
+  return (((e.tick + (e.nudge ?? 0)) % length) + length) % length;
+}

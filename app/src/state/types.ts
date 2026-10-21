@@ -131,6 +131,8 @@ export interface NoteEvent {
   note: number;
   vel: number; // 1..127
   len: number; // ticks
+  /** Micro-timing: sounds this many ticks off `tick` (±MAX_NUDGE), which stays on its step. Missing = 0. */
+  nudge?: number;
 }
 
 export interface Clip {

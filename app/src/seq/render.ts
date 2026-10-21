@@ -3,7 +3,7 @@ import { engine, type VoiceEngine } from "../audio/engine";
 import { loadVoiceWorklet } from "../audio/worklet/voiceNode";
 import { clipOf, patternLength, trackLength } from "../state/store";
 import type { NoteEvent, Project, Track } from "../state/types";
-import { secondsPerTick, swingOffsetTicks } from "./timing";
+import { secondsPerTick, soundTick, swingOffsetTicks } from "./timing";
 
 const SR = 44100;
 const TAIL = 2; // seconds of release tail
@@ -32,7 +32,7 @@ export function orderedEvents(p: Project, order: number[]): { track: Track; even
       // The clip's passes that overlap this pass of the pattern.
       for (let from = start + Math.floor((offset - start) / len) * len; from < end; from += len) {
         for (const event of clipOf(pat, track.id).events) {
-          const tick = from + event.tick;
+          const tick = from + soundTick(event, len);
           if (tick >= offset && tick < end) out.push({ track, event, tick });
         }
       }

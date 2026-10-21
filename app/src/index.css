@@ -383,6 +383,9 @@ p.hint { margin: 0 0 8px; }
 .cell.beat { border-color: var(--line-hi); background: rgba(255,255,255,.02); }
 .cell:hover:not(:disabled) { border-color: var(--row); }
 .cell.lit { border-color: transparent; }
+/* A nudged note: a mark off the cell's centre, left = early, right = late. */
+.cell.nudged { position: relative; }
+.cell.nudged::after { content: ""; position: absolute; top: 3px; bottom: 3px; width: 2px; left: calc(50% - 1px + var(--nudge) * 40%); background: var(--ink); }
 .cell.now { outline: 1px solid var(--white); outline-offset: 1px; z-index: 1; }
 
 /* ---------- keys ---------- */

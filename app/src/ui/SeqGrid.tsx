@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { sequencer } from "../seq/sequencer";
-import { STEP_TICKS } from "../seq/timing";
+import { MAX_NUDGE, STEP_TICKS } from "../seq/timing";
 import { clearTrack, clipOf, copyClip, copyPattern, doubleClip, patternHasNotes, selectedTrack, set, setTrackBars, togglePadFlag, toggleStep, toggleTrackFlag, trackBars, updatePattern, useApp } from "../state/store";
 import { PAD_COUNT } from "../state/types";
 import { noteName } from "./notes";
@@ -83,11 +83,12 @@ export function SeqGrid() {
               {Array.from({ length: steps }, (_, s) => {
                 const inStep = row.events.filter((e) => e.tick >= s * STEP_TICKS && e.tick < (s + 1) * STEP_TICKS);
                 const vel = inStep.length ? Math.max(...inStep.map((e) => e.vel)) : 0;
+                const nudge = inStep[0]?.nudge ?? 0;
                 return (
                   <button
                     key={s}
-                    className={`cell ${s % 4 === 0 ? "beat" : ""} ${s === playStep ? "now" : ""} ${vel ? "lit" : ""}`}
-                    style={vel ? { background: row.color, opacity: 0.35 + (vel / 127) * 0.65 } : undefined}
+                    className={`cell ${s % 4 === 0 ? "beat" : ""} ${s === playStep ? "now" : ""} ${vel ? "lit" : ""} ${nudge ? "nudged" : ""}`}
+                    style={vel ? { background: row.color, opacity: 0.35 + (vel / 127) * 0.65, "--nudge": nudge / MAX_NUDGE } as React.CSSProperties : undefined}
                     title={inStep.length && !drum ? inStep.map((e) => noteName(e.note)).join(" ") : undefined}
                     onClick={() => toggleStep(patIndex, track.id, s * STEP_TICKS, STEP_TICKS, row.note)}
                   >

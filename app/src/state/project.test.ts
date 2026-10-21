@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DRUMS_ID, KEYS_ID, addEvent, addTrack, clipOf, markUndo, canRemoveTrack, copyClip, copyPattern, defaultPad, doubleClip, setTrackBars, setTrackDuck, setDuckPad, padDucks, toggleSidechainInput, trackBars, defaultProject, fixSelection, get, migrateV1, normalizeProject, removeTrack, resetSession, selectTrack, set, stepTrack, undo,
+  DRUMS_ID, KEYS_ID, addEvent, addTrack, clipOf, editStep, markUndo, canRemoveTrack, copyClip, copyPattern, defaultPad, doubleClip, setTrackBars, setTrackDuck, setDuckPad, padDucks, toggleSidechainInput, trackBars, defaultProject, fixSelection, get, migrateV1, normalizeProject, removeTrack, resetSession, selectTrack, set, stepTrack, undo,
 } from "./store";
 import { MAX_TRACKS, PATTERN_COUNT, type NoteEvent, type Project } from "./types";
 
@@ -385,5 +385,30 @@ describe("recorded takes", () => {
     expect(clipOf(get().project.patterns[0], DRUMS_ID).events).toHaveLength(2);
     undo();
     expect(clipOf(get().project.patterns[0], DRUMS_ID).events).toHaveLength(0);
+  });
+});
+
+describe("editing a step", () => {
+  const events = () => clipOf(get().project.patterns[0], DRUMS_ID).events;
+
+  it("changes the velocity and nudge of the step's notes for that pad only, within their ranges", () => {
+    reset();
+    set({ project: { ...get().project, patterns: get().project.patterns.map((pat, i) => (i === 0 ? { ...pat, clips: { [DRUMS_ID]: { events: [ev("a", 24, 0), ev("b", 24, 1), ev("c", 48, 0)] } } } : pat)) } });
+    expect(editStep(0, DRUMS_ID, 24, 24, 0, 20, 4)).toMatchObject({ id: "a", vel: 120, nudge: 4 });
+    expect(editStep(0, DRUMS_ID, 24, 24, 0, 50, 20)).toMatchObject({ vel: 127, nudge: 11 });
+    expect(editStep(0, DRUMS_ID, 24, 24, 0, -500, -30)).toMatchObject({ vel: 1, nudge: -11 });
+    expect(events().filter((e) => e.id !== "a").every((e) => e.vel === 100 && e.nudge === undefined)).toBe(true);
+    // Back on the grid: no nudge kept.
+    editStep(0, DRUMS_ID, 24, 24, 0, 0, 11);
+    expect(events().find((e) => e.id === "a")).not.toHaveProperty("nudge");
+    expect(editStep(0, DRUMS_ID, 72, 24, 0, 10, 0)).toBeUndefined();
+  });
+
+  it("keeps a nudge when loading, clamped, and drops a zero one", () => {
+    const p = defaultProject();
+    p.patterns[0] = { bars: 1, clips: { [DRUMS_ID]: { events: [{ ...ev("a", 0, 0), nudge: -5 }, { ...ev("b", 24, 0), nudge: 40 }, { ...ev("c", 48, 0), nudge: 0 }] } } };
+    const out = clipOf(normalizeProject(JSON.parse(JSON.stringify(p))).patterns[0], DRUMS_ID).events;
+    expect(out.map((e) => e.nudge)).toEqual([-5, 11, undefined]);
+    expect(out[2]).not.toHaveProperty("nudge");
   });
 });

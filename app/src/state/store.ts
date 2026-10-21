@@ -2,7 +2,7 @@ import { createStore } from "zustand/vanilla";
 import type { SynthPreset } from "../audio/synthPresets";
 import { useStore } from "zustand";
 import { COLOR } from "../midi/protocol";
-import { BAR_TICKS } from "../seq/timing";
+import { BAR_TICKS, MAX_NUDGE } from "../seq/timing";
 import type { ChopSession, Clip, HwMode, KeysInstrument, KeysLfo, KeysSample, NoteEvent, Pad, Pattern, Project, Returns, SampleInfo, SampleSource, SampleTarget, SidechainInput, SynthParams, Tab, Track, TrackDuck, TrackFx, TrackKind, Wave, Zone } from "./types";
 import { MAX_TRACKS, PAD_COUNT, PATTERN_COUNT } from "./types";
 
@@ -332,7 +332,9 @@ function normalizeClip(raw: unknown, track: Track, patternBars: number, seen: Se
     let id = typeof e.id === "string" ? e.id : newId();
     if (seen.has(id)) id = newId();
     seen.add(id);
-    return [{ id, tick: e.tick, note: Math.round(num(e.note, 0, 127, 60)), vel: num(e.vel, 1, 127, 100), len: num(e.len, 1, Number.MAX_SAFE_INTEGER, 1) }];
+    const ev: NoteEvent = { id, tick: e.tick, note: Math.round(num(e.note, 0, 127, 60)), vel: num(e.vel, 1, 127, 100), len: num(e.len, 1, Number.MAX_SAFE_INTEGER, 1) };
+    const nudge = Math.round(num(e.nudge, -MAX_NUDGE, MAX_NUDGE, 0));
+    return [nudge ? { ...ev, nudge } : ev];
   });
   return own === undefined ? { events } : { events, bars: own };
 }
@@ -752,13 +754,36 @@ export function setEventLength(patternIndex: number, trackId: string, id: string
 export function toggleStep(patternIndex: number, trackId: string, tick: number, span: number, note: number, vel = 100) {
   const drum = trackById(get().project, trackId)?.kind === "drum";
   updateClip(patternIndex, trackId, (events) => {
-    const hit = events.filter((e) => (!drum || e.note === note) && e.tick >= tick && e.tick < tick + span);
+    const hit = stepEvents(events, drum, tick, span, note);
     if (hit.length) {
       const ids = new Set(hit.map((e) => e.id));
       return events.filter((e) => !ids.has(e.id));
     }
     return [...events, { id: newId(), tick, note, vel, len: span }];
   });
+}
+
+/** The notes inside [tick, tick+span) that a step edits: on a drum track only pad `note`'s, on a keys track all. */
+export function stepEvents(events: NoteEvent[], drum: boolean, tick: number, span: number, note: number) {
+  return events.filter((e) => (!drum || e.note === note) && e.tick >= tick && e.tick < tick + span);
+}
+
+/**
+ * Change the velocity and nudge of a step's notes by `dVel` / `dNudge` (clamped to 1..127 and ±MAX_NUDGE).
+ * Returns the step's first note as it is now, if there is one.
+ */
+export function editStep(patternIndex: number, trackId: string, tick: number, span: number, note: number, dVel: number, dNudge: number, undoable = true) {
+  const drum = trackById(get().project, trackId)?.kind === "drum";
+  const ids = new Set(stepEvents(clipOf(get().project.patterns[patternIndex], trackId).events, drum, tick, span, note).map((e) => e.id));
+  if (!ids.size) return undefined;
+  updateClip(patternIndex, trackId, (events) => events.map((e) => {
+    if (!ids.has(e.id)) return e;
+    const vel = Math.max(1, Math.min(127, e.vel + dVel));
+    const nudge = Math.max(-MAX_NUDGE, Math.min(MAX_NUDGE, (e.nudge ?? 0) + dNudge));
+    const { nudge: _old, ...rest } = e;
+    return nudge ? { ...rest, vel, nudge } : { ...rest, vel };
+  }), undoable);
+  return clipOf(get().project.patterns[patternIndex], trackId).events.find((e) => ids.has(e.id));
 }
 
 /** Clear a track's clip in a pattern, or only one pad's notes when `pad` is given. */

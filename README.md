@@ -11,7 +11,7 @@ A browser-based groovebox for the **Novation Launchkey Mini MK4 25**. Morsel put
 - **16-pad sampler**: velocity-sensitive pads with start/end, pitch, attack/decay, HP/LP filters with resonance, pan and volume. Pad pressure (aftertouch) opens the filters on note-repeat hits.
 - **Pad modes** (cycle with Func):
   - **Play**: play the pads.
-  - **Step**: 16-step grid for the selected track (on a drum track, the selected pad; on a keys track, the last key you played is the note). Step mode opens the **Step** encoder page: 1 = the selected track's length (1–4 bars; shortening drops the notes past the end, Undo brings them back), 2 = the bar on the pads, 3 = swing, 4 = quantize. The arrows still reach the track's other pages, and leaving Step mode returns to the page you were on.
+  - **Step**: 16-step grid for the selected track (on a drum track, the selected pad; on a keys track, the last key you played is the note). Hold a step and turn encoder 1 for its velocity (Shift: fine) or encoder 2 to nudge it earlier or later (up to just under half a step; it keeps its swing). A lit step is deleted when you let go of it, unless you turned an encoder while holding it. Step mode opens the **Step** encoder page: 1 = the selected track's length (1–4 bars; shortening drops the notes past the end, Undo brings them back), 2 = the bar on the pads, 3 = swing, 4 = quantize. The arrows still reach the track's other pages, and leaving Step mode returns to the page you were on.
   - **Track**: top pad row selects tracks 1–8, bottom row mutes them (double-tap = solo).
   - **Mixer**: tap a pad of the drum track (the last one picked) to mute it, double-tap to solo.
   - **Pattern**: switch patterns; while playing, the switch waits until the loop ends.

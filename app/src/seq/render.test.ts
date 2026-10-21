@@ -29,4 +29,11 @@ describe("orderedEvents", () => {
     expect(at("k")).toEqual([0, 4, 9]);
     expect(at("x")).toEqual([8]);
   });
+
+  it("plays a nudged note off its step, and an early note on step 1 at the end of the loop", () => {
+    const p = defaultProject();
+    p.patterns[0] = { bars: 1, clips: { [DRUMS_ID]: { events: [{ ...ev("late", 24), nudge: 5 }, { ...ev("early", 0), nudge: -3 }] } } };
+    const out = orderedEvents(p, [0, 0]);
+    expect(out.map((x) => [x.event.id, x.tick])).toEqual([["late", 29], ["early", 381], ["late", 384 + 29], ["early", 384 + 381]]);
+  });
 });
