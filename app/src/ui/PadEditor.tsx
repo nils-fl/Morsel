@@ -99,7 +99,7 @@ export function PadEditor() {
           <Slider label="Volume" value={pad.volume} min={0} max={1} format={pct} onChange={(v) => up({ volume: v })} />
         </div>
       </Section>
-      <div className="row wrap">
+      <div className="panels">
         <KitPanel />
         <SamplingPanel />
         <ChopPanel />
@@ -186,7 +186,7 @@ function KitBar() {
   const saved = list.slice(STOCK_KITS.length);
   const i = list.indexOf(kit);
   return (
-    <Section title={`Kit · ${kit || "none"}`} actions={
+    <Section title="Kit" actions={
       <>
         <button onClick={() => stepKit(-1)} disabled={i === 0} aria-label="Previous kit">◀</button>
         <select value={i >= 0 ? kit : ""} title="Load a kit onto this drum track (Undo brings the pads back)" onChange={(e) => e.target.value && void loadNamedKit(e.target.value)}>
@@ -197,12 +197,7 @@ function KitBar() {
         <button onClick={() => stepKit(1)} disabled={i >= list.length - 1} aria-label="Next kit">▶</button>
       </>
     }>
-      <div className="preset-list">
-        {STOCK_KITS.map((k) => (
-          <button key={k} className={k === kit ? "on" : ""} onClick={() => void loadNamedKit(k)} title={`Built-in synthesized ${k} kit`}>{k}</button>
-        ))}
-      </div>
-      <p className="hint">Built-in kits are synthesized; your saved kits follow them in the list. ◀ ▶ load the previous / next kit. Launchkey: encoder page <b>Kit</b>, encoder 1 scrolls the kits.</p>
+      <p className="hint tip">Built-in kits are synthesized; your saved kits follow them in the list. ◀ ▶ load the previous / next kit. Launchkey: encoder page <b>Kit</b>, encoder 1 scrolls the kits.</p>
     </Section>
   );
 }
@@ -255,7 +250,7 @@ function KitPanel() {
           </span>
         ))}
       </div>
-      <p className="hint">Launchkey: Shift + Encoder ⌃ → Kits. On a sample folder, Shift + Function puts it on the pads.</p>
+      <p className="hint tip">Launchkey: Shift + Encoder ⌃ → Kits. On a sample folder, Shift + Function puts it on the pads.</p>
     </Section>
   );
 }

@@ -4,6 +4,7 @@ import { togglePlay, toggleRecord } from "./actions";
 import { currentFrame, setHwMode } from "./modes/controller";
 import { ScreenPreview } from "./ui/ScreenPreview";
 import { toggleTheme } from "./ui/theme";
+import { toggleTips } from "./ui/tips";
 import { sequencer } from "./seq/sequencer";
 import { QUANTIZE_OPTIONS } from "./seq/timing";
 import { patternHasNotes, selectedTrack, set, undo, updateProject, useApp } from "./state/store";
@@ -85,9 +86,8 @@ function AudioBanner() {
   return <button className="audio-banner">Audio is paused by the browser. Click anywhere to start it.</button>;
 }
 
-/** Short windows (e.g. a 14" laptop) get the compact layout; keep in sync with the media query in index.css.
- *  Narrow ones (an iPad held upright) also get the smaller screen preview, so it fits beside the transport. */
-const COMPACT_QUERY = "(max-height: 950px), (max-width: 900px)";
+/** Narrow windows (an iPad held upright) get the smaller screen preview, so it fits beside the transport. */
+const COMPACT_QUERY = "(max-width: 900px)";
 
 function useCompact() {
   const [compact, setCompact] = useState(() => window.matchMedia(COMPACT_QUERY).matches);
@@ -122,60 +122,79 @@ function NumberField({ value, min, max, step, onCommit }: { value: number; min: 
 function TopBar({ onGuide }: { onGuide: () => void }) {
   // Only what the bar shows: the whole store would redraw it on every recorded note and knob move.
   const s = useApp(useShallow((s) => ({
-    connected: s.connected, theme: s.theme, playing: s.playing, recording: s.recording, countIn: s.countIn, metronome: s.metronome,
+    connected: s.connected, theme: s.theme, tips: s.tips, playing: s.playing, recording: s.recording, countIn: s.countIn, metronome: s.metronome,
     quantize: s.quantize, undoLength: s.undo.length, currentPattern: s.currentPattern, queuedPattern: s.queuedPattern,
     bpm: s.project.bpm, swing: s.project.swing, patterns: s.project.patterns, hwMode: s.hwMode, status: s.status,
   })));
   const compact = useCompact();
   const p = { bpm: s.bpm, swing: s.swing, patterns: s.patterns };
+  // One labelled row per job: transport, patterns, tracks, then the Launchkey's own mode and encoders.
   return (
     <header className="topbar">
-      <div className="brand">
-        <strong>Morsel</strong>
-        <span className={`dot ${s.connected ? "ok" : ""}`} title={s.connected ? "Launchkey connected" : "Launchkey not found"} />
-        <button className="guide-btn" onClick={onGuide} title="Controls, modes and shortcuts (?)">? Guide</button>
-        <button className="theme-btn" onClick={toggleTheme} title={s.theme === "light" ? "Switch to the dark theme" : "Switch to the light theme"} aria-label="Toggle light / dark theme">
-          {s.theme === "light" ? "☾" : "☀"}
-        </button>
+      <div className="bar-main">
+        <div className="bar-row">
+          <div className="brand">
+            <strong>Morsel</strong>
+            <span className={`dot ${s.connected ? "ok" : ""}`} title={s.connected ? "Launchkey connected" : "Launchkey not found"} />
+          </div>
+          <div className="transport">
+            <button className={s.playing ? "on" : ""} onClick={togglePlay}>{s.playing ? "■ Stop" : "▶ Play"}</button>
+            <button className={`rec ${s.recording ? "on" : ""}`} onClick={toggleRecord}>{s.countIn ? "Count-in…" : "● Rec"}</button>
+            <button className={s.metronome ? "on" : ""} onClick={() => set({ metronome: !s.metronome })}>Click</button>
+            <span className="bar-sep" />
+            <label className="field inline">
+              <span>BPM</span>
+              <NumberField min={40} max={240} step={0.1} value={p.bpm} onCommit={(bpm) => updateProject((pr) => ({ ...pr, bpm: Math.round(bpm * 10) / 10 }), false)} />
+            </label>
+            <label className="field inline">
+              <span>Swing</span>
+              <NumberField min={50} max={75} value={p.swing} onCommit={(swing) => updateProject((pr) => ({ ...pr, swing: Math.round(swing) }), false)} />
+            </label>
+            <label className="field inline">
+              <span>Quantize</span>
+              <select value={s.quantize} onChange={(e) => set({ quantize: Number(e.target.value) })}>
+                {QUANTIZE_OPTIONS.map((q) => <option key={q.label} value={q.ticks}>{q.label}</option>)}
+              </select>
+            </label>
+            <span className="bar-sep" />
+            <button onClick={undo} disabled={!s.undoLength}>Undo</button>
+          </div>
+          <div className="utils">
+            <button className={s.tips ? "on" : ""} onClick={toggleTips} title={s.tips ? "Hide the explanations in the panels" : "Show explanations in the panels"}>Tips</button>
+            <button onClick={onGuide} title="Controls, modes and shortcuts (?)">Guide</button>
+            <button className="theme-btn" onClick={toggleTheme} title={s.theme === "light" ? "Switch to the dark theme" : "Switch to the light theme"} aria-label="Toggle light / dark theme">
+              {s.theme === "light" ? "☾" : "☀"}
+            </button>
+          </div>
+        </div>
+        <div className="bar-row">
+          <span className="bar-label">Pattern</span>
+          <div className="patterns">
+            {p.patterns.map((pat, i) => (
+              <button
+                key={i}
+                className={`pat ${i === s.currentPattern ? "on" : ""} ${i === s.queuedPattern ? "queued" : ""} ${patternHasNotes(pat) ? "used" : ""}`}
+                onClick={() => sequencer.selectPattern(i)}
+              >{i + 1}</button>
+            ))}
+          </div>
+        </div>
+        <div className="bar-row">
+          <span className="bar-label">Track</span>
+          <TrackStrip />
+        </div>
       </div>
       <div className="screen-slot"><ScreenPreview source={currentFrame} scale={compact ? 2 : 3} /></div>
-      <div className="transport">
-        <button className={s.playing ? "on" : ""} onClick={togglePlay}>{s.playing ? "■ Stop" : "▶ Play"}</button>
-        <button className={`rec ${s.recording ? "on" : ""}`} onClick={toggleRecord}>{s.countIn ? "Count-in…" : "● Rec"}</button>
-        <button className={s.metronome ? "on" : ""} onClick={() => set({ metronome: !s.metronome })}>Click</button>
-        <label className="field inline">
-          <span>BPM</span>
-          <NumberField min={40} max={240} step={0.1} value={p.bpm} onCommit={(bpm) => updateProject((pr) => ({ ...pr, bpm: Math.round(bpm * 10) / 10 }), false)} />
-        </label>
-        <label className="field inline">
-          <span>Swing</span>
-          <NumberField min={50} max={75} value={p.swing} onCommit={(swing) => updateProject((pr) => ({ ...pr, swing: Math.round(swing) }), false)} />
-        </label>
-        <label className="field inline">
-          <span>Quantize</span>
-          <select value={s.quantize} onChange={(e) => set({ quantize: Number(e.target.value) })}>
-            {QUANTIZE_OPTIONS.map((q) => <option key={q.label} value={q.ticks}>{q.label}</option>)}
-          </select>
-        </label>
-        <button onClick={undo} disabled={!s.undoLength}>Undo</button>
-      </div>
-      <div className="patterns">
-        {p.patterns.map((pat, i) => (
-          <button
-            key={i}
-            className={`pat ${i === s.currentPattern ? "on" : ""} ${i === s.queuedPattern ? "queued" : ""} ${patternHasNotes(pat) ? "used" : ""}`}
-            onClick={() => sequencer.selectPattern(i)}
-          >{i + 1}</button>
-        ))}
-      </div>
-      <TrackStrip />
-      <div className="hw">
-        {(["play", "step", "track", "mute", "pattern", "browse"] as HwMode[]).map((m) => (
-          <button key={m} className={s.hwMode === m ? "on" : ""} onClick={() => setHwMode(m)}>{m}</button>
-        ))}
+      <div className="bar-row hw">
+        <span className="bar-label" title="What the Launchkey's pads and encoders do right now">Launchkey</span>
+        <div className="hw-modes">
+          {(["play", "step", "track", "mute", "pattern", "browse"] as HwMode[]).map((m) => (
+            <button key={m} className={s.hwMode === m ? "on" : ""} onClick={() => setHwMode(m)}>{m}</button>
+          ))}
+        </div>
         <EncoderStrip />
       </div>
-      <div className="status"><b>MSG</b><span>{s.status || "—"}</span></div>
+      <div className="status" role="status">{s.status}</div>
     </header>
   );
 }

@@ -30,7 +30,7 @@ export function Matrix() {
       >Paste clip</button>
       <button onClick={() => clearTrack(current, selected)}>Clear clip</button>
     </>}>
-      <p className="hint">
+      <p className="hint tip">
         Click a row number to {playing ? "queue" : "play"} that sequence, a cell to edit that track's clip. The selected cell is {track?.name ?? "—"} in sequence {current + 1}.
       </p>
       <div className="matrix" style={{ "--cols": p.tracks.length } as React.CSSProperties}>

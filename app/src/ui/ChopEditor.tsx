@@ -359,12 +359,12 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
         </div>
         <canvas ref={overview} className="chop-overview" onPointerDown={onOverview} onPointerMove={onOverview} />
 
-        <p className="hint">
+        <p className="hint tip">
           Click: add marker · drag marker: move · double-click or Delete: remove · drag empty: scroll · wheel: zoom (shift: scroll) ·
           Space: play region · <b>M</b> while playing: drop a marker at the playhead · 1–9: play slice · click a numbered slice to hear it.
           Markers snap to zero crossings.
         </p>
-        <p className="hint">
+        <p className="hint tip">
           <b>Launchkey:</b> pads play slices 1–16 and select that slice's start marker · encoder 1 scroll · 2 zoom · 3 pick marker ·
           4 move marker (Shift = fine) · 5 max slices · 6 sensitivity · Play: play from the marker · Scene: add a marker at the playhead
           (Shift + Scene: remove) · <b>Function: new drum rack</b> · Shift + Encoder ⌄: leave.

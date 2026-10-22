@@ -17,7 +17,7 @@ export function Mixer() {
   return (
     <div className="mixer-panel">
       <Section title="Mixer">
-        <p className="hint">Each track runs through its own filter, EQ, drive and compressor, then the fader. Sends A and B feed the shared reverb and delay below.</p>
+        <p className="hint tip">Each track runs through its own filter, EQ, drive and compressor, then the fader. Sends A and B feed the shared reverb and delay below.</p>
         <div className="mixer">
           {tracks.map((t, i) => <Channel key={t.id} track={t} index={i} />)}
         </div>

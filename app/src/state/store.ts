@@ -466,6 +466,8 @@ export interface AppState {
   tab: Tab;
   /** Colour theme of the on-screen UI (ui/theme.ts). */
   theme: "dark" | "light";
+  /** Explanatory tips shown in the panels (ui/tips.ts). */
+  tips: boolean;
   chop: ChopSession | null;
   /** Names of the saved kits (the factory kit is not among them). */
   kits: string[];
@@ -509,6 +511,7 @@ export const store = createStore<AppState>(() => ({
   sampleTarget: "chop",
   tab: "Track",
   theme: "light",
+  tips: false,
   chop: null,
   kits: [],
   confirm: null,

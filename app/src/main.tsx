@@ -4,9 +4,11 @@ import "./index.css";
 import App from "./App";
 import { boot } from "./boot";
 import { applyTheme, savedTheme } from "./ui/theme";
+import { applyTips, savedTips } from "./ui/tips";
 
 // Before anything renders, so a light page doesn't flash dark.
 applyTheme(savedTheme());
+applyTips(savedTips());
 
 // Offline start and installing as an app (sw.js, written by the build). Not in dev, where it would serve stale modules.
 if (import.meta.env.PROD && "serviceWorker" in navigator) {

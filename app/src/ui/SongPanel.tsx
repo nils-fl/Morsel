@@ -48,7 +48,7 @@ export function SongPanel() {
           </>
         }
       >
-        <p className="hint">Each step plays a sequence (a row of the matrix) with every track's clip. Hardware: Function → Pattern mode, then hold Scene and tap a pad to add that sequence to the song.</p>
+        <p className="hint tip">Each step plays a sequence (a row of the matrix) with every track's clip. Hardware: Function → Pattern mode, then hold Scene and tap a pad to add that sequence to the song.</p>
         <ol className="song-list">
           {song.map((step, i) => (
             <li key={i}>
@@ -92,7 +92,7 @@ export function SongPanel() {
             }
           }} />
         </div>
-        <p className="hint">Projects autosave in this browser. Export saves the patterns and every sample in one file. New project starts over with the Factory kit.</p>
+        <p className="hint tip">Projects autosave in this browser. Export saves the patterns and every sample in one file. New project starts over with the Factory kit.</p>
       </Section>
 
       <LibraryPanel />

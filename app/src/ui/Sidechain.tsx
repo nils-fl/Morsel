@@ -17,12 +17,12 @@ export function SidechainInputs() {
   const n = inputs.indexOf(inputOf(track.id, pad)) + 1;
 
   return (
-    <Section title="Sidechain inputs" actions={
+    <Section title="Sidechain" actions={
       <button className={n ? "on" : ""} onClick={() => toggleSidechainInput(track.id, pad)} title="Any track can duck from an input">
         {n ? `${padLabel(track.id, pad)}: Input ${n}` : `Make ${padLabel(track.id, pad)} an input`}
       </button>
     }>
-      <p className="hint">
+      <p className="hint tip">
         Each input's hits duck the tracks listening to it (set in each track's Duck panel). Launchkey: <b>Sidechain</b> page
         {onPage ? " (open)" : ""}, hit a pad, encoder 1.
       </p>
@@ -69,7 +69,7 @@ export function DuckPanel() {
     <Section title="Duck" actions={
       <button className={duck.on ? "on" : ""} onClick={() => set({ on: !duck.on })}>{duck.on ? "On" : "Off"}</button>
     }>
-      <p className="hint">
+      <p className="hint tip">
         {drum
           ? <>Hits on the input dip the pads ticked below (never the input itself). Inputs are made above. Launchkey: <b>Duck</b> page{onPage ? " (open)" : ""}, hit a pad, encoder 7.</>
           : <>Hits on the input dip this track. Inputs are drum pads, made on a drum track's Track tab. Launchkey: <b>Duck</b> page{onPage ? " (open)" : ""}.</>}

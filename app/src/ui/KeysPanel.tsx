@@ -92,7 +92,7 @@ export function KeysPanel() {
             <Slider label="Vel > filt" value={synth.velFilter} min={0} max={1} format={offPct} onChange={(v) => upSynth({ velFilter: v })} />
             <Slider label="Filt decay" value={synth.filterDecay} min={0} max={2} format={(v) => (v ? ms(v) : "= Decay")} onChange={(v) => upSynth({ filterDecay: v })} />
           </div>
-          <p className="hint">Filt decay: the filter closes over its own time (plucks that still sustain); at 0 it follows the amp's Decay and Sustain.</p>
+          <p className="hint tip">Filt decay: the filter closes over its own time (plucks that still sustain); at 0 it follows the amp's Decay and Sustain.</p>
         </Section>
       )}
 
@@ -130,7 +130,7 @@ export function KeysPanel() {
 
       {keys.type === "chromatic" && (
         <Section title="Pad sample on keys">
-          <p className="hint">Plays a pad's sample across the keyboard. C4 = original pitch. Uses that pad's start, end, filter and envelope.</p>
+          <p className="hint tip">Plays a pad's sample across the keyboard. C4 = original pitch. Uses that pad's start, end, filter and envelope.</p>
           <Field label="Source pad">
             <select value={`${keys.sourceTrack}:${keys.sourcePad}`} onChange={(e) => {
               const [track, pad] = e.target.value.split(":");
@@ -159,7 +159,7 @@ export function KeysPanel() {
       )}
 
       <Section title="LFO">
-        <p className="hint">
+        <p className="hint tip">
           Vibrato wobbles the pitch, the filter LFO sweeps the cutoff (set Cutoff below open for a full sweep). Depth 0 = off.
           Launchkey: encoder page <b>LFO</b>.
         </p>
@@ -218,7 +218,7 @@ function PresetBar() {
           <button key={p.name} className={p.name === current ? "on" : ""} onClick={() => applyPreset(p)}>{p.name}</button>
         ))}
       </div>
-      <p className="hint">A * means the sound was edited since the preset was loaded. Launchkey: encoder page <b>Keys</b>, encoder 1 scrolls presets, Shift + encoder 1 jumps to the next folder.</p>
+      <p className="hint tip">A * means the sound was edited since the preset was loaded. Launchkey: encoder page <b>Keys</b>, encoder 1 scrolls presets, Shift + encoder 1 jumps to the next folder.</p>
       <div className="row">
         <input placeholder="Preset name" value={name} maxLength={24} onChange={(e) => setName(e.target.value)} />
         <button disabled={!name.trim()} onClick={async () => { await saveUserPreset(name); setName(""); }}>Save as preset</button>

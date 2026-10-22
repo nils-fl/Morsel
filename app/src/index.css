@@ -24,6 +24,7 @@
   --page: var(--amber);
   --accent: var(--page);
   --ink: #1c1f23; /* text on filled colour (meters, sliders) */
+  --on-pad: #1c1f23; /* text on a filled track / pad colour: those are light in both themes */
   --tint: 22%; /* strength of active / header tints */
   --ctl-h: 26px; /* buttons, selects and text inputs share one height */
 
@@ -75,6 +76,7 @@
   color-scheme: light;
 }
 :root[data-theme="light"] .pad-num { color: color-mix(in srgb, var(--pad) 65%, var(--text)); }
+:root[data-theme="light"] .pad.selected .pad-num { color: var(--on-pad); }
 :root[data-theme="light"] .g-overlay { background: rgba(60, 64, 70, .45); }
 :root[data-theme="light"] .topbar { box-shadow: inset 0 1px 0 #fff, 0 4px 12px rgba(30, 35, 40, .08); }
 
@@ -94,7 +96,7 @@ button, input, select {
 /* 4px padding + 16px line + 1px borders = --ctl-h. Selects get the height directly: browsers pad them extra. */
 select, input:not([type="checkbox"]):not([type="range"]):not([type="file"]) { height: var(--ctl-h); }
 button {
-  cursor: pointer; text-transform: uppercase; letter-spacing: .06em; font-weight: 600; font-size: 11px; line-height: 16px;
+  cursor: pointer; font-weight: 500; font-size: 12px; line-height: 16px;
   transition: background .06s, color .06s, border-color .06s, box-shadow .1s;
 }
 button:hover:not(:disabled) { border-color: var(--page); color: var(--page); }
@@ -105,7 +107,8 @@ button, select, input { touch-action: manipulation; }
 @media (hover: none) {
   button:not(.on):hover:not(:disabled) { border-color: var(--line-hi); color: var(--text); }
 }
-button.on, button.on:hover { background: color-mix(in srgb, var(--page) var(--tint), var(--panel)); color: var(--page); border-color: var(--page); }
+/* Selected / switched-on: filled with the accent, so the current choice reads at a glance. */
+button.on, button.on:hover { background: var(--page); color: var(--ink); border-color: var(--page); font-weight: 700; }
 button.primary:not(:disabled) { color: var(--page); border-color: var(--page); }
 button.rec { --page: var(--rec); }
 .kit-chip { display: inline-flex; }
@@ -143,7 +146,6 @@ button.sample-pick {
 .picker-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .picker-foot { display: flex; align-items: center; gap: 6px; }
 .picker-spacer { flex: 1; }
-button.rec.on { --tint: 30%; }
 input:focus, select:focus, button:focus-visible { outline: 1px solid var(--page); outline-offset: 1px; }
 input[type="number"] { width: 64px; font-variant-numeric: tabular-nums; }
 input[type="checkbox"] {
@@ -156,8 +158,13 @@ select { padding-right: 6px; }
 code, .mono { font-family: var(--mono); }
 code { color: var(--page); }
 .hint { color: var(--muted); font-size: 11px; line-height: 1.5; }
+/* Explanations, shown with the Tips button in the top bar (ui/tips.ts). */
+:root:not([data-tips]) .tip { display: none; }
+/* A panel whose only text is a tip shrinks to its header bar (Kit). */
+:root:not([data-tips]) .section:has(> header + .tip:last-child) { padding-bottom: 0; }
+:root:not([data-tips]) .section:has(> header + .tip:last-child) > header { margin-bottom: 0; border-bottom: none; }
 p.hint { margin: 0 0 8px; }
-.row { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+.row { display: flex; gap: 8px; align-items: center; margin: 12px 0; }
 /* A labelled field is taller than a button: line controls up along their bottom edge. */
 .row:has(> .field) { align-items: flex-end; }
 /* Inside a panel, rows wrap instead of spilling past the border, and inputs may shrink. */
@@ -169,19 +176,10 @@ p.hint { margin: 0 0 8px; }
 .row.wrap { flex-wrap: wrap; align-items: flex-end; }
 .row.wrap:has(> .section) { align-items: stretch; }
 .wide { min-width: 420px; }
+.panels { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; align-content: start; }
+.panels > .section { margin-bottom: 0; min-width: 0; }
 
-.app { max-width: 1400px; margin: 0 auto; padding: 14px 18px 48px; }
-/* Fill the window: on short pages the tab's last block takes the spare height, so there's no empty strip at the
-   bottom whatever the window height (e.g. with or without Chrome's automation bar). Long pages still scroll. */
-.app { min-height: 100vh; display: flex; flex-direction: column; }
-.app > main { flex: 1; display: flex; flex-direction: column; }
-.app > main > :is(.pad-editor, .chop-editor, .seq, .keys-panel, .song-panel) { flex: 1; display: flex; flex-direction: column; }
-.app > main > :is(.pad-editor, .chop-editor, .seq, .keys-panel, .song-panel) > :last-child { flex: 1; margin-bottom: 0; }
-.app > main > .pad-editor > :last-child > .section { margin-bottom: 0; }
-.app > main > .section { flex: 1; margin-bottom: 0; } /* a tab that is a single panel, e.g. Chop with no sample */
-/* On Keys the spare height goes to the keyboard. */
-.keys-panel > .section:last-child { display: flex; flex-direction: column; }
-.keys-panel > .section:last-child .mini-kb { flex: 1; height: auto; min-height: 80px; }
+.app { max-width: 1400px; margin: 0 auto; padding: 18px 22px 64px; }
 
 .audio-banner {
   display: block; width: 100%; margin-bottom: 10px; padding: 8px 12px; text-align: left;
@@ -190,11 +188,23 @@ p.hint { margin: 0 0 8px; }
 
 /* ---------- top bar: the "device" ---------- */
 .topbar {
-  display: grid; grid-template-columns: auto 1fr auto; gap: 10px 18px; align-items: center;
+  --bar-label: 104px; /* the label column of the bar's rows, so their controls start on one line */
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "main screen" "hw hw" "status status";
+  gap: 12px 22px; align-items: center; align-content: start;
   background: linear-gradient(180deg, var(--panel-2), var(--panel));
-  border: 1px solid var(--line); padding: 12px 14px;
+  border: 1px solid var(--line); padding: 16px 18px;
   box-shadow: inset 0 1px 0 rgba(255,255,255,.03), 0 6px 18px rgba(0,0,0,.25);
 }
+.bar-main { grid-area: main; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.bar-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.bar-label, .brand { width: var(--bar-label); flex: none; }
+/* Labels sit on the first line of their row when the controls wrap. */
+.bar-label { align-self: flex-start; line-height: var(--ctl-h); font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; }
+.brand { align-self: flex-start; }
+.bar-sep { width: 1px; height: 18px; background: var(--line); margin: 0 4px; }
+.utils { display: flex; gap: 6px; margin-left: auto; --page: var(--white); }
+/* The row's controls take the rest of the width and wrap inside it, so they stay right of their label. */
+.transport, .patterns, .tracks { flex: 1; min-width: 0; }
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand strong {
   font-family: var(--pixel); font-weight: 400; font-size: 16px; letter-spacing: .04em;
@@ -202,43 +212,44 @@ p.hint { margin: 0 0 8px; }
 }
 .dot { width: 8px; height: 8px; background: var(--rec); }
 .dot.ok { background: var(--ok); }
-.transport, .patterns, .hw { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.transport, .patterns, .hw-modes { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .transport { --page: var(--amber); }
-.patterns { grid-column: 1 / 3; --page: var(--cyan); gap: 4px; }
+.patterns { --page: var(--cyan); gap: 4px; }
 .pat { width: 32px; padding: 4px 0; text-align: center; font-variant-numeric: tabular-nums; }
 .pat.used:not(.on) { border-color: color-mix(in srgb, var(--cyan) 60%, transparent); color: var(--cyan); }
 .pat.queued { animation: blink .5s steps(2) infinite; }
 @keyframes blink { 50% { background: color-mix(in srgb, var(--cyan) 30%, var(--panel)); color: var(--cyan); } }
-.hw { grid-column: 1 / 3; --page: var(--magenta); gap: 4px; }
-.hw .hint { margin-left: 6px; }
+.hw { grid-area: hw; --page: var(--magenta); }
+.hw-modes { gap: 4px; flex: none; }
+.hw > .bar-label { align-self: center; }
+.hw-modes button { text-transform: capitalize; }
 /* Encoder page + its 8 knobs, in one strip. */
-.enc-strip { display: flex; align-items: stretch; flex: 1; min-width: 0; margin-left: 8px; border: 1px solid var(--line-hi); background: var(--wave-bg); }
+.enc-strip { display: flex; align-items: stretch; flex: 1; min-width: 0; border: 1px solid var(--line-hi); background: var(--wave-bg); }
 .enc-tag { display: flex; align-items: stretch; padding: 0; border: none; border-right: 1px solid var(--line-hi); border-radius: 0; font-size: 11px; flex: none; }
 .enc-tag:hover:not(:disabled) { color: inherit; }
 .enc-tag b { background: color-mix(in srgb, var(--magenta) var(--tint), var(--panel)); color: var(--magenta); padding: 0 7px; letter-spacing: .06em; display: flex; align-items: center; }
-.enc-tag span { padding: 0 9px; color: var(--magenta); display: flex; align-items: center; min-width: 62px; }
+.enc-tag span { padding: 0 10px; color: var(--text); font-weight: 700; display: flex; align-items: center; min-width: 62px; }
 .enc-knobs { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); }
 .enc-knob { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 4px 2px 3px; min-width: 0; border-left: 1px solid var(--line); }
 .enc-knob:first-child { border-left: none; }
 .enc-knob.empty { opacity: .35; }
-.knob { width: 22px; height: 22px; flex: none; margin-bottom: 1px; }
+.knob { width: 26px; height: 26px; flex: none; margin-bottom: 1px; }
 .knob-track { fill: none; stroke: var(--line-hi); stroke-width: 2.5; stroke-linecap: round; }
-.knob-fill { fill: none; stroke: var(--magenta); stroke-width: 2.5; stroke-linecap: round; }
+.knob-fill { fill: none; stroke: var(--magenta); stroke-width: 3; stroke-linecap: round; }
 .knob-pointer { stroke: var(--white); stroke-width: 1.5; stroke-linecap: round; }
 .enc-text { display: flex; flex-direction: column; align-items: center; min-width: 0; max-width: 100%; line-height: 1.2; }
-.enc-name { font-size: 8px; max-width: 100%; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.enc-val { font-size: 10px; max-width: 100%; color: var(--magenta); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.enc-name { font-size: 9px; max-width: 100%; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.enc-val { font-size: 11px; font-weight: 700; max-width: 100%; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The last message, as a quiet line under the controls (empty most of the time). */
 .status {
-  grid-column: 1 / 3; display: flex; align-items: stretch; min-height: 20px; font-size: 11px;
-  border: 1px solid var(--line); background: var(--wave-bg);
+  grid-area: status; min-height: 16px; margin: -4px 0 0 calc(var(--bar-label) + 10px); font-size: 11px; line-height: 16px; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.status b { background: var(--panel-2); color: var(--text); border-right: 1px solid var(--line); padding: 3px 6px; letter-spacing: .06em; }
-.status span { padding: 3px 8px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .field { display: flex; flex-direction: column; gap: 4px; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
 .field.inline { flex-direction: row; align-items: center; gap: 6px; }
 .field > input, .field > select { text-transform: none; letter-spacing: 0; }
 
-.screen-slot { grid-column: 3; grid-row: 1 / span 4; align-self: center; }
+.screen-slot { grid-area: screen; align-self: center; }
 .bezel {
   padding: 8px; background: var(--wave-bg); border: 1px solid var(--line);
   box-shadow: inset 0 2px 6px rgba(0,0,0,.35), 0 0 0 3px var(--panel);
@@ -248,7 +259,7 @@ p.hint { margin: 0 0 8px; }
 }
 
 /* ---------- pads ---------- */
-.pad-grid { margin: 16px 0; display: grid; gap: 8px; padding: 10px; background: var(--wave-bg); border: 1px solid var(--line); }
+.pad-grid { margin: 22px 0; display: grid; gap: 8px; padding: 10px; background: var(--wave-bg); border: 1px solid var(--line); }
 .pad-row { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; }
 .pad {
   aspect-ratio: 1.6; position: relative; border-radius: 3px; text-align: left; padding: 7px 8px;
@@ -263,8 +274,8 @@ p.hint { margin: 0 0 8px; }
 }
 .pad:hover:not(:disabled) { border-color: var(--pad); color: var(--text); }
 .pad.empty { background: var(--bg); border-color: var(--line); }
-.pad.selected { border-color: var(--pad); box-shadow: inset 0 0 0 1px var(--pad); }
-.pad.selected .pad-num { background: color-mix(in srgb, var(--pad) 30%, var(--panel)); }
+.pad.selected { border-color: var(--pad); box-shadow: 0 0 0 2px var(--pad); background: color-mix(in srgb, var(--pad) 20%, var(--panel)); }
+.pad.selected .pad-num { background: var(--pad); color: var(--on-pad); border-color: var(--pad); font-weight: 700; }
 .pad.hit, .pad.hit:hover { background: color-mix(in srgb, var(--pad) 40%, var(--panel)); color: var(--white); }
 .pad.drop { outline: 1px dashed var(--white); outline-offset: 2px; }
 .pad-num { font-size: 10px; color: var(--pad); align-self: flex-start; padding: 0 4px; border: 1px solid color-mix(in srgb, var(--pad) 50%, transparent); font-variant-numeric: tabular-nums; }
@@ -274,22 +285,25 @@ p.hint { margin: 0 0 8px; }
 .pad.empty .pad-name { color: var(--dim); }
 
 /* ---------- page tabs (like encoder page tags) ---------- */
-.tabs { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--page); padding-bottom: 0; }
-.tabs button { border: 1px solid var(--line); border-bottom: none; background: var(--panel); color: var(--muted); padding: 7px 14px 6px; position: relative; }
+.tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 2px solid var(--page); padding-bottom: 0; }
+.tabs button {
+  border: 1px solid var(--line); border-bottom: none; background: var(--panel); color: var(--muted); padding: 7px 14px 6px; position: relative;
+  text-transform: uppercase; letter-spacing: .06em; font-weight: 600; font-size: 11px;
+}
 .tabs button::before { content: ""; position: absolute; left: 6px; top: 50%; width: 4px; height: 4px; margin-top: -2px; background: var(--tab); opacity: .45; }
 .tabs button { padding-left: 16px; }
 .tabs button:hover:not(:disabled) { color: var(--tab); border-color: var(--tab); }
-.tabs button.on, .tabs button.on:hover { background: color-mix(in srgb, var(--tab) var(--tint), var(--panel)); color: var(--tab); border-color: var(--tab); }
-.tabs button.on::before { opacity: 1; }
+.tabs button.on, .tabs button.on:hover { background: var(--tab); color: var(--ink); border-color: var(--tab); }
+.tabs button.on::before { opacity: 1; background: var(--ink); }
 
 /* ---------- sections: tinted header tag, like the screen's header bar ---------- */
 .section {
-  background: var(--panel); border: 1px solid var(--line); margin-bottom: 12px; flex: 1; min-width: 280px;
-  padding: 0 12px 12px; position: relative;
+  background: var(--panel); border: 1px solid var(--line); margin-bottom: 20px; flex: 1; min-width: 280px;
+  padding: 0 16px 16px; position: relative;
 }
 .section > header {
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
-  margin: 0 -12px 10px; padding: 0 0 0 0; border-bottom: 1px solid var(--line); min-height: 30px;
+  margin: 0 -16px 14px; padding: 0 0 0 0; border-bottom: 1px solid var(--line); min-height: 32px;
 }
 .section h2 {
   font-size: 11px; margin: 0; font-weight: 700; text-transform: uppercase; letter-spacing: .1em;
@@ -303,7 +317,7 @@ p.hint { margin: 0 0 8px; }
 .section .actions :is(select, input) { padding-top: 1px; padding-bottom: 1px; font-size: 11px; }
 .section p { margin: 0 0 8px; }
 
-.waveform { width: 100%; height: 150px; display: block; cursor: ew-resize; background: var(--wave-bg); border: 1px solid var(--line); }
+.waveform { width: 100%; height: 170px; display: block; cursor: ew-resize; background: var(--wave-bg); border: 1px solid var(--line); }
 
 .tab-state.on { color: var(--ok); }
 .duck-meter { margin-top: 6px; }
@@ -312,6 +326,7 @@ p.hint { margin: 0 0 8px; }
 .inputs li { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .duck-pads { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 3px; margin-top: 6px; }
 .duck-pads button { padding: 2px 0; min-width: 0; }
+.duck-pads button.on, .duck-pads button.on:hover { background: color-mix(in srgb, var(--page) 30%, var(--panel)); color: var(--text); }
 
 /* Chop editor */
 .chop-tools { margin-top: 0; }
@@ -332,11 +347,11 @@ p.hint { margin: 0 0 8px; }
 .chop-overview { width: 100%; height: 36px; display: block; margin: 4px 0 8px; cursor: pointer; touch-action: none; border: 1px solid var(--line); }
 
 /* Parameter sliders drawn as the screen's meter widget: outlined box, filled to value. */
-.sliders { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 2px 18px; margin-top: 10px; }
+.sliders { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px 28px; margin-top: 14px; }
 .slider { display: grid; grid-template-columns: 78px 1fr 64px; align-items: center; gap: 10px; font-size: 11px; padding: 3px 0; }
 .slider-label { color: var(--muted); text-transform: uppercase; letter-spacing: .08em; font-size: 10px; }
 .slider:hover .slider-label { color: var(--page); }
-.slider-value { text-align: right; font-variant-numeric: tabular-nums; color: var(--page); }
+.slider-value { text-align: right; font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; }
 .slider input {
   appearance: none; -webkit-appearance: none; width: 100%; height: 12px; padding: 0; margin: 0; cursor: ew-resize;
   border: 1px solid var(--line-hi); border-radius: 0;
@@ -368,7 +383,9 @@ p.hint { margin: 0 0 8px; }
 /* The grid sits inside the Pattern panel, which already draws the box. */
 .seq-grid { display: grid; gap: 3px; overflow-x: auto; }
 .seq-row { display: grid; grid-template-columns: 110px 26px 26px 1fr; gap: 4px; align-items: center; }
-.seq-row.selected .seq-name { background: color-mix(in srgb, var(--row) var(--tint), var(--panel)); color: var(--text); border-color: var(--row); }
+.seq-row.selected .seq-name, .seq-row.selected .seq-name:hover { background: var(--row); color: var(--on-pad); border-color: var(--row); font-weight: 700; }
+/* The selected pad's row is banded, so it's easy to follow across the steps. */
+.seq-row.selected .cell:not(.lit) { background: color-mix(in srgb, var(--row) 14%, transparent); }
 .seq-name {
   text-align: left; padding: 3px 8px; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   border-left: 3px solid var(--row);
@@ -386,7 +403,18 @@ p.hint { margin: 0 0 8px; }
 /* A nudged note: a mark off the cell's centre, left = early, right = late. */
 .cell.nudged { position: relative; }
 .cell.nudged::after { content: ""; position: absolute; top: 3px; bottom: 3px; width: 2px; left: calc(50% - 1px + var(--nudge) * 40%); background: var(--ink); }
-.cell.now { outline: 1px solid var(--white); outline-offset: 1px; z-index: 1; }
+/* A new bar starts a little further on. */
+.seq-cells > .bar:not(:first-child) { margin-left: 6px; }
+/* Playhead: every row's current step is lit and ringed, so the column reads as one moving bar. */
+.cell.now { box-shadow: 0 0 0 2px var(--white); z-index: 1; }
+.cell.now:not(.lit) { background: color-mix(in srgb, var(--white) 18%, transparent); }
+.seq-ruler .seq-cells > span {
+  height: 16px; font-size: 9px; line-height: 16px; padding-left: 2px; color: var(--dim); font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: visible; border-bottom: 2px solid transparent;
+}
+.seq-ruler .seq-cells > span.beat { color: var(--muted); border-left: 1px solid var(--line-hi); }
+.seq-ruler .seq-cells > span.bar { color: var(--text); font-weight: 700; }
+.seq-ruler .seq-cells > span.now { border-bottom-color: var(--page); background: color-mix(in srgb, var(--page) 25%, transparent); color: var(--text); }
 
 /* ---------- keys ---------- */
 .keys-panel { --page: var(--violet); }
@@ -434,40 +462,6 @@ p.hint { margin: 0 0 8px; }
   .pad-row { gap: 5px; }
 }
 
-/* ---------- compact: short windows such as a 14" laptop (keep in sync with COMPACT_QUERY in App.tsx) ---------- */
-@media (max-height: 950px) {
-  .app { padding: 8px 14px 12px; }
-  .audio-banner { margin-bottom: 6px; padding: 5px 10px; }
-  .topbar { padding: 8px 10px; gap: 6px 14px; }
-  .pad-grid { margin: 8px 0; padding: 6px; gap: 6px; }
-  .pad-row { gap: 6px; }
-  .pad { aspect-ratio: auto; height: 46px; padding: 3px 7px; }
-  .tabs { margin-bottom: 8px; }
-  .tabs button { padding-top: 5px; padding-bottom: 4px; }
-  .section { margin-bottom: 6px; padding: 0 10px 6px; }
-  .section > header { margin: 0 -10px 8px; min-height: 26px; }
-  .section .actions { padding: 1px 6px; }
-  .row { margin: 6px 0; }
-  .waveform { height: 84px; }
-  .sliders { margin-top: 6px; }
-  .slider { padding: 1px 0; }
-  .chop-wave canvas { height: 180px; }
-  .chop-overview { height: 28px; }
-  .mini-kb { height: 80px; }
-  .seq-grid { gap: 2px; }
-  .cell { height: 19px; }
-  .seq-name, .ms { padding-top: 2px; padding-bottom: 2px; }
-}
-
-/* ---------- short: 13" laptops (~1280x680 in Chrome). A little page scrolling is fine; just tighten. ---------- */
-@media (max-height: 760px) {
-  .topbar { padding: 6px 10px; gap: 5px 14px; }
-  .pad-grid { margin: 6px 0; }
-  .pad { height: 36px; padding: 2px 6px; }
-  .pad-num { font-size: 9px; }
-  .tabs { margin-bottom: 6px; }
-}
-
 /* ---------- confirmation dialog (ui/ConfirmDialog.tsx) ---------- */
 .confirm {
   width: min(440px, 100%); padding: 18px 20px 16px; background: var(--panel); border: 1px solid var(--line-hi);
@@ -479,7 +473,6 @@ p.hint { margin: 0 0 8px; }
 button.danger { --page: var(--rec); }
 
 /* ---------- guide ---------- */
-.guide-btn { --page: var(--white); margin-left: 4px; }
 .theme-btn { --page: var(--white); width: var(--ctl-h); padding: 0; font-size: 14px; text-transform: none; letter-spacing: 0; }
 .g-overlay {
   position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 32px 16px;
@@ -627,30 +620,30 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
 .boot-error p { margin: 0; color: var(--text); line-height: 1.5; }
 
 /* ---------- tracks (top bar) ---------- */
-.tracks { grid-column: 1 / 3; display: flex; gap: 4px; align-items: center; flex-wrap: wrap; --page: var(--yellow); }
+.tracks { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; --page: var(--yellow); }
 .trk { display: flex; align-items: center; gap: 6px; max-width: 160px; border-left: 3px solid var(--trk); text-transform: none; letter-spacing: 0; }
 .trk i { font-style: normal; color: var(--trk); font-variant-numeric: tabular-nums; }
 .trk span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .trk em { font-style: normal; font-size: 8px; letter-spacing: .08em; color: var(--muted); border: 1px solid var(--line-hi); padding: 0 3px; }
-.trk.on { background: color-mix(in srgb, var(--trk) var(--tint), var(--panel)); border-color: var(--trk); color: var(--text); }
+.trk.on, .trk.on:hover { background: var(--trk); border-color: var(--trk); color: var(--on-pad); font-weight: 700; }
+.trk.on i { color: var(--on-pad); }
+.trk.on em { color: var(--on-pad); border-color: color-mix(in srgb, var(--on-pad) 45%, transparent); }
 .trk.muted span { opacity: .45; text-decoration: line-through; }
 .trk-actions { display: flex; gap: 4px; margin-left: 6px; }
 
 /* Narrow windows (an iPad held upright): the screen sits right of the transport, patterns and tracks;
-   the mode buttons and the encoder strip get the full width below. After .tracks, which sets its own column. */
+   the mode buttons and the encoder strip get the full width below. */
 @media (max-width: 900px) {
-  .topbar { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; }
-  .screen-slot { grid-column: 2; grid-row: 1 / span 4; }
-  .transport, .patterns, .tracks { grid-column: 1; }
-  .hw, .status { grid-column: 1 / -1; }
-  .hw .enc-strip { flex-basis: 100%; margin-left: 0; }
+  .topbar { --bar-label: 76px; gap: 8px 12px; }
+  .hw { flex-wrap: wrap; }
+  .hw .enc-strip { flex-basis: 100%; }
 }
 
 /* ---------- mixer ---------- */
 .mixer-panel { --page: var(--yellow); }
 .mixer { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(150px, 1fr); gap: 6px; overflow-x: auto; }
 .channel { border: 1px solid var(--line); border-top: 3px solid var(--trk); padding: 6px; background: var(--panel); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.channel.on { border-color: var(--trk); background: color-mix(in srgb, var(--trk) 8%, var(--panel)); }
+.channel.on { border-color: var(--trk); box-shadow: 0 0 0 1px var(--trk); background: color-mix(in srgb, var(--trk) 10%, var(--panel)); }
 .channel header { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .channel header i { font-style: normal; color: var(--trk); }
 .channel header input { flex: 1; min-width: 0; }
@@ -667,33 +660,37 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
 .matrix { display: grid; grid-template-columns: 34px repeat(var(--cols), minmax(70px, 1fr)); gap: 2px; overflow-x: auto; }
 .mx-row { display: contents; }
 .mx-head { border-bottom: 2px solid var(--trk); text-transform: none; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mx-head.on { background: color-mix(in srgb, var(--trk) var(--tint), var(--panel)); color: var(--text); }
+.mx-head.on, .mx-head.on:hover { background: var(--trk); border-color: var(--trk); color: var(--on-pad); }
 .mx-num { padding: 0; font-variant-numeric: tabular-nums; }
-.mx-row.now .mx-num { background: color-mix(in srgb, var(--page) var(--tint), var(--panel)); color: var(--page); border-color: var(--page); }
+.mx-row.now .mx-num { background: var(--page); color: var(--ink); border-color: var(--page); font-weight: 700; }
 .mx-row.queued .mx-num { animation: blink .5s steps(2) infinite; }
 .mx-cell { height: 20px; padding: 2px 3px; border-radius: 0; }
-.mx-row.now .mx-cell { border-color: var(--line-hi); }
+.mx-row.now .mx-cell { border-color: var(--line-hi); background-color: color-mix(in srgb, var(--page) 10%, var(--panel)); }
 .mx-cell.used { background: color-mix(in srgb, var(--trk) 14%, var(--panel)); }
-.mx-cell.sel { outline: 1px solid var(--trk); outline-offset: -1px; }
+.mx-cell.sel { outline: 2px solid var(--trk); outline-offset: -2px; }
 .mx-dens { display: grid; grid-template-columns: repeat(var(--steps), 1fr); gap: 1px; height: 100%; align-items: end; }
 .mx-dens i { height: 30%; background: color-mix(in srgb, var(--trk) 25%, transparent); }
 .mx-dens i.on { height: 100%; background: var(--trk); }
 
 /* ---------- phone (e.g. Pixel 6a, 412 px wide). Only below 600 px, so iPad (820+) and desktop layouts are untouched.
-   Last in the file so it wins over the narrow and compact rules above. ---------- */
+   Last in the file so it wins over the narrow rules above. ---------- */
 @media (max-width: 600px) {
   .app { padding: 8px 10px 32px; }
 
   /* Top bar: one column, the screen centred, every row full width. */
-  .topbar { grid-template-columns: minmax(0, 1fr); padding: 8px; gap: 8px; }
-  .screen-slot, .transport, .patterns, .tracks, .hw, .status { grid-column: 1; grid-row: auto; }
+  .topbar { grid-template-columns: minmax(0, 1fr); grid-template-areas: "main" "hw" "status"; padding: 8px; gap: 8px; }
+  .bar-label { display: none; }
+  .status { margin-left: 0; }
+  /* Brand and Tips / Guide / theme share the first line, the transport goes below them. */
+  .bar-row:first-child { flex-wrap: wrap; }
+  .brand { width: auto; }
+  .transport { order: 1; flex-basis: 100%; }
   /* The preview mirrors the Launchkey's own screen; on a phone the room is better spent on the pads. */
   .screen-slot { display: none; }
-  .brand { flex-wrap: wrap; gap: 8px; }
   .trk-actions { margin-left: 0; }
   .patterns { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); }
   .pat { width: auto; }
-  .hw > button { flex: 1 1 auto; }
+  .hw-modes { flex: 1 1 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   /* Encoder page tag on its own line, so the 8 knobs get the full width. */
   .enc-strip { flex-wrap: wrap; }
   .enc-tag { flex-basis: 100%; border-right: none; border-bottom: 1px solid var(--line-hi); min-height: 22px; }
@@ -721,5 +718,6 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
 
 /* Phone held sideways (short touch screen): the encoder strip gets its own line so the knobs aren't squeezed. */
 @media (max-height: 500px) and (pointer: coarse) {
-  .hw .enc-strip { flex-basis: 100%; margin-left: 0; }
+  .hw { flex-wrap: wrap; }
+  .hw .enc-strip { flex-basis: 100%; }
 }

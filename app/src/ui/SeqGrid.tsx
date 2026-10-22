@@ -67,8 +67,21 @@ export function SeqGrid() {
           {patterns.map((p, i) => i !== patIndex && <option key={i} value={i}>Pattern {i + 1}{clipOf(p, track.id).events.length ? " (overwrite)" : ""}</option>)}
         </select>
       </>}>
-      <p className="hint">{drum ? "Click a cell to toggle a step." : "Click a cell to add a note; record on the keyboard for melodies."} Pick another track above to edit it.</p>
+      <p className="hint tip">{drum ? "Click a cell to toggle a step." : "Click a cell to add a note; record on the keyboard for melodies."} Pick another track above to edit it.</p>
       <div className="seq-grid" style={{ "--steps": steps } as React.CSSProperties}>
+        {/* Bar.beat over every beat; the step playing is lit. */}
+        <div className="seq-row seq-ruler" aria-hidden>
+          <span />
+          <span />
+          <span />
+          <div className="seq-cells">
+            {Array.from({ length: steps }, (_, s) => (
+              <span key={s} className={`${s % 4 === 0 ? "beat" : ""} ${s % 16 === 0 ? "bar" : ""} ${s === playStep ? "now" : ""}`}>
+                {s % 4 === 0 ? `${Math.floor(s / 16) + 1}.${(s % 16) / 4 + 1}` : ""}
+              </span>
+            ))}
+          </div>
+        </div>
         {rows.map((row) => (
           <div key={row.key} className={`seq-row ${drum && selectedPad === row.note ? "selected" : ""}`} style={{ "--row": row.color } as React.CSSProperties}>
             <button className="seq-name" onClick={() => drum && set({ selectedPad: row.note })}>{row.name}</button>
@@ -87,8 +100,9 @@ export function SeqGrid() {
                 return (
                   <button
                     key={s}
-                    className={`cell ${s % 4 === 0 ? "beat" : ""} ${s === playStep ? "now" : ""} ${vel ? "lit" : ""} ${nudge ? "nudged" : ""}`}
-                    style={vel ? { background: row.color, opacity: 0.35 + (vel / 127) * 0.65, "--nudge": nudge / MAX_NUDGE } as React.CSSProperties : undefined}
+                    className={`cell ${s % 4 === 0 ? "beat" : ""} ${s % 16 === 0 ? "bar" : ""} ${s === playStep ? "now" : ""} ${vel ? "lit" : ""} ${nudge ? "nudged" : ""}`}
+                    // Softer notes are paler; mixed into the colour rather than faded, so the playhead ring stays solid.
+                    style={vel ? { background: `color-mix(in srgb, ${row.color} ${Math.round(35 + (vel / 127) * 65)}%, transparent)`, "--nudge": nudge / MAX_NUDGE } as React.CSSProperties : undefined}
                     title={inStep.length && !drum ? inStep.map((e) => noteName(e.note)).join(" ") : undefined}
                     onClick={() => toggleStep(patIndex, track.id, s * STEP_TICKS, STEP_TICKS, row.note)}
                   >
