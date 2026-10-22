@@ -3,7 +3,7 @@
 // timeline, the biquad formulas, the built-in oscillators' band-limited tables and the stereo panner law. Each voice
 // makes the same automation calls as its dsp.ts builder, so both engines play the same envelopes.
 import type { KeysLfo, Pad, SynthParams, Wave } from "../../state/types";
-import { DECAY_MAX, FILTER_LFO_CENTS, KEY_TRACK_PIVOT, VIB_CENTS, cutoffHz, driveCurve, padQDb, synthQDb, velGain } from "../dsp";
+import { DECAY_MAX, FILTER_LFO_CENTS, REGION_FADE, KEY_TRACK_PIVOT, VIB_CENTS, cutoffHz, driveCurve, padQDb, synthQDb, velGain } from "../dsp";
 
 // ---------- messages between the main thread and the processor ----------
 
@@ -292,6 +292,17 @@ function panGains(pan: number, stereo: boolean) {
   return [Math.cos((x * Math.PI) / 2), Math.sin((x * Math.PI) / 2)];
 }
 
+/**
+ * 4-point, 3rd-order Hermite interpolation between b (f = 0) and c (f = 1), with a and d the frames around them.
+ * Smoother than a straight line between b and c: less of the hiss and dulling that pitching a sample adds.
+ */
+export function hermite(a: number, b: number, c: number, d: number, f: number) {
+  const c1 = 0.5 * (c - a);
+  const c2 = a - 2.5 * b + 2 * c - 0.5 * d;
+  const c3 = 0.5 * (d - a) + 1.5 * (b - c);
+  return ((c3 * f + c2) * f + c1) * f + b;
+}
+
 export class SampleVoice implements Voice {
   private amp = new Param(0);
   private hp: Biquad | null = null;
@@ -344,6 +355,10 @@ export class SampleVoice implements Voice {
       this.amp.set(peak, when + attack);
       this.amp.linear(0, fadeEnd);
       end = fadeEnd;
+    } else if (end - REGION_FADE > when + attack) {
+      // No fade (gate, or full decay): the region's end would cut the sound off mid-wave.
+      this.amp.set(peak, end - REGION_FADE);
+      this.amp.linear(0, end);
     }
     // Sources start between frames, as in Chrome: from the next frame on, as far along as they would be by then.
     this.startFrame = Math.ceil(when * sampleRate);
@@ -360,18 +375,15 @@ export class SampleVoice implements Voice {
     this.stopTime = t + rel + 0.01;
   }
 
-  /** Buffer channel c at fractional frame p (linear interpolation), read backwards when reversed. */
+  /** Buffer channel c at fractional frame p, read backwards when reversed. Frames outside the buffer are silence. */
   private read(c: number, p: number) {
     const d = this.data.channels[c];
-    const len = d.length;
     const i = Math.floor(p);
-    const f = p - i;
     if (this.spec.pad.reverse) {
-      const a = d[len - 1 - i] ?? 0;
-      return a + ((d[len - 2 - i] ?? 0) - a) * f;
+      const j = d.length - 1 - i;
+      return hermite(d[j + 1] ?? 0, d[j] ?? 0, d[j - 1] ?? 0, d[j - 2] ?? 0, p - i);
     }
-    const a = d[i] ?? 0;
-    return a + ((d[i + 1] ?? 0) - a) * f;
+    return hermite(d[i - 1] ?? 0, d[i] ?? 0, d[i + 1] ?? 0, d[i + 2] ?? 0, p - i);
   }
 
   render(out: Float32Array[], frame: number, n: number) {

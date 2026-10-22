@@ -39,3 +39,33 @@ export const REPEAT_OPTIONS = [
 export function soundTick(e: { tick: number; nudge?: number }, length: number): number {
   return (((e.tick + (e.nudge ?? 0)) % length) + length) % length;
 }
+
+/**
+ * Move notes towards the nearest line of a `grid`-tick grid by `strength` (1 = onto it), as they sound (nudge
+ * included, which is folded into the tick). Notes stay inside the clip; two hits of the same note landing together
+ * become one, the louder.
+ */
+export function quantizeEvents<E extends { tick: number; note: number; vel: number; nudge?: number }>(events: E[], grid: number, strength: number, clipTicks: number): E[] {
+  const out = new Map<string, E>();
+  for (const e of events) {
+    const at = e.tick + (e.nudge ?? 0);
+    const tick = ((Math.round(at + (Math.round(at / grid) * grid - at) * strength) % clipTicks) + clipTicks) % clipTicks;
+    const { nudge: _, ...rest } = e;
+    const q = { ...rest, tick } as E;
+    const key = `${tick}:${e.note}`;
+    const had = out.get(key);
+    if (!had || had.vel < e.vel) out.set(key, q);
+  }
+  return [...out.values()];
+}
+
+/** Loosen notes up a little: velocity ±10 and timing ±2 ticks, times `amount` (0..1). `rand` returns 0..1. */
+export function humanizeEvents<E extends { vel: number; nudge?: number }>(events: E[], amount: number, rand = Math.random): E[] {
+  return events.map((e) => {
+    const vel = Math.max(1, Math.min(127, Math.round(e.vel + (rand() * 2 - 1) * 10 * amount)));
+    const nudge = Math.max(-MAX_NUDGE, Math.min(MAX_NUDGE, Math.round((e.nudge ?? 0) + (rand() * 2 - 1) * 2 * amount)));
+    const { nudge: _, ...rest } = e;
+    return (nudge ? { ...rest, vel, nudge } : { ...rest, vel }) as E;
+  });
+}
+

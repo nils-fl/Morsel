@@ -13,6 +13,7 @@ export function SongPanel() {
   const songMode = useApp((s) => s.songMode);
   const patterns = useApp((s) => s.project.patterns);
   const [loops, setLoops] = useState(4);
+  const bits = useApp((s) => s.bounceBits);
   const [busy, setBusy] = useState(false);
   const importInput = useRef<HTMLInputElement>(null);
 
@@ -24,7 +25,7 @@ export function SongPanel() {
       const s = get();
       const buf = await renderToBuffer(s.project, arrangement(s.project, useSong, s.currentPattern, loops));
       const name = `${s.project.name}-${useSong ? "song" : `pattern${s.currentPattern + 1}`}.wav`;
-      download(encodeWav(buf), name);
+      download(encodeWav(buf, bits), name);
       set({ status: `Exported ${name} (${buf.duration.toFixed(1)} s)` });
     } catch (err) {
       set({ status: `Bounce failed: ${(err as Error).message}` });
@@ -72,6 +73,10 @@ export function SongPanel() {
           <span>×</span>
           <input type="number" min={1} max={64} value={loops} onChange={(e) => setLoops(Math.max(1, Math.min(64, Math.round(Number(e.target.value) || 1))))} />
           <span className="hint">loops</span>
+          <select value={bits} onChange={(e) => set({ bounceBits: Number(e.target.value) as 16 | 24 })} aria-label="Bit depth">
+            <option value={24}>24-bit</option>
+            <option value={16}>16-bit</option>
+          </select>
         </div>
       </Section>
 

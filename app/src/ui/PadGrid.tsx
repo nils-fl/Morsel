@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { keyOff, keyOn, loadFilesToPads, playPad, releasePad } from "../actions";
+import { keyOff, keyOn, loadFilesToPads, playPad, releasePad, repeatPadDown, repeatPadUp, setRepeatLatch } from "../actions";
 import { noteForKeysPad } from "../modes/stepMap";
-import { drumPads, selectedTrack, useApp } from "../state/store";
+import { REPEAT_OPTIONS } from "../seq/timing";
+import { drumPads, selectedTrack, set, useApp } from "../state/store";
 import type { Track } from "../state/types";
 import { noteName } from "./notes";
 import { paletteCss } from "./palette";
@@ -28,9 +29,27 @@ function DrumPads() {
   const selected = useApp((s) => s.selectedPad);
   const [hit, setHit] = useState<number | null>(null);
   const [dropOn, setDropOn] = useState<number | null>(null);
+  const latch = useApp((s) => s.repeatLatch);
+  const rate = useApp((s) => s.repeatRate);
+  const down = (i: number, vel: number) => (latch ? repeatPadDown(i, vel) : playPad(i, vel));
+  const up = (i: number) => {
+    setHit(null);
+    if (latch) repeatPadUp(i);
+    releasePad(i);
+  };
 
   return (
     <div className="pad-grid">
+      <div className="pad-tools">
+        <button
+          className={latch ? "on" : ""}
+          onClick={() => setRepeatLatch(!latch)}
+          title="Note repeat: a held pad repeats at this rate. On the Launchkey: hold Scene ›, or press it twice to latch."
+        >Repeat</button>
+        <select value={rate} onChange={(e) => set({ repeatRate: Number(e.target.value) })} aria-label="Repeat rate">
+          {REPEAT_OPTIONS.map((o) => <option key={o.label} value={o.ticks}>{o.label}</option>)}
+        </select>
+      </div>
       {ROWS.map((row, r) => (
         <div className="pad-row" key={r}>
           {row.map((i) => {
@@ -42,10 +61,10 @@ function DrumPads() {
                 style={{ "--pad": paletteCss(pad.color) } as React.CSSProperties}
                 onPointerDown={(e) => {
                   setHit(i);
-                  playPad(i, velocityAt(e));
+                  down(i, velocityAt(e));
                 }}
-                onPointerUp={() => { setHit(null); releasePad(i); }}
-                onPointerLeave={() => hit === i && (setHit(null), releasePad(i))}
+                onPointerUp={() => up(i)}
+                onPointerLeave={() => hit === i && up(i)}
                 onDragOver={(e) => { e.preventDefault(); setDropOn(i); }}
                 onDragLeave={() => setDropOn(null)}
                 onDrop={(e) => {

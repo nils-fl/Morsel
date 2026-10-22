@@ -149,14 +149,19 @@ export interface Pattern {
 }
 
 export interface Returns {
-  reverb: { size: number; decay: number; level: number }; // size, decay 0..1; level 0..1
-  delay: { time: number; feedback: number; tone: number; level: number }; // time in 16ths (1..16)
+  /** size, decay, predelay (0..1 = 0..80 ms), tone (dark..bright) and level, all 0..1. */
+  reverb: { size: number; decay: number; predelay: number; tone: number; level: number };
+  /** time in 16ths (1..16); pingpong: repeats bounce left and right instead of each side echoing itself. */
+  delay: { time: number; feedback: number; tone: number; level: number; pingpong: boolean };
 }
 
 export interface SongStep {
   pattern: number;
   repeats: number;
 }
+
+/** Master level of a new project (and of one saved before it could be set). */
+export const DEFAULT_MASTER_LEVEL = 0.9;
 
 export interface Project {
   name: string;
@@ -168,6 +173,8 @@ export interface Project {
   /** Sidechain inputs, in order (Input 1, Input 2, …): drum pads whose hits duck the keys tracks listening to them. */
   sidechain: SidechainInput[];
   returns: Returns;
+  /** Master level before the glue compressor and limiter, 0..1. */
+  masterLevel: number;
 }
 
 /** A sidechain input: one pad of a drum track, as `${trackId}:${pad}`. */

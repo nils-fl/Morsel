@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { defaultKeys, defaultPad } from "../../state/store";
-import { Param, SampleVoice, SynthVoice, biquadCoefficients, tablesFor, type SampleData } from "./voiceCore";
+import { DECAY_MAX } from "../dsp";
+import { Param, SampleVoice, SynthVoice, biquadCoefficients, hermite, tablesFor, type SampleData } from "./voiceCore";
 
 const SR = 48000;
 
@@ -126,6 +127,29 @@ describe("sample voice", () => {
     const ramp = new Float32Array(4800).map((_, i) => i / 4800);
     const { out } = render(sampleVoice({ attack: 0, volume: 1, reverse: true }, { sampleRate: SR, channels: [ramp] }), 0.05);
     expect(out[0][100] / Math.SQRT1_2).toBeCloseTo(ramp[4799 - 100], 3);
+  });
+
+  it("interpolates with a Hermite curve: exact on frames, closer than a line between them", () => {
+    expect(hermite(0.1, 0.4, -0.3, 0.9, 0)).toBe(0.4);
+    expect(hermite(0.1, 0.4, -0.3, 0.9, 1)).toBeCloseTo(-0.3, 12);
+    // A 5 kHz sine read halfway between frames.
+    const w = (2 * Math.PI * 5000) / SR;
+    let herr = 0, lerr = 0;
+    for (let i = 1; i < 100; i++) {
+      const s = (k: number) => Math.sin(w * k);
+      const truth = s(i + 0.5);
+      herr = Math.max(herr, Math.abs(hermite(s(i - 1), s(i), s(i + 1), s(i + 2), 0.5) - truth));
+      lerr = Math.max(lerr, Math.abs((s(i) + s(i + 1)) / 2 - truth));
+    }
+    expect(herr).toBeLessThan(lerr / 3);
+  });
+
+  it("fades the last 2 ms of a region that has no fade of its own", () => {
+    const { out } = render(sampleVoice({ start: 0, end: 0.5, attack: 0, volume: 1, decay: DECAY_MAX }, ones(4800)), 0.1);
+    const end = 2400;
+    expect(out[0][end - 200]).toBeCloseTo(Math.SQRT1_2, 4);
+    expect(out[0][end - 48]).toBeLessThan(Math.SQRT1_2 / 2 + 0.01);
+    expect(Math.abs(out[0][end - 1])).toBeLessThan(0.01);
   });
 
   it("starts at the scheduled frame and a choke fades it out within 5 ms", () => {

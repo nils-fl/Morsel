@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  DRUMS_ID, KEYS_ID, addEvent, addTrack, clipOf, editStep, markUndo, canRemoveTrack, copyClip, copyPattern, defaultPad, doubleClip, setTrackBars, setTrackDuck, setDuckPad, padDucks, toggleSidechainInput, trackBars, defaultProject, fixSelection, get, migrateV1, normalizeProject, removeTrack, resetSession, selectTrack, set, stepTrack, undo,
+  DRUMS_ID, KEYS_ID, addEvent, addTrack, clipOf, editStep, markUndo, canRemoveTrack, copyClip, copyPattern, defaultPad, doubleClip, setTrackBars, setTrackDuck, setDuckPad, padDucks, toggleSidechainInput, trackBars, defaultProject, fixSelection, get, migrateV1, normalizeProject, removeTrack, resetSession, selectTrack, set, stepTrack, undo, redo, updateProject,
 } from "./store";
 import { MAX_TRACKS, PATTERN_COUNT, type NoteEvent, type Project } from "./types";
 
 const ev = (id: string, tick: number, note: number): NoteEvent => ({ id, tick, note, vel: 100, len: 10 });
-const reset = (p: Project = defaultProject()) => set({ project: p, undo: [], selectedTrack: DRUMS_ID, drumTrack: DRUMS_ID, keysTrack: KEYS_ID });
+const reset = (p: Project = defaultProject()) => set({ project: p, undo: [], redo: [], selectedTrack: DRUMS_ID, drumTrack: DRUMS_ID, keysTrack: KEYS_ID });
 const keysOf = (p: Project) => p.tracks.find((t) => t.kind === "keys")!.keys!;
 
 describe("normalizeProject", () => {
@@ -410,5 +410,30 @@ describe("editing a step", () => {
     const out = clipOf(normalizeProject(JSON.parse(JSON.stringify(p))).patterns[0], DRUMS_ID).events;
     expect(out.map((e) => e.nudge)).toEqual([-5, 11, undefined]);
     expect(out[2]).not.toHaveProperty("nudge");
+  });
+});
+
+describe("undo and redo", () => {
+  it("redoes what was undone, and a new change clears what could be redone", () => {
+    reset();
+    updateProject((p) => ({ ...p, bpm: 100 }));
+    updateProject((p) => ({ ...p, bpm: 110 }));
+    undo();
+    expect(get().project.bpm).toBe(100);
+    undo();
+    expect(get().project.bpm).toBe(defaultProject().bpm);
+    redo();
+    expect(get().project.bpm).toBe(100);
+    redo();
+    expect(get().project.bpm).toBe(110);
+    redo();
+    expect(get().project.bpm).toBe(110);
+    undo();
+    expect(get().project.bpm).toBe(100);
+    // A knob move (not undoable itself) after an undo: redo would lose it, so there is nothing to redo.
+    updateProject((p) => ({ ...p, swing: 60 }), false);
+    expect(get().redo).toHaveLength(0);
+    redo();
+    expect(get().project).toMatchObject({ bpm: 100, swing: 60 });
   });
 });

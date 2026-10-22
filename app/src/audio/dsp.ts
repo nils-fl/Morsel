@@ -9,6 +9,8 @@ export interface Voice {
 }
 
 export const DECAY_MAX = 2;
+/** Fade at the end of a sample region that isn't faded already, so trimmed samples don't click. */
+export const REGION_FADE = 0.002;
 
 /**
  * Freeze an automated param at time t, keeping the value its envelope has *at t*.
@@ -114,6 +116,9 @@ export function buildSampleVoice(
     g.setValueAtTime(peak, when + attack);
     g.linearRampToValueAtTime(0, fadeEnd);
     end = fadeEnd;
+  } else if (end - REGION_FADE > when + attack) {
+    g.setValueAtTime(peak, end - REGION_FADE);
+    g.linearRampToValueAtTime(0, end);
   }
   src.start(when, offset, (b - a) * buffer.duration);
   src.stop(end + 0.01);

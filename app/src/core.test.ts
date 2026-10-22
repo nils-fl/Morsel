@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { addMarker, clampView, detectOnsets, equalSlices, moveMarker, removeMarker, slicesFromMarkers, zeroCrossing } from "./audio/chop";
 import { DAW_NOTES, DRUM_NOTES, displayTextSysex, noteForPad, padFromNote, padLedMessage, relativeDelta } from "./midi/protocol";
 import { padForStep, stepForPad } from "./modes/stepMap";
-import { quantizeTick, STEP_TICKS, swingOffsetTicks } from "./seq/timing";
+import { BAR_TICKS, humanizeEvents, MAX_NUDGE, quantizeEvents, quantizeTick, STEP_TICKS, swingOffsetTicks } from "./seq/timing";
 import { rootFromName } from "./ui/notes";
 
 describe("protocol", () => {
@@ -43,6 +43,32 @@ describe("timing", () => {
     expect(quantizeTick(37, 24, 384)).toBe(48);
     expect(quantizeTick(380, 24, 384)).toBe(0);
     expect(quantizeTick(13.4, 0, 384)).toBe(13);
+  });
+});
+
+describe("clip quantize and humanize", () => {
+  const ev = (tick: number, note = 0, vel = 100, nudge?: number) => ({ tick, note, vel, ...(nudge !== undefined && { nudge }) });
+
+  it("moves notes onto the grid, or part of the way", () => {
+    expect(quantizeEvents([ev(30), ev(44, 1)], STEP_TICKS, 1, BAR_TICKS).map((e) => e.tick)).toEqual([24, 48]);
+    expect(quantizeEvents([ev(32)], STEP_TICKS, 0.5, BAR_TICKS)[0].tick).toBe(28);
+    // The nudge is where the note sounds: folded in, then gone.
+    expect(quantizeEvents([ev(24, 0, 100, 10)], STEP_TICKS, 1, BAR_TICKS)).toEqual([ev(24)]);
+  });
+
+  it("keeps notes inside the clip and merges hits that land together", () => {
+    expect(quantizeEvents([ev(BAR_TICKS - 3)], STEP_TICKS, 1, BAR_TICKS)[0].tick).toBe(0);
+    const merged = quantizeEvents([ev(22, 0, 60), ev(26, 0, 110), ev(25, 1, 50)], STEP_TICKS, 1, BAR_TICKS);
+    expect(merged).toEqual([ev(24, 0, 110), ev(24, 1, 50)]);
+  });
+
+  it("humanizes within bounds", () => {
+    let i = 0;
+    const rand = () => [0, 1][i++ % 2];
+    const out = humanizeEvents([ev(0, 0, 125), ev(0, 0, 5, MAX_NUDGE)], 1, rand);
+    expect(out[0]).toMatchObject({ vel: 115, nudge: 2 });
+    expect(out[1]).toMatchObject({ vel: 1, nudge: MAX_NUDGE });
+    expect(humanizeEvents([ev(0)], 0)).toEqual([ev(0)]);
   });
 });
 

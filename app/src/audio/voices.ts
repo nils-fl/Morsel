@@ -5,7 +5,7 @@ import type { KeysLfo, NoteEvent, Pad, Project, SidechainInput, SynthParams, Tra
 import { PAD_COUNT } from "../state/types";
 import { applyDuck, duckRamp } from "./duck";
 import { buildSampleVoice, buildSynthVoice, reverseBuffer, type Voice } from "./dsp";
-import { ReturnFx, TrackStrip } from "./trackFx";
+import { MasterBus, ReturnFx, TrackStrip } from "./trackFx";
 import { KEYS_MONO_OUT, KEYS_STEREO_OUT } from "./worklet/voiceNode";
 
 export type BufferLookup = (id: string) => AudioBuffer | undefined;
@@ -15,6 +15,7 @@ const ZONE_VOICE = { ...defaultPad(0), start: 0, end: 1, pitch: 0, attack: 0.002
 
 export class Voices {
   readonly master: GainNode;
+  readonly masterBus: MasterBus;
   readonly returns: ReturnFx;
   private strips = new Map<string, TrackStrip>();
   private padVoices = new Map<string, Voice[]>();
@@ -36,14 +37,8 @@ export class Voices {
     this.worklet = worklet;
     this.getProject = getProject;
     this.buffer = buffer;
-    this.master = ctx.createGain();
-    this.master.gain.value = 0.9;
-    const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -8;
-    comp.ratio.value = 6;
-    comp.attack.value = 0.003;
-    comp.release.value = 0.15;
-    this.master.connect(comp).connect(out);
+    this.masterBus = new MasterBus(ctx, out, worklet, live);
+    this.master = this.masterBus.input;
     this.returns = new ReturnFx(ctx, this.master, live);
     this.updateMix();
   }
@@ -59,6 +54,7 @@ export class Voices {
     }
     for (const t of p.tracks) this.strip(t).update(t, trackAudible(p, t.id), (i) => padAudible(t, i));
     this.returns.update(p.returns, p.bpm);
+    this.masterBus.update(p.masterLevel);
   }
 
   private strip(t: Track): TrackStrip {

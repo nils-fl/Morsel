@@ -1,7 +1,7 @@
 import { scheduleNote, Voices } from "../audio/voices";
 import { engine, type VoiceEngine } from "../audio/engine";
-import { toInt16 } from "../audio/pcm";
-import { writeWav } from "../audio/wav";
+import { toInt16Dithered } from "../audio/pcm";
+import { writeWav, writeWav24 } from "../audio/wav";
 import { loadVoiceWorklet } from "../audio/worklet/voiceNode";
 import { clipOf, patternLength, trackLength } from "../state/store";
 import type { NoteEvent, Project, Track } from "../state/types";
@@ -60,9 +60,11 @@ export async function renderToBuffer(p: Project, order: number[], voiceEngine: V
   return ctx.startRendering();
 }
 
-export function encodeWav(buf: AudioBuffer): Blob {
-  const chans = Array.from({ length: buf.numberOfChannels }, (_, c) => toInt16(buf.getChannelData(c)));
-  return new Blob([writeWav(chans, buf.sampleRate)], { type: "audio/wav" });
+/** A bounce as a WAV file: 24-bit, or dithered 16-bit. */
+export function encodeWav(buf: AudioBuffer, bits: 16 | 24 = 24): Blob {
+  const chans = Array.from({ length: buf.numberOfChannels }, (_, c) => buf.getChannelData(c));
+  const bytes = bits === 24 ? writeWav24(chans, buf.sampleRate) : writeWav(chans.map((c) => toInt16Dithered(c)), buf.sampleRate);
+  return new Blob([bytes], { type: "audio/wav" });
 }
 
 export function download(blob: Blob, name: string) {

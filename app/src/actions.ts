@@ -46,6 +46,25 @@ export function keyOff(note: number, track = keysTrack().id) {
   sequencer.recordKeyOff(track, note, when);
 }
 
+/** Latch note repeat on or off (double-press Scene on the Launchkey, or Repeat by the on-screen pads). */
+export function setRepeatLatch(on: boolean) {
+  if (get().repeatLatch !== on) set({ repeatLatch: on });
+  sequencer.repeatOn = on;
+  if (!on) sequencer.repeatPads.clear();
+}
+
+/** An on-screen drum pad pressed while note repeat is latched: it repeats until let go. */
+export function repeatPadDown(i: number, vel: number) {
+  const track = drumTrack().id;
+  set({ selectedPad: i });
+  sequencer.repeatPads.set(`${track}:${i}`, { track, pad: i, vel });
+  sequencer.ensureRepeatClock();
+}
+
+export function repeatPadUp(i: number) {
+  sequencer.repeatPads.delete(`${drumTrack().id}:${i}`);
+}
+
 export function togglePlay() {
   if (get().playing) sequencer.stop();
   else sequencer.start();
@@ -407,6 +426,23 @@ async function pruneOldStock(kit: string) {
 }
 const QUIET = /hat|shaker|maraca|tamb|ride|crash|cymbal|brush/i;
 
+/** Where a stock sound sits in the stereo field, as seen from the drummer's seat: kick, snare, claps and basses in the
+ *  middle, hats a little left, ride and shakers right, toms from high (left) to low (right), hand percussion around. */
+const STOCK_PANS: [RegExp, number][] = [
+  [/^hat/i, -0.2],
+  [/ride/i, 0.3],
+  [/crash|cymbal/i, 0.2],
+  [/shaker|maraca/i, 0.3],
+  [/tamb/i, -0.3],
+  [/tom hi/i, -0.3],
+  [/tom lo/i, 0.3],
+  [/conga hi/i, -0.2],
+  [/conga lo/i, 0.2],
+  [/conga|cowbell|clave|perc/i, 0.15],
+  [/wood|bell/i, -0.15],
+];
+export const stockPan = (name: string) => STOCK_PANS.find(([re]) => re.test(name))?.[1] ?? 0;
+
 /** A stock kit's pads (Factory or a genre kit). Reuses its samples in the library and renders the kit when any are missing. */
 export async function stockKitPads(kit = FACTORY_KIT): Promise<Pad[]> {
   const folder = stockFolder(kit), names = stockSounds(kit), lengths = stockLengths(kit), src = stockSrc(kit);
@@ -427,6 +463,7 @@ export async function stockKitPads(kit = FACTORY_KIT): Promise<Pad[]> {
     // Longer than the default tail: the maximum, which plays the whole sound.
     decay: (engine.buffer(sampleId)?.duration ?? lengths[i]) > defaultPad(i).decay ? DECAY_MAX : defaultPad(i).decay,
     ...(quiet(names[i]) && { volume: 0.5 }),
+    pan: stockPan(names[i]),
   }));
   const closed = names.indexOf("Hat Cl"), open = names.indexOf("Hat Op");
   if (closed >= 0 && open >= 0) pads[closed].choke = pads[open].choke = 1; // closed hat chokes open hat

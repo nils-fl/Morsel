@@ -57,7 +57,8 @@ class Engine {
     }));
     this.voices = new Voices(this.ctx, this.ctx.destination, () => get().project, (id) => this.buffers.get(id), true, worklet);
     this.clickOut = this.ctx.createGain();
-    this.clickOut.connect(this.ctx.destination);
+    // Into the limiter, but not through the glue: the click shouldn't make the mix pump.
+    this.clickOut.connect(this.voices.masterBus.limiterIn);
     // Browsers start audio suspended until a user gesture. MIDI input doesn't count as one.
     this.ctx.onstatechange = () => set({ audioReady: this.ctx.state === "running" });
     set({ audioReady: this.ctx.state === "running" });

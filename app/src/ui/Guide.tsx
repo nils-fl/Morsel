@@ -21,8 +21,8 @@ const CONTROLS: Record<ControlId, { name: string; does: string; shift?: string }
   padUp: { name: "Pad ⌃", does: "The arrow left of the top pad row. Previous pattern. Step mode: previous bar. Browse: up a folder. Chop: previous marker.", shift: "Previous track (the device's “< Track”)" },
   padDown: { name: "Pad ⌄", does: "The arrow left of the bottom pad row. Next pattern. Step mode: next bar. Browse: open folder / load onto the pad. Chop: next marker.", shift: "Next track (the device's “Track >”)" },
   pads: { name: "Pads", does: "Depends on the mode (see Modes). In Play they play the selected track: its drum pads, or on a keys track the notes C3–D#4. Pressure (aftertouch) opens the pad's filters on note-repeat hits." },
-  scene: { name: "Scene ›", does: "The › button right of the top pad row. Hold while playing drum pads: note repeat at the tempo, playing or stopped. Pattern mode: hold + pad adds that pattern to the song. Browse: up a folder (with or without Shift). Chop: add a marker at the playhead (Shift: remove the selected one).", shift: "Clear the selected track's clip in this pattern (Step mode on a drum track: the selected pad's notes)" },
-  func: { name: "Func", does: "The button right of the bottom pad row. Cycle pad modes: Play → Step → Track → Mute → Pattern (the screen shows which of the 5 you're on). Browse: open folder / load onto the pad (Shift: put the whole folder on the pads). Chop: send the slices to a new drum rack.", shift: "Undo (the screen says how many steps are left). Each recorded take is one step; Cmd/Ctrl+Z on the computer does the same" },
+  scene: { name: "Scene ›", does: "The › button right of the top pad row. Hold while playing drum pads: note repeat at the tempo, playing or stopped; pad pressure sets the repeats' velocity. Press it twice quickly to latch repeat on (held pads repeat without Scene) and once more to stop. Pattern mode: hold + pad adds that pattern to the song. Browse: up a folder (with or without Shift). Chop: add a marker at the playhead (Shift: remove the selected one).", shift: "Clear the selected track's clip in this pattern (Step mode on a drum track: the selected pad's notes)" },
+  func: { name: "Func", does: "The button right of the bottom pad row. Cycle pad modes: Play → Step → Track → Mute → Pattern (the screen shows which of the 5 you're on; from Play it switches when you let go). Play, while playing: hold it and hold pads or keys to erase their notes as the playhead passes, like the MPC's Erase (one Undo brings them back). Browse: open folder / load onto the pad (Shift: put the whole folder on the pads). Chop: send the slices to a new drum rack.", shift: "Undo (the screen says how many steps are left). Each recorded take is one step; Cmd/Ctrl+Z on the computer does the same" },
   keys: { name: "Keys", does: "Play the keys track (the last keys track you selected), recorded into its clip. Step mode on a drum track: pick the pad (lowest 16 keys = pads 1–16); on a keys track: the note the step pads write. The Launchkey's Arp and Scale still work." },
 };
 
@@ -42,11 +42,17 @@ const SHORTCUTS: [string, string][] = [
   ["Shift + Encoder", "Fine steps"],
   ["Sidechain page: pad + enc 1", "Make the pad a sidechain input"],
   ["Duck page (drums): pad + enc 7", "Does the pad duck?"],
-  ["Hold Scene + pads", "Note repeat (Play)"],
+  ["Hold Scene + pads", "Note repeat (Play); press harder for louder repeats"],
+  ["Scene × 2", "Latch note repeat: held pads repeat without Scene (press Scene again to stop)"],
+  ["Hold Func + pads", "Erase those pads' notes as the playhead passes (Play, while playing; keys too)"],
   ["Hold Scene + pad", "Add pattern to song (Pattern)"],
   ["Hold pad + tap pad", "Copy pattern (Pattern)"],
   ["Hold Scene + pad + tap pad", "Copy only the selected track's clip (Pattern)"],
   ["Double-tap pad", "Solo (Mute, Track bottom row)"],
+  ["Space", "Computer: play / stop (Chop tab: play the region)"],
+  ["R", "Computer: record"],
+  ["[ / ]", "Computer: previous / next pattern"],
+  ["⌘ + Z", "Computer: undo (⇧⌘Z or Ctrl+Y: redo)"],
 ];
 
 const OFF = "#2a2f35", DIM = "#4a525a", WHITE = "#e6e9ec", GREEN = mute("#2fe05a"), BLUE = mute("#3b5bff"), RED = mute("#6b1a1a"), YELLOW = mute("#ffe83b"), CYAN = mute("#3be7ff");

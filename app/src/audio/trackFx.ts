@@ -1,7 +1,9 @@
 // Mixer channels: one strip per track (inserts, pan, fader, ducker, sends) and the shared reverb and delay
 // returns. Built on any BaseAudioContext, so the WAV bounce has the same FX as live playback.
-import { PAD_COUNT, type Returns, type Track, type TrackFx } from "../state/types";
+import { DEFAULT_MASTER_LEVEL, PAD_COUNT, type Returns, type Track, type TrackFx } from "../state/types";
 import { cutoffHz } from "./dsp";
+import { reverbImpulseData } from "./reverb";
+import { MASTER_PROCESSOR_NAME, softClip, type MasterMeter } from "./worklet/masterCore";
 import { KEYS_MONO_OUT, KEYS_STEREO_OUT, VoiceNode } from "./worklet/voiceNode";
 
 const TC = 0.02; // smoothing time constant for knob moves
@@ -149,18 +151,118 @@ export class TrackStrip {
   }
 }
 
+let softClipCurve: Float32Array<ArrayBuffer> | undefined;
+
+/**
+ * The master bus: level, a gentle glue compressor, then the limiter (a soft clip and a look-ahead peak limiter at
+ * −0.3 dBFS). The limiter runs in the master worklet when the context has it, else on nodes (a WaveShaper and a
+ * hard-set DynamicsCompressor, which can let a peak through in its first millisecond).
+ */
+export class MasterBus {
+  /** Tracks and returns connect here. */
+  readonly input: GainNode;
+  /** After the glue: sounds that shouldn't pump with the mix (the metronome) join here. */
+  readonly limiterIn: AudioNode;
+  /** Output peak and deepest limiter gain since the last report (live worklet engine; else stays at rest). */
+  meter: MasterMeter = { peak: 0, gain: 1 };
+  private ctx: BaseAudioContext;
+
+  constructor(ctx: BaseAudioContext, out: AudioNode, worklet: boolean, live: boolean) {
+    this.ctx = ctx;
+    this.input = ctx.createGain();
+    this.input.gain.value = DEFAULT_MASTER_LEVEL;
+    const glue = ctx.createDynamicsCompressor();
+    glue.threshold.value = -14;
+    glue.knee.value = 6;
+    glue.ratio.value = 2;
+    glue.attack.value = 0.01;
+    glue.release.value = 0.1;
+    if (worklet) {
+      const node = new AudioWorkletNode(ctx, MASTER_PROCESSOR_NAME, {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [2],
+        channelCount: 2,
+        channelCountMode: "explicit",
+      });
+      if (live) node.port.onmessage = (e: MessageEvent<MasterMeter>) => (this.meter = e.data);
+      this.limiterIn = node;
+      node.connect(out);
+    } else {
+      // A WaveShaper only shapes −1..1: halve the signal first, so the curve covers ±2 (+6 dBFS).
+      const half = ctx.createGain();
+      half.gain.value = 0.5;
+      const shaper = ctx.createWaveShaper();
+      softClipCurve ??= Float32Array.from({ length: 2049 }, (_, i) => softClip(((i / 2048) * 2 - 1) * 2));
+      shaper.curve = softClipCurve;
+      half.connect(shaper);
+      const limit = ctx.createDynamicsCompressor();
+      limit.threshold.value = -1;
+      limit.knee.value = 0;
+      limit.ratio.value = 20;
+      limit.attack.value = 0.001;
+      limit.release.value = 0.08;
+      shaper.connect(limit).connect(out);
+      this.limiterIn = half;
+    }
+    this.input.connect(glue).connect(this.limiterIn);
+  }
+
+  update(level: number) {
+    this.input.gain.setTargetAtTime(level, this.ctx.currentTime, TC);
+  }
+}
+
 /** Seconds of a 16th note. */
 const sixteenth = (bpm: number) => 60 / bpm / 4;
 
-/** Shared send effects: A = reverb (generated impulse response), B = tempo-synced delay. */
+/** One repeat of the delay: the tone lowpass, a highpass so the low end doesn't pile up, and a soft saturation so
+ *  high feedback thickens the repeats instead of running away. */
+class DelayLine {
+  readonly delay: DelayNode;
+  readonly out: AudioNode;
+  readonly tone: BiquadFilterNode;
+
+  constructor(ctx: BaseAudioContext) {
+    this.delay = ctx.createDelay(8);
+    this.tone = ctx.createBiquadFilter();
+    this.tone.type = "lowpass";
+    const hp = ctx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = 150;
+    hp.Q.value = 0;
+    const sat = ctx.createWaveShaper();
+    sat.curve = delaySaturation();
+    this.out = this.delay.connect(this.tone).connect(hp).connect(sat);
+  }
+
+  update(time: number, tone: number, now: number) {
+    this.delay.delayTime.setTargetAtTime(time, now, 0.05);
+    this.tone.frequency.setTargetAtTime(400 * Math.pow(2, tone * 5.5), now, TC);
+  }
+}
+
+let delayCurve: Float32Array<ArrayBuffer> | undefined;
+/** Unity for quiet repeats, rounding off towards ±1. */
+const delaySaturation = () => (delayCurve ??= Float32Array.from({ length: 1025 }, (_, i) => softClip((i / 1024) * 2 - 1)));
+
+/**
+ * Shared send effects: A = reverb (generated impulse response), B = tempo-synced delay. The delay runs as a stereo
+ * echo (each side repeats itself) and as a ping-pong (the sum bounces left, right, left…); `pingpong` fades
+ * between the two.
+ */
 export class ReturnFx {
   readonly reverbIn: GainNode;
   readonly delayIn: GainNode;
   private convolver: ConvolverNode;
   private reverbOut: GainNode;
-  private delay: DelayNode;
-  private feedback: GainNode;
-  private tone: BiquadFilterNode;
+  private stereo: DelayLine;
+  private stereoIn: GainNode;
+  private stereoFb: GainNode;
+  private left: DelayLine;
+  private right: DelayLine;
+  private pingIn: GainNode;
+  private pingFb: GainNode[];
   private delayOut: GainNode;
   private irKey = "";
   private irTimer = 0;
@@ -170,50 +272,67 @@ export class ReturnFx {
   constructor(ctx: BaseAudioContext, master: AudioNode, live: boolean) {
     this.ctx = ctx;
     this.live = live;
-    this.reverbIn = ctx.createGain();
+    const g = () => ctx.createGain();
+    this.reverbIn = g();
     this.convolver = ctx.createConvolver();
-    this.reverbOut = ctx.createGain();
+    // reverbImpulse sets the level itself (the convolver's own normalising makes longer rooms louder).
+    this.convolver.normalize = false;
+    this.reverbOut = g();
     this.reverbIn.connect(this.convolver).connect(this.reverbOut).connect(master);
 
-    this.delayIn = ctx.createGain();
-    this.delay = ctx.createDelay(8);
-    this.feedback = ctx.createGain();
-    this.tone = ctx.createBiquadFilter();
-    this.tone.type = "lowpass";
-    this.delayOut = ctx.createGain();
-    // Each repeat runs through the tone filter, so they darken as they fade.
-    this.delayIn.connect(this.delay).connect(this.tone).connect(this.delayOut).connect(master);
-    this.tone.connect(this.feedback).connect(this.delay);
+    this.delayIn = g();
+    this.delayOut = g();
+    this.delayOut.connect(master);
+    // Stereo echo: each repeat feeds back into the same line.
+    this.stereoIn = g();
+    this.stereoFb = g();
+    this.stereo = new DelayLine(ctx);
+    this.delayIn.connect(this.stereoIn).connect(this.stereo.delay);
+    this.stereo.out.connect(this.delayOut);
+    this.stereo.out.connect(this.stereoFb).connect(this.stereo.delay);
+    // Ping-pong: the mono sum starts on the left, and each repeat crosses to the other side.
+    this.pingIn = ctx.createGain();
+    this.pingIn.channelCount = 1;
+    this.pingIn.channelCountMode = "explicit";
+    this.left = new DelayLine(ctx);
+    this.right = new DelayLine(ctx);
+    const merge = ctx.createChannelMerger(2);
+    this.pingFb = [g(), g()];
+    this.delayIn.connect(this.pingIn).connect(this.left.delay);
+    this.left.out.connect(merge, 0, 0);
+    this.right.out.connect(merge, 0, 1);
+    this.left.out.connect(this.pingFb[0]).connect(this.right.delay);
+    this.right.out.connect(this.pingFb[1]).connect(this.left.delay);
+    merge.connect(this.delayOut);
   }
 
   update(r: Returns, bpm: number) {
     const now = this.ctx.currentTime;
     this.reverbOut.gain.setTargetAtTime(r.reverb.level, now, TC);
     this.delayOut.gain.setTargetAtTime(r.delay.level, now, TC);
-    this.delay.delayTime.setTargetAtTime(Math.min(8, r.delay.time * sixteenth(bpm)), now, 0.05);
-    this.feedback.gain.setTargetAtTime(r.delay.feedback, now, TC);
-    this.tone.frequency.setTargetAtTime(400 * Math.pow(2, r.delay.tone * 5.5), now, TC);
+    const time = Math.min(8, r.delay.time * sixteenth(bpm));
+    for (const line of [this.stereo, this.left, this.right]) line.update(time, r.delay.tone, now);
+    const ping = r.delay.pingpong ? 1 : 0;
+    this.stereoIn.gain.setTargetAtTime(1 - ping, now, TC);
+    this.pingIn.gain.setTargetAtTime(ping, now, TC);
+    this.stereoFb.gain.setTargetAtTime(r.delay.feedback, now, TC);
+    for (const fb of this.pingFb) fb.gain.setTargetAtTime(r.delay.feedback, now, TC);
 
-    const key = `${r.reverb.size.toFixed(3)}:${r.reverb.decay.toFixed(3)}`;
+    const { size, decay, predelay, tone } = r.reverb;
+    const key = [size, decay, predelay, tone].map((v) => v.toFixed(3)).join(":");
     if (key === this.irKey) return;
     this.irKey = key;
     // Live: wait for the knob to settle, building a long IR on every step is wasteful. Offline: build it now.
     clearTimeout(this.irTimer);
-    const build = () => (this.convolver.buffer = reverbImpulse(this.ctx, r.reverb.size, r.reverb.decay));
+    const build = () => (this.convolver.buffer = reverbImpulse(this.ctx, r.reverb));
     if (this.live && this.convolver.buffer) this.irTimer = window.setTimeout(build, 150);
     else build();
   }
 }
 
-/** Stereo noise burst with an exponential tail: `size` sets the length, `decay` how fast it dies. */
-export function reverbImpulse(ctx: BaseAudioContext, size: number, decay: number) {
-  const seconds = 0.3 + size * 3.7;
-  const len = Math.floor(seconds * ctx.sampleRate);
-  const buf = ctx.createBuffer(2, len, ctx.sampleRate);
-  const curve = 1.5 + (1 - decay) * 5; // higher = dies sooner
-  for (let c = 0; c < 2; c++) {
-    const d = buf.getChannelData(c);
-    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, curve);
-  }
+export function reverbImpulse(ctx: BaseAudioContext, r: Returns["reverb"]) {
+  const data = reverbImpulseData(ctx.sampleRate, r);
+  const buf = ctx.createBuffer(2, data[0].length, ctx.sampleRate);
+  data.forEach((d, c) => buf.copyToChannel(d, c));
   return buf;
 }

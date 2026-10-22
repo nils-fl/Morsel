@@ -214,6 +214,7 @@ p.hint { margin: 0 0 8px; }
 .dot.ok { background: var(--ok); }
 .transport, .patterns, .hw-modes { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .transport { --page: var(--amber); }
+.transport .icon-btn { min-width: 28px; padding-inline: 6px; font-size: 14px; line-height: 1; }
 .patterns { --page: var(--cyan); gap: 4px; }
 .pat { width: 32px; padding: 4px 0; text-align: center; font-variant-numeric: tabular-nums; }
 .pat.used:not(.on) { border-color: color-mix(in srgb, var(--cyan) 60%, transparent); color: var(--cyan); }
@@ -261,6 +262,8 @@ p.hint { margin: 0 0 8px; }
 /* ---------- pads ---------- */
 .pad-grid { margin: 22px 0; display: grid; gap: 8px; padding: 10px; background: var(--wave-bg); border: 1px solid var(--line); }
 .pad-row { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; }
+.pad-tools { display: flex; gap: 6px; justify-content: flex-end; }
+.seq-tool { display: inline-flex; gap: 2px; }
 .pad {
   aspect-ratio: 1.6; position: relative; border-radius: 3px; text-align: left; padding: 7px 8px;
   border: 1px solid color-mix(in srgb, var(--pad) 55%, transparent);
@@ -651,6 +654,10 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
 .channel .row select { flex: 1; min-width: 0; }
 .channel h4 { margin: 6px 0 0; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
 .channel .slider { grid-template-columns: 52px 1fr 50px; gap: 4px; }
+.channel.master { border-top-color: var(--text); }
+.master-meter { display: grid; grid-template-columns: 34px 1fr 34px; align-items: center; gap: 4px; margin-top: 6px; font-size: 10px; color: var(--muted); }
+.master-meter b { font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
+.gr-meter div { background: var(--amber); }
 .returns { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
 .returns h4 { margin: 0 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--page); }
 /* A sub-heading inside a panel (Keys: Shape). */

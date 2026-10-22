@@ -1,6 +1,6 @@
 import { engine } from "../audio/engine";
 import { scheduleNote } from "../audio/voices";
-import { addEvent, clipOf, get, markUndo, patternLength, set, setEventLength, trackLength } from "../state/store";
+import { addEvent, clipOf, get, markUndo, patternLength, set, setEventLength, trackLength, updateClip } from "../state/store";
 import type { Clip, NoteEvent } from "../state/types";
 import { BAR_TICKS, PPQN, quantizeTick, secondsPerTick, soundTick, swingOffsetTicks } from "./timing";
 
@@ -62,8 +62,29 @@ class Sequencer {
   /** Pads held for note repeat, by `${track}:${pad}`. */
   repeatPads = new Map<string, RepeatPad>();
   repeatOn = false;
+  /** Notes held to erase (MPC Erase: Func + pad while playing), by `${track}:${note}`; deleted as the playhead reaches them. */
+  private erasing = new Set<string>();
+  /** Whether this erase (from the first note held to the last let go) already has its undo step. */
+  private eraseOpen = false;
   /** Whether this take already has its undo step (made on its first recorded note, so Undo removes the whole take). */
   private takeOpen = false;
+
+  /** Start erasing a note (a drum track's pad) of a track. */
+  eraseStart(track: string, note: number) {
+    if (!this.erasing.size) this.eraseOpen = false;
+    this.erasing.add(`${track}:${note}`);
+  }
+
+  eraseStop(track: string, note: number) {
+    this.erasing.delete(`${track}:${note}`);
+  }
+
+  /** Delete notes the playhead reached while held for erasing. All of one erase is one undo step. */
+  private erase(track: string, ids: Set<string>) {
+    if (!this.eraseOpen) markUndo();
+    this.eraseOpen = true;
+    updateClip(this.pattern, track, (events) => events.filter((e) => !ids.has(e.id)), false);
+  }
 
   /** Recording (re)starts: the next recorded note opens a new undo step. */
   newTake() {
@@ -145,14 +166,20 @@ class Sequencer {
           const trackLen = trackLength(pat, track.id);
           const evs = eventsByTick(clipOf(pat, track.id), trackLen).get(tick % trackLen);
           if (!evs) continue;
+          let erased: Set<string> | undefined;
           for (const e of evs) {
             if (this.skip.get(e.id) === tick) {
               this.skip.delete(e.id);
               continue;
             }
+            if (this.erasing.size && this.erasing.has(`${track.id}:${e.note}`)) {
+              (erased ??= new Set()).add(e.id);
+              continue;
+            }
             // Swing goes by the note's step, so a nudged note keeps its swing.
             scheduleNote(engine.voices, track, e, t + swingOffsetTicks(e.tick, p.swing) * spt, e.len * spt);
           }
+          if (erased) this.erase(track.id, erased);
         }
         if (this.repeatOn && this.repeatPads.size && tick % s.repeatRate === 0) {
           const recording = s.recording && !s.countIn;

@@ -24,7 +24,7 @@ type Row = [name: string, wave: Wave, wave2: Wave, detune: number, osc2Level: nu
 // Names are what projects remember, so keep existing ones when moving presets around.
 const BANK: [folder: string, rows: Row[]][] = [
   ["Basic", [
-    ["Init", "sawtooth", "square", 7, 0.5, 0.45, 0.2, 0.4, 0.005, 0.3, 0.6, 0.25, 0.6],
+    ["Init", "sawtooth", "square", 7, 0.5, 0.6, 0.2, 0.4, 0.005, 0.3, 0.6, 0.25, 0.6],
     ["Saw", "sawtooth", "sawtooth", 0, 0, 1, 0, 0, 0.003, 0.3, 1, 0.1, 0.64],
     ["Square", "square", "square", 0, 0, 1, 0, 0, 0.003, 0.3, 1, 0.1, 0.37],
     ["Triangle", "triangle", "triangle", 0, 0, 1, 0, 0, 0.003, 0.3, 1, 0.1, 0.54],

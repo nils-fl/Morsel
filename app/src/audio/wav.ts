@@ -3,32 +3,56 @@
 
 /** A 16-bit PCM WAV of `channels` (one per channel, all the same length). */
 export function writeWav(channels: Int16Array[], sampleRate: number): Uint8Array<ArrayBuffer> {
-  const ch = channels.length;
   const n = channels[0]?.length ?? 0;
-  const bytes = new Uint8Array(44 + n * ch * 2);
+  const { bytes, data } = wavHeader(channels.length, n, sampleRate, 16);
+  let o = 44;
+  for (let i = 0; i < n; i++) {
+    for (let c = 0; c < channels.length; c++) {
+      data.setInt16(o, channels[c][i], true);
+      o += 2;
+    }
+  }
+  return bytes;
+}
+
+/** A 24-bit PCM WAV of float audio (clipped to ±1), for bounces: 48 dB more range than 16-bit. */
+export function writeWav24(channels: Float32Array[], sampleRate: number): Uint8Array<ArrayBuffer> {
+  const n = channels[0]?.length ?? 0;
+  const { bytes, data } = wavHeader(channels.length, n, sampleRate, 24);
+  let o = 44;
+  for (let i = 0; i < n; i++) {
+    for (let c = 0; c < channels.length; c++) {
+      const v = Math.round(Math.max(-1, Math.min(1, channels[c][i])) * 0x7fffff);
+      data.setUint8(o, v & 0xff);
+      data.setUint8(o + 1, (v >> 8) & 0xff);
+      data.setInt8(o + 2, v >> 16);
+      o += 3;
+    }
+  }
+  return bytes;
+}
+
+/** A canonical 44-byte PCM header for `frames` frames, and the file's bytes to write the audio into from offset 44. */
+function wavHeader(ch: number, frames: number, sampleRate: number, bits: 16 | 24) {
+  const width = bits / 8;
+  const size = frames * ch * width;
+  const bytes = new Uint8Array(44 + size);
   const data = new DataView(bytes.buffer);
   const str = (o: number, s: string) => [...s].forEach((c, i) => data.setUint8(o + i, c.charCodeAt(0)));
   str(0, "RIFF");
-  data.setUint32(4, 36 + n * ch * 2, true);
+  data.setUint32(4, 36 + size, true);
   str(8, "WAVE");
   str(12, "fmt ");
   data.setUint32(16, 16, true);
   data.setUint16(20, 1, true);
   data.setUint16(22, ch, true);
   data.setUint32(24, sampleRate, true);
-  data.setUint32(28, sampleRate * ch * 2, true);
-  data.setUint16(32, ch * 2, true);
-  data.setUint16(34, 16, true);
+  data.setUint32(28, sampleRate * ch * width, true);
+  data.setUint16(32, ch * width, true);
+  data.setUint16(34, bits, true);
   str(36, "data");
-  data.setUint32(40, n * ch * 2, true);
-  let o = 44;
-  for (let i = 0; i < n; i++) {
-    for (let c = 0; c < ch; c++) {
-      data.setInt16(o, channels[c][i], true);
-      o += 2;
-    }
-  }
-  return bytes;
+  data.setUint32(40, size, true);
+  return { bytes, data };
 }
 
 const PCM = 1;

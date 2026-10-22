@@ -7,8 +7,8 @@ import { toggleTheme } from "./ui/theme";
 import { toggleTips } from "./ui/tips";
 import { sequencer } from "./seq/sequencer";
 import { QUANTIZE_OPTIONS } from "./seq/timing";
-import { patternHasNotes, selectedTrack, set, undo, updateProject, useApp } from "./state/store";
-import { TABS, type HwMode, type Tab } from "./state/types";
+import { get, patternHasNotes, redo, selectedTrack, set, undo, updateProject, useApp } from "./state/store";
+import { PATTERN_COUNT, TABS, type HwMode, type Tab } from "./state/types";
 import { ChopEditor } from "./ui/ChopEditor";
 import { EncoderStrip } from "./ui/EncoderStrip";
 import { Guide, GuideOverlay } from "./ui/Guide";
@@ -40,18 +40,35 @@ export default function App() {
   const [guide, setGuide] = useState(false);
   useEffect(() => { document.documentElement.style.setProperty("--page", color(tab)); });
   useEffect(() => {
-    // "?" opens the guide and Cmd/Ctrl+Z undoes, unless you're typing in a field.
+    // Computer-keyboard shortcuts, unless you're typing in a field. The Chop tab has its own Space.
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
-      if (e.key === "?") setGuide(true);
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
+      const t = e.target;
+      if (t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement) return;
+      const mod = e.metaKey || e.ctrlKey;
+      const key = e.key.toLowerCase();
+      if (mod && (key === "z" || (key === "y" && e.ctrlKey))) {
         e.preventDefault();
-        undo();
+        if (key === "y" || e.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if (mod || e.altKey) return;
+      if (e.key === "?") setGuide(true);
+      else if (e.key === " " && tab !== "Chop") {
+        // Don't let Space also click the button that was pressed last.
+        e.preventDefault();
+        if (t instanceof HTMLButtonElement) t.blur();
+        togglePlay();
+      } else if (key === "r" && !e.repeat) toggleRecord();
+      else if (e.key === "[" || e.key === "]") {
+        // As the Launchkey's pad arrows: while playing, step on from the pattern already queued.
+        const s = get();
+        sequencer.selectPattern(Math.max(0, Math.min(PATTERN_COUNT - 1, (s.queuedPattern ?? s.currentPattern) + (e.key === "[" ? -1 : 1))));
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [tab]);
   return (
     <div className="app">
       <AudioBanner />
@@ -123,7 +140,7 @@ function TopBar({ onGuide }: { onGuide: () => void }) {
   // Only what the bar shows: the whole store would redraw it on every recorded note and knob move.
   const s = useApp(useShallow((s) => ({
     connected: s.connected, theme: s.theme, tips: s.tips, playing: s.playing, recording: s.recording, countIn: s.countIn, metronome: s.metronome,
-    quantize: s.quantize, undoLength: s.undo.length, currentPattern: s.currentPattern, queuedPattern: s.queuedPattern,
+    quantize: s.quantize, undoLength: s.undo.length, redoLength: s.redo.length, currentPattern: s.currentPattern, queuedPattern: s.queuedPattern,
     bpm: s.project.bpm, swing: s.project.swing, patterns: s.project.patterns, hwMode: s.hwMode, status: s.status,
   })));
   const compact = useCompact();
@@ -138,8 +155,8 @@ function TopBar({ onGuide }: { onGuide: () => void }) {
             <span className={`dot ${s.connected ? "ok" : ""}`} title={s.connected ? "Launchkey connected" : "Launchkey not found"} />
           </div>
           <div className="transport">
-            <button className={s.playing ? "on" : ""} onClick={togglePlay}>{s.playing ? "■ Stop" : "▶ Play"}</button>
-            <button className={`rec ${s.recording ? "on" : ""}`} onClick={toggleRecord}>{s.countIn ? "Count-in…" : "● Rec"}</button>
+            <button className={s.playing ? "on" : ""} onClick={togglePlay} title="Play / stop (Space)">{s.playing ? "■ Stop" : "▶ Play"}</button>
+            <button className={`rec ${s.recording ? "on" : ""}`} onClick={toggleRecord} title="Record (R)">{s.countIn ? "Count-in…" : "● Rec"}</button>
             <button className={s.metronome ? "on" : ""} onClick={() => set({ metronome: !s.metronome })}>Click</button>
             <span className="bar-sep" />
             <label className="field inline">
@@ -157,7 +174,8 @@ function TopBar({ onGuide }: { onGuide: () => void }) {
               </select>
             </label>
             <span className="bar-sep" />
-            <button onClick={undo} disabled={!s.undoLength}>Undo</button>
+            <button className="icon-btn" onClick={undo} disabled={!s.undoLength} title="Undo (⌘Z)" aria-label="Undo">↶</button>
+            <button className="icon-btn" onClick={redo} disabled={!s.redoLength} title="Redo (⇧⌘Z)" aria-label="Redo">↷</button>
           </div>
           <div className="utils">
             <button className={s.tips ? "on" : ""} onClick={toggleTips} title={s.tips ? "Hide the explanations in the panels" : "Show explanations in the panels"}>Tips</button>

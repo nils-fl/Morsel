@@ -1,5 +1,5 @@
 // Maps Launchkey events to actions per hardware mode, and renders LEDs + display.
-import { allPresets, currentKit, keyOff, keyOn, kitNames, liveWhen, openInChop, playPad, releasePad, sendChopToNewTrack, toggleSampling, togglePlay, toggleRecord } from "../actions";
+import { allPresets, currentKit, keyOff, keyOn, kitNames, liveWhen, openInChop, playPad, releasePad, sendChopToNewTrack, setRepeatLatch, toggleSampling, togglePlay, toggleRecord } from "../actions";
 import { engine } from "../audio/engine";
 import { launchkey } from "../midi/launchkey";
 import { CC, COLOR, type LedMode, type PadLayout } from "../midi/protocol";
@@ -7,7 +7,7 @@ import { DUCK_PAGE, PAGES, STEP_PAGE, fixPage, inputLabel, keysSampleList, padLa
 import { makeTicker, sequencer } from "../seq/sequencer";
 import { PPQN, REPEAT_OPTIONS, STEP_TICKS } from "../seq/timing";
 import {
-  type AppState, clearTrack, clipOf, copyClip, copyPattern, drumPads, drumTrack, editStep, get, markUndo, padDucks, patternHasNotes, selectTrack,
+  type AppState, clearTrack, clipOf, copyClip, copyPattern, drumPads, drumTrack, editStep, get, keysTrack, markUndo, padDucks, patternHasNotes, selectTrack,
   selectedTrack, set, stepEvents, stepTrack, store, togglePadFlag, toggleStep, toggleTrackFlag, trackAudible, trackBars, trackLength, undo, updateProject, PAD_COLORS,
 } from "../state/store";
 import type { HwMode, KeysInstrument, NoteEvent, Track } from "../state/types";
@@ -42,6 +42,7 @@ export function setHwMode(mode: HwMode) {
   if (prev === "browse") exitBrowse();
   if (prev === "chop") chopStop(); // e.g. Shift + Enc ⌃ from Chop into Browse: don't leave the audition playing
   if (mode === "browse") enterBrowse();
+  if (prev === "play" && get().repeatLatch) setRepeatLatch(false);
   set({ hwMode: mode, prevHwMode: TEMPORARY.includes(prev) ? get().prevHwMode : prev });
   if (prev === "step") heldSteps.clear(); // a step let go in another mode stays
   if (mode === "step") {
@@ -92,10 +93,39 @@ const heldSteps = new Map<number, { pattern: number; track: string; tick: number
 let heldStepsUndo = false;
 /** Pads sounding from Play mode (hit or note repeat), so a release after a mode switch still stops them. */
 const playingPads = new Map<number, string>();
+/** Scene held (note repeat; in Pattern mode, + pad appends to the song, + two pads copies a clip). */
+let sceneHeld = false;
+/** When Scene was last pressed in Play mode: a second press soon after latches note repeat. */
+let lastSceneTap = 0;
+
+/** Func held in Play mode: pads and keys hit meanwhile erase (MPC Erase), and the mode switches on release unless they did. */
+let funcHeld = false;
+let funcErased = false;
+/** Pads and keys held for erasing: the track and note they erase. */
+const erasingPads = new Map<number, { track: string; note: number }>();
+const erasingKeys = new Map<number, { track: string; note: number }>();
+
+/** Func + pad / key in Play mode: erase that note of the track as the playhead passes it, while held. */
+function startErase(held: Map<number, { track: string; note: number }>, at: number, track: Track, note: number) {
+  funcErased = true;
+  if (!get().playing) return showTemp("Erase", "Play first");
+  held.set(at, { track: track.id, note });
+  sequencer.eraseStart(track.id, note);
+  showTemp("Erase", track.kind === "drum" ? track.pads[note].name : noteName(note), { hold: true });
+}
+
+function stopErase(held: Map<number, { track: string; note: number }>, at: number) {
+  const e = held.get(at);
+  if (!e) return;
+  held.delete(at);
+  sequencer.eraseStop(e.track, e.note);
+  if (!erasingPads.size && !erasingKeys.size) releaseHold();
+}
 
 /** A pad let go: stop its voice and its note repeat, whatever mode we are in now. */
 function padReleased(pad: number) {
   heldPads.delete(pad);
+  stopErase(erasingPads, pad);
   const step = heldSteps.get(pad);
   if (step) {
     heldSteps.delete(pad);
@@ -126,8 +156,10 @@ export function releaseAll() {
     selectKeys.delete(note);
     releasePad(pad);
   }
-  sequencer.repeatOn = false;
-  sequencer.repeatPads.clear();
+  for (const key of [...erasingKeys.keys()]) stopErase(erasingKeys, key);
+  funcHeld = false;
+  sceneHeld = false;
+  setRepeatLatch(false);
   releaseHold();
   if (get().shift) set({ shift: false });
 }
@@ -195,9 +227,13 @@ export function initController() {
           onPad(e.pad, e.velocity);
         } else padReleased(e.pad);
         break;
-      case "padPressure":
+      case "padPressure": {
         engine.voices.pressure[e.pad] = e.pressure;
+        // Note repeat: press harder for louder repeats (recorded that way too).
+        const rp = sequencer.repeatPads.get(`${playingPads.get(e.pad)}:${e.pad}`);
+        if (rp && e.pressure > 0) rp.vel = Math.max(24, e.pressure);
         break;
+      }
       case "key":
         onKey(e.note, e.velocity, e.on);
         break;
@@ -244,6 +280,8 @@ const keysStepNote = (t: Track) => stepNote ?? (t.keys?.type === "synth" ? 48 : 
 export const padForKey = (note: number) => ((note % 16) + 16) % 16;
 
 function onKey(note: number, vel: number, on: boolean) {
+  if (!on) stopErase(erasingKeys, note);
+  if (on && funcHeld && get().hwMode === "play") return startErase(erasingKeys, note, keysTrack(), note);
   if (!on) {
     const track = instrumentKeys.get(note);
     if (track !== undefined) {
@@ -303,6 +341,11 @@ function onPad(pad: number, vel: number) {
       chopPad(pad, vel);
       break;
     case "play": {
+      if (funcHeld) {
+        if (sel.kind === "keys") startErase(erasingPads, pad, sel, noteForKeysPad(pad));
+        else startErase(erasingPads, pad, drumTrack(s), pad);
+        break;
+      }
       if (sel.kind === "keys") {
         // Keys track: the pads are notes, recorded like the keybed.
         const note = noteForKeysPad(pad);
@@ -372,7 +415,7 @@ function onPad(pad: number, vel: number) {
       // Hold a pattern pad + tap another = copy the held pattern there; with Scene held too, only the selected track's clip.
       const held = [...heldPads].find((p) => p !== pad);
       if (held !== undefined) {
-        if (sequencer.repeatOn) {
+        if (sceneHeld) {
           const t = selectedTrack(s);
           copyClip(held, pad, t.id);
           showTemp("Copied clip", `${t.name} ${held + 1} > ${pad + 1}`);
@@ -383,7 +426,7 @@ function onPad(pad: number, vel: number) {
         break;
       }
       // Hold Scene + pad = append to the song (Shift + pad is taken by the Launchkey).
-      if (sequencer.repeatOn) {
+      if (sceneHeld) {
         updateProject((p) => ({ ...p, song: [...p.song, { pattern: pad, repeats: 1 }] }));
         showTemp("Song +", `Pattern ${pad + 1}`);
       } else {
@@ -414,8 +457,12 @@ function onButton(button: string, down: boolean) {
   if (s.hwMode === "browse" && down && button === "func" && s.shift) return void browseFolderToPads();
   // Scene let go: note repeat (and the held popup) end, in every mode.
   if (button === "scene" && !down) {
-    sequencer.repeatOn = false;
-    sequencer.repeatPads.clear();
+    sceneHeld = false;
+    // Latched, note repeat keeps going for the pads you hold.
+    if (!s.repeatLatch) {
+      sequencer.repeatOn = false;
+      sequencer.repeatPads.clear();
+    }
     releaseHold();
     return;
   }
@@ -454,19 +501,38 @@ function onButton(button: string, down: boolean) {
       showTemp("Cleared", onePad ? trackItemName(s, t) : t.name);
       return;
     }
-    sequencer.repeatOn = true;
+    sceneHeld = true;
     const drums = drumTrack(s).id;
+    const rate = REPEAT_OPTIONS.find((o) => o.ticks === s.repeatRate)?.label ?? "";
     if (s.hwMode === "play" && selectedTrack(s).kind !== "drum") {
       // The pads are notes on a keys track; note repeat is for drum pads.
+      sequencer.repeatOn = true;
       showTemp("Repeat", "Drum pads only", { hold: true });
     } else if (s.hwMode === "play") {
+      // A press while latched lets go; a second press in quick succession latches.
+      const now = performance.now();
+      if (s.repeatLatch) {
+        setRepeatLatch(false);
+        lastSceneTap = 0;
+        sceneHeld = false;
+        return showTemp("Repeat", "Off");
+      }
+      const latch = now - lastSceneTap < DOUBLE_TAP_MS;
+      lastSceneTap = latch ? 0 : now;
+      if (latch) setRepeatLatch(true);
+      sequencer.repeatOn = true;
       for (const p of heldPads) {
         playingPads.set(p, drums);
         sequencer.repeatPads.set(`${drums}:${p}`, { track: drums, pad: p, vel: 100 });
       }
       sequencer.ensureRepeatClock();
-      showTemp("Repeat", REPEAT_OPTIONS.find((o) => o.ticks === s.repeatRate)?.label ?? "", { hold: true });
+      showTemp("Repeat", latch ? `${rate} latched` : rate, { hold: !latch });
     } else if (s.hwMode === "pattern") showTemp("Scene", "Pad = add to song", { hold: true });
+    return;
+  }
+  if (button === "func" && !down && funcHeld) {
+    funcHeld = false;
+    if (!funcErased) setHwMode(MODES[(MODES.indexOf(get().hwMode) + 1) % MODES.length]);
     return;
   }
   if (!down) return;
@@ -489,6 +555,10 @@ function onButton(button: string, down: boolean) {
         const left = s.undo.length - 1;
         undo();
         showTemp("Undo", left < 0 ? "Nothing to undo" : `${left} left`);
+      } else if (s.hwMode === "play") {
+        // Held with pads it erases; the mode switch waits for the release.
+        funcHeld = true;
+        funcErased = false;
       } else setHwMode(MODES[(MODES.indexOf(s.hwMode) + 1) % MODES.length]);
       break;
     case "encPageUp":

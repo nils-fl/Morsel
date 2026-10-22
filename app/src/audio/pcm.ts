@@ -7,6 +7,19 @@ export function toInt16(data: Float32Array): Int16Array<ArrayBuffer> {
   return out;
 }
 
+/**
+ * 16-bit with TPDF dither: a triangular noise of ±1 step added before rounding, so quiet tails fade into a soft hiss
+ * instead of the gritty steps plain rounding leaves. For bounces; samples are stored without it.
+ */
+export function toInt16Dithered(data: Float32Array, rand = Math.random): Int16Array<ArrayBuffer> {
+  const out = new Int16Array(data.length);
+  for (let i = 0; i < data.length; i++) {
+    const v = Math.round(Math.max(-1, Math.min(1, data[i])) * 0x7fff + rand() - rand());
+    out[i] = Math.max(-0x7fff, Math.min(0x7fff, v));
+  }
+  return out;
+}
+
 /** Stored audio (16-bit, or 32-bit float from before) back to float. */
 export function toFloat(data: Int16Array | Float32Array): Float32Array<ArrayBuffer> {
   if (data instanceof Float32Array) return new Float32Array(data);

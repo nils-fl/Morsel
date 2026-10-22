@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { toFloat, toInt16 } from "./pcm";
-import { readWav, writeWav } from "./wav";
+import { toFloat, toInt16, toInt16Dithered } from "./pcm";
+import { readWav, writeWav, writeWav24 } from "./wav";
 
 /** A WAV with one fmt chunk (`format`, `bits`) and the given data bytes. */
 function wav(format: number, ch: number, bits: number, data: number[], extensible = false) {
@@ -47,5 +47,21 @@ describe("WAV files", () => {
     expect(() => readWav(new Uint8Array(20))).toThrow("Not a WAV file");
     expect(() => readWav(wav(1, 1, 8, [0x80]))).toThrow("Unsupported");
     expect(() => readWav(plain.subarray(0, 36))).toThrow("no audio");
+  });
+
+  it("round-trips 24-bit bounces within one 24-bit step", () => {
+    const l = Float32Array.from([0, 0.5, -0.25, 0.999, -1, 1e-6]);
+    const r = Float32Array.from([0.1, -0.1, 0.2, -0.2, 0, 2]);
+    const { sampleRate, channels } = readWav(writeWav24([l, r], 48000));
+    expect(sampleRate).toBe(48000);
+    [l, r].forEach((src, c) => src.forEach((v, i) => expect(Math.abs(channels[c][i] - Math.max(-1, Math.min(1, v)))).toBeLessThan(2 / 0x7fffff)));
+  });
+
+  it("dithers 16-bit bounces by at most a step", () => {
+    const x = Float32Array.from({ length: 1000 }, (_, i) => Math.sin(i / 10) * 0.3);
+    const d = toInt16Dithered(x);
+    d.forEach((v, i) => expect(Math.abs(v - x[i] * 0x7fff)).toBeLessThanOrEqual(1.5));
+    // Silence stays (mostly) silence: the noise is within one step.
+    expect(Math.max(...toInt16Dithered(new Float32Array(100)).map(Math.abs))).toBeLessThanOrEqual(1);
   });
 });

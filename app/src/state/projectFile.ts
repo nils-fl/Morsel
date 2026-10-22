@@ -191,7 +191,7 @@ function openProject(p: Project, status: string) {
   releaseAll();
   resetSession();
   setHwMode("play");
-  set({ project: p, undo: [], selectedTrack: drums, drumTrack: drums, keysTrack: keys, status });
+  set({ project: p, undo: [], redo: [], selectedTrack: drums, drumTrack: drums, keysTrack: keys, status });
 }
 
 /** Replace the project with a new one (the Factory kit and an empty Keys track, like a first start), after asking. */

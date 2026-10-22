@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { sequencer } from "../seq/sequencer";
-import { MAX_NUDGE, STEP_TICKS } from "../seq/timing";
-import { clearTrack, clipOf, copyClip, copyPattern, doubleClip, patternHasNotes, selectedTrack, set, setTrackBars, togglePadFlag, toggleStep, toggleTrackFlag, trackBars, updatePattern, useApp } from "../state/store";
+import { BAR_TICKS, MAX_NUDGE, QUANTIZE_OPTIONS, STEP_TICKS, humanizeEvents, quantizeEvents } from "../seq/timing";
+import { clearTrack, clipOf, copyClip, copyPattern, doubleClip, patternHasNotes, selectedTrack, set, setTrackBars, togglePadFlag, toggleStep, toggleTrackFlag, trackBars, updateClip, updatePattern, useApp } from "../state/store";
 import { PAD_COUNT } from "../state/types";
 import { noteName } from "./notes";
 import { Section } from "./controls";
@@ -35,6 +35,11 @@ export function SeqGrid() {
   const clip = clipOf(pat, track.id);
   const drum = track.kind === "drum";
   const keyNote = track.keys?.type === "synth" ? 48 : track.keys?.type === "sample" ? track.keys.sample.root : 60;
+  // Quantize goes to the top bar's grid (1/16 when that is Off).
+  const grid = useApp((s) => s.quantize) || STEP_TICKS;
+  const gridName = QUANTIZE_OPTIONS.find((q) => q.ticks === grid)?.label ?? "1/16";
+  const [strength, setStrength] = useState(1);
+  const empty = !clip.events.length;
 
   // Drum track: one row per pad. Keys track: one row with every note.
   const rows = drum
@@ -49,6 +54,13 @@ export function SeqGrid() {
           </select>
         <button onClick={() => updatePattern(patIndex, (p) => ({ ...p, clips: {} }))} title="Clear every track in this pattern">Clear pattern</button>
         <button onClick={() => clearTrack(patIndex, track.id)} title={`Clear ${track.name}'s clip in this pattern`}>Clear clip</button>
+        <span className="seq-tool">
+          <button disabled={empty} onClick={() => updateClip(patIndex, track.id, (evs) => quantizeEvents(evs, grid, strength, bars * BAR_TICKS))} title={`Move ${track.name}'s notes towards the ${gridName} grid (the Quantize setting above)`}>Quantize</button>
+          <select value={strength} onChange={(e) => setStrength(Number(e.target.value))} aria-label="Quantize strength" title="How far notes move towards the grid">
+            {[1, 0.75, 0.5].map((v) => <option key={v} value={v}>{v * 100}%</option>)}
+          </select>
+        </span>
+        <button disabled={empty} onClick={() => updateClip(patIndex, track.id, (evs) => humanizeEvents(evs, 1))} title={`Loosen ${track.name}'s notes a little: small changes to velocity and timing`}>Humanize</button>
         <button disabled={bars > 2} onClick={() => doubleClip(patIndex, track.id)} title={`Repeat ${track.name}'s notes after its end, doubling its length (up to 4 bars)`}>Double</button>
         <select value="" title="Copy this pattern over another one (Undo reverts it)" onChange={(e) => {
           const to = Number(e.target.value);

@@ -4,7 +4,7 @@ import { useStore } from "zustand";
 import { COLOR } from "../midi/protocol";
 import { BAR_TICKS, MAX_NUDGE } from "../seq/timing";
 import type { ChopSession, Clip, HwMode, KeysInstrument, KeysLfo, KeysSample, NoteEvent, Pad, Pattern, Project, Returns, SampleInfo, SampleSource, SampleTarget, SidechainInput, SynthParams, Tab, Track, TrackDuck, TrackFx, TrackKind, Wave, Zone } from "./types";
-import { MAX_TRACKS, PAD_COUNT, PATTERN_COUNT } from "./types";
+import { DEFAULT_MASTER_LEVEL, MAX_TRACKS, PAD_COUNT, PATTERN_COUNT } from "./types";
 
 export const PAD_COLORS = [
   COLOR.red, COLOR.orange, COLOR.yellow, COLOR.lime, COLOR.green, COLOR.mint, COLOR.cyan, COLOR.sky,
@@ -98,7 +98,7 @@ export const defaultKeys = (): KeysInstrument => ({
     wave2: "square",
     detune: 7,
     osc2Level: 0.5,
-    cutoff: 0.45,
+    cutoff: 0.6,
     resonance: 0.2,
     envAmount: 0.4,
     attack: 0.005,
@@ -138,8 +138,9 @@ export function defaultTrack(kind: TrackKind, id: string, index = 0, name?: stri
     pan: 0,
     mute: false,
     solo: false,
-    sendA: 0,
-    sendB: 0,
+    // Keys sit in a little room and echo from the start; drums stay dry (the reverb would blur the kick).
+    sendA: kind === "keys" ? 0.12 : 0,
+    sendB: kind === "keys" ? 0.08 : 0,
     fx: defaultFx(),
     duck: defaultDuck(kind),
   };
@@ -164,8 +165,8 @@ export const KEYS_ID = "keys";
 export const emptyPattern = (): Pattern => ({ bars: 1, clips: {} });
 
 export const defaultReturns = (): Returns => ({
-  reverb: { size: 0.5, decay: 0.5, level: 0.8 },
-  delay: { time: 3, feedback: 0.35, tone: 0.6, level: 0.8 },
+  reverb: { size: 0.5, decay: 0.5, predelay: 0.25, tone: 0.5, level: 0.8 },
+  delay: { time: 3, feedback: 0.35, tone: 0.6, level: 0.8, pingpong: true },
 });
 
 export const defaultProject = (): Project => ({
@@ -177,6 +178,7 @@ export const defaultProject = (): Project => ({
   song: [{ pattern: 0, repeats: 1 }],
   sidechain: [],
   returns: defaultReturns(),
+  masterLevel: DEFAULT_MASTER_LEVEL,
 });
 
 /** Bumped when the saved project shape changes (3: keys sample source, LFO, kit names; 4: sidechain inputs, ducks per keys track); files from a newer version are refused, older ones get defaults. */
@@ -370,8 +372,9 @@ function normalizeReturns(raw: unknown): Returns {
   const r = isObj(raw) && isObj(raw.reverb) ? raw.reverb : {};
   const l = isObj(raw) && isObj(raw.delay) ? raw.delay : {};
   return {
-    reverb: { size: num(r.size, 0, 1, d.reverb.size), decay: num(r.decay, 0, 1, d.reverb.decay), level: num(r.level, 0, 1, d.reverb.level) },
-    delay: { time: Math.round(num(l.time, 1, 16, d.delay.time)), feedback: num(l.feedback, 0, 0.95, d.delay.feedback), tone: num(l.tone, 0, 1, d.delay.tone), level: num(l.level, 0, 1, d.delay.level) },
+    // Rooms and echoes saved before pre-delay and ping-pong existed keep sounding as they did.
+    reverb: { size: num(r.size, 0, 1, d.reverb.size), decay: num(r.decay, 0, 1, d.reverb.decay), predelay: num(r.predelay, 0, 1, 0), tone: num(r.tone, 0, 1, d.reverb.tone), level: num(r.level, 0, 1, d.reverb.level) },
+    delay: { time: Math.round(num(l.time, 1, 16, d.delay.time)), feedback: num(l.feedback, 0, 0.95, d.delay.feedback), tone: num(l.tone, 0, 1, d.delay.tone), level: num(l.level, 0, 1, d.delay.level), pingpong: bool(l.pingpong, false) },
   };
 }
 
@@ -402,6 +405,7 @@ export function normalizeProject(input: unknown): Project {
       : d.song,
     sidechain,
     returns: normalizeReturns(raw.returns),
+    masterLevel: num(raw.masterLevel, 0, 1, DEFAULT_MASTER_LEVEL),
   };
 }
 
@@ -439,6 +443,8 @@ export interface AppState {
   queuedPattern: number | null;
   quantize: number;
   repeatRate: number;
+  /** Note repeat latched on (double-press Scene, or Repeat by the on-screen pads): held pads repeat without Scene. */
+  repeatLatch: boolean;
   // selection / hardware
   /** Pad being edited, on the drum track. */
   selectedPad: number;
@@ -468,6 +474,8 @@ export interface AppState {
   theme: "dark" | "light";
   /** Explanatory tips shown in the panels (ui/tips.ts). */
   tips: boolean;
+  /** Bit depth of bounced WAVs. */
+  bounceBits: 16 | 24;
   chop: ChopSession | null;
   /** Names of the saved kits (the factory kit is not among them). */
   kits: string[];
@@ -476,6 +484,8 @@ export interface AppState {
   /** False while the browser keeps audio suspended (no click or key press on the page yet). */
   audioReady: boolean;
   undo: Project[];
+  /** Projects undone, newest last; emptied by any other change. */
+  redo: Project[];
 }
 
 export const store = createStore<AppState>(() => ({
@@ -494,6 +504,7 @@ export const store = createStore<AppState>(() => ({
   queuedPattern: null,
   quantize: 24,
   repeatRate: 24,
+  repeatLatch: false,
   selectedPad: 0,
   selectedTrack: DRUMS_ID,
   drumTrack: DRUMS_ID,
@@ -512,11 +523,13 @@ export const store = createStore<AppState>(() => ({
   tab: "Track",
   theme: "light",
   tips: false,
+  bounceBits: 24,
   chop: null,
   kits: [],
   confirm: null,
   audioReady: false,
   undo: [],
+  redo: [],
 }));
 
 export const useApp = <T,>(sel: (s: AppState) => T) => useStore(store, sel);
@@ -540,19 +553,27 @@ export function updateProject(fn: (p: Project) => Project, undoable = true) {
   const s = get();
   const next = fn(s.project);
   if (next === s.project) return;
-  set({ project: next, undo: undoable ? [...s.undo.slice(-49), s.project] : s.undo });
+  // Any change, undoable or not, starts a new history: redoing would throw it away.
+  set({ project: next, undo: undoable ? [...s.undo.slice(-49), s.project] : s.undo, redo: [] });
 }
 
 /** Remember the project as it is now as an undo step, for changes made in many small non-undoable edits (a recorded take). */
 export function markUndo() {
   const s = get();
-  set({ undo: [...s.undo.slice(-49), s.project] });
+  set({ undo: [...s.undo.slice(-49), s.project], redo: [] });
 }
 
 export function undo() {
   const s = get();
   const prev = s.undo[s.undo.length - 1];
-  if (prev) set({ project: prev, undo: s.undo.slice(0, -1) });
+  if (prev) set({ project: prev, undo: s.undo.slice(0, -1), redo: [...s.redo, s.project] });
+}
+
+/** Take back the last undo (until something else changes the project). */
+export function redo() {
+  const s = get();
+  const next = s.redo[s.redo.length - 1];
+  if (next) set({ project: next, undo: [...s.undo.slice(-49), s.project], redo: s.redo.slice(0, -1) });
 }
 
 // ---------- tracks ----------
