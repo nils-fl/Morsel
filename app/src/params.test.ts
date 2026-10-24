@@ -79,24 +79,25 @@ describe("Step page", () => {
     expect(get().undo).toHaveLength(1); // quick turns share one undo step
   });
 
-  it("doubles the loop with Shift, once per turn, and halves it the other way", () => {
+  it("doubles the loop on encoder 6, once per turn, and halves it the other way", () => {
     const p = defaultProject();
     p.patterns[0] = { bars: 1, clips: { drums: { events: [{ id: "a", tick: 96, note: 0, vel: 100, len: 10 }] } } };
     set({ project: p, currentPattern: 0, selectedTrack: "drums", stepPage: 0, undo: [] });
-    const bars = PAGES.find((pg) => pg.tag === "STEP")!.params[0];
+    const double = PAGES.find((pg) => pg.tag === "STEP")!.params[5];
+    expect(double.name).toBe("Double");
     let now = 10_000;
     const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
-    bars.nudge(1, true);
+    double.nudge(1, false);
     now += 50;
-    bars.nudge(1, true); // the same turn: no second double
+    double.nudge(1, false); // the same turn: no second double
     let drums = get().project.patterns[0].clips.drums;
     expect(drums.bars).toBe(2);
     expect(drums.events.map((e) => e.tick)).toEqual([96, 480]);
     now += 1000;
-    bars.nudge(1, true);
+    double.nudge(1, false);
     expect(get().project.patterns[0].clips.drums.events.map((e) => e.tick)).toEqual([96, 480, 864, 1248]);
     now += 1000;
-    bars.nudge(-1, true);
+    double.nudge(-1, false);
     drums = get().project.patterns[0].clips.drums;
     expect(drums.bars).toBe(2);
     expect(drums.events.map((e) => e.tick)).toEqual([96, 480]);

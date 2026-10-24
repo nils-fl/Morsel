@@ -335,7 +335,7 @@ const curPages = () => stepPages(curPattern(), get().selectedTrack);
 const curGrid = () => clipStep(curPattern(), get().selectedTrack);
 const barsText = (n: number) => `${n} bar${n === 1 ? "" : "s"}`;
 let lastBarsTurn = -Infinity;
-let lastShiftBarsTurn = -Infinity;
+let lastDoubleTurn = -Infinity;
 
 /** Where a page of step pads starts: "3" (bar 3), or "3.3" (bar 3, beat 3) when a page is half a bar. */
 export function stepPageLabel(page = get().stepPage) {
@@ -344,6 +344,23 @@ export function stepPageLabel(page = get().stepPage) {
   const bar = Math.floor(tick / BAR_TICKS) + 1;
   return pageSteps(step) * step < BAR_TICKS ? `${bar}.${(tick % BAR_TICKS) / PPQN + 1}` : String(bar);
 }
+
+/** Double the selected track's loop (right; its notes repeat) or halve it (left). A turn's detents arrive together,
+ *  so one turn is one step. */
+const DOUBLE: Param = {
+  name: "Double",
+  value: () => curBars(),
+  range: [1, MAX_BARS],
+  nudge: (d) => {
+    const now = performance.now();
+    const first = now - lastDoubleTurn > 400;
+    lastDoubleTurn = now;
+    if (!first) return;
+    if (d > 0) doubleClip(get().currentPattern, get().selectedTrack);
+    else if (curBars() > 1) setTrackBars(get().currentPattern, get().selectedTrack, Math.ceil(curBars() / 2));
+  },
+  format: () => barsText(curBars()),
+};
 
 const GRID: Param = {
   name: "Grid",
@@ -356,7 +373,7 @@ const GRID: Param = {
   format: () => gridLabel(curGrid()),
 };
 
-/** Step mode's own page: the selected track's length and the page on the pads, swing, quantize and the step grid. */
+/** Step mode's own page: the selected track's length and the page on the pads, swing, quantize, the step grid and Double. */
 const STEP_PAGE_DEF: Page = {
   name: "Step",
   tag: "STEP",
@@ -367,17 +384,7 @@ const STEP_PAGE_DEF: Page = {
       name: "Bars",
       value: () => curBars(),
       range: [1, MAX_BARS],
-      nudge: (d, fine) => {
-        if (fine) {
-          // Shift: double the loop (its notes repeat) or halve it. A turn's detents arrive together, so one turn is one step.
-          const now = performance.now();
-          const first = now - lastShiftBarsTurn > 400;
-          lastShiftBarsTurn = now;
-          if (!first) return;
-          if (d > 0) doubleClip(get().currentPattern, get().selectedTrack);
-          else if (curBars() > 1) setTrackBars(get().currentPattern, get().selectedTrack, Math.ceil(curBars() / 2));
-          return;
-        }
+      nudge: (d) => {
         const bars = clamp(curBars() + Math.sign(d), 1, MAX_BARS);
         if (bars === curBars()) return;
         // Shrinking drops the notes past the end; turns in quick succession share one undo step.
@@ -399,6 +406,7 @@ const STEP_PAGE_DEF: Page = {
     SWING,
     QUANTIZE,
     GRID,
+    DOUBLE,
   ],
 };
 
