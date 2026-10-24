@@ -78,6 +78,27 @@ describe("Step page", () => {
     expect(get().project.patterns[0].bars).toBe(3);
     expect(get().undo).toHaveLength(1); // quick turns share one undo step
   });
+
+  it("sets the clip's step grid on encoder 5 and pages through it by half bars on 1/32", () => {
+    const p = defaultProject();
+    p.patterns[0] = { bars: 2, clips: { drums: { events: [] } } };
+    set({ project: p, currentPattern: 0, selectedTrack: "drums", stepPage: 0, undo: [] });
+    const [, page, , , grid] = PAGES.find((pg) => pg.tag === "STEP")!.params;
+    expect(grid.format()).toBe("1/16");
+    grid.nudge(1, false);
+    expect(grid.format()).toBe("1/32");
+    expect(get().project.patterns[0].clips.drums.step).toBe(12);
+    page.nudge(1, false);
+    expect(page.format()).toBe("1.3/2");
+    page.nudge(1, false);
+    page.nudge(1, false);
+    page.nudge(1, false);
+    expect(page.format()).toBe("2.3/2");
+    // Back to 1/16: a bar a page, so the page on the pads moves back inside the loop.
+    grid.nudge(-1, false);
+    expect(get().stepPage).toBe(1);
+    expect(page.format()).toBe("2/2");
+  });
 });
 
 describe("screen text", () => {

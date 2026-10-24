@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { addMarker, clampView, detectOnsets, equalSlices, moveMarker, removeMarker, slicesFromMarkers, zeroCrossing } from "./audio/chop";
 import { DAW_NOTES, DRUM_NOTES, displayTextSysex, noteForPad, padFromNote, padLedMessage, relativeDelta } from "./midi/protocol";
 import { padForStep, stepForPad } from "./modes/stepMap";
-import { BAR_TICKS, humanizeEvents, MAX_NUDGE, quantizeEvents, quantizeTick, STEP_TICKS, swingOffsetTicks } from "./seq/timing";
+import { BAR_TICKS, GRID_OPTIONS, humanizeEvents, MAX_NUDGE, PPQN, pageSteps, quantizeEvents, quantizeTick, rowSteps, STEP_TICKS, swingOffsetTicks } from "./seq/timing";
 import { rootFromName } from "./ui/notes";
 
 describe("protocol", () => {
@@ -77,6 +77,22 @@ describe("step mode", () => {
     expect(stepForPad(8)).toBe(0);
     expect(stepForPad(0)).toBe(8);
     for (let s = 0; s < 16; s++) expect(stepForPad(padForStep(s))).toBe(s);
+  });
+
+  it("lays triplet pages out as two rows of 6, the last two pads of each row unused", () => {
+    expect(stepForPad(8, 6)).toBe(0);
+    expect(stepForPad(13, 6)).toBe(5);
+    expect(stepForPad(0, 6)).toBe(6);
+    expect([6, 7, 14, 15].map((pad) => stepForPad(pad, 6))).toEqual([-1, -1, -1, -1]);
+    for (let s = 0; s < 12; s++) expect(stepForPad(padForStep(s, 6), 6)).toBe(s);
+  });
+
+  it("pages always start on a beat", () => {
+    for (const { ticks } of GRID_OPTIONS) {
+      expect((pageSteps(ticks) * ticks) % PPQN).toBe(0);
+      expect((rowSteps(ticks) * ticks) % PPQN).toBe(0);
+    }
+    expect(GRID_OPTIONS.map((g) => pageSteps(g.ticks))).toEqual([16, 16, 12, 12]);
   });
 });
 

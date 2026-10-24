@@ -3,12 +3,12 @@ import { allPresets, bendKeys, currentKit, keyOff, keyOn, modKeys, kitNames, liv
 import { engine } from "../audio/engine";
 import { launchkey } from "../midi/launchkey";
 import { CC, COLOR, type LedMode, type PadLayout } from "../midi/protocol";
-import { DUCK_PAGE, PAGES, STEP_PAGE, fixPage, inputLabel, keysSampleList, padLabel, pagesFor, presetLabel, stepPage, turnEncoder } from "../params";
+import { DUCK_PAGE, PAGES, STEP_PAGE, fixPage, inputLabel, keysSampleList, padLabel, pagesFor, presetLabel, stepPage, stepPageLabel, turnEncoder } from "../params";
 import { makeTicker, sequencer } from "../seq/sequencer";
-import { PPQN, REPEAT_OPTIONS, STEP_TICKS } from "../seq/timing";
+import { PPQN, REPEAT_OPTIONS, pageSteps, rowSteps } from "../seq/timing";
 import {
   type AppState, clearTrack, clipOf, copyClip, copyPattern, drumPads, drumTrack, editStep, get, keysTrack, markUndo, padDucks, patternHasNotes, selectTrack,
-  selectedTrack, set, stepEvents, stepTrack, store, togglePadFlag, toggleStep, toggleTrackFlag, trackAudible, trackBars, trackLength, undo, updateProject, PAD_COLORS,
+  selectedTrack, set, stepEvents, stepTrack, store, togglePadFlag, toggleStep, toggleTrackFlag, trackAudible, trackBars, trackLength, clipStep, stepPages, undo, updateProject, PAD_COLORS,
 } from "../state/store";
 import type { HwMode, KeysInstrument, NoteEvent, Track } from "../state/types";
 import { noteForKeysPad, stepForPad } from "./stepMap";
@@ -88,7 +88,7 @@ const heldPads = new Set<number>();
  * Step pads held in Step mode, with the step they pressed. Encoders 1 and 2 edit them while held; a lit step is
  * deleted on release, unless they did.
  */
-const heldSteps = new Map<number, { pattern: number; track: string; tick: number; note: number; remove: boolean }>();
+const heldSteps = new Map<number, { pattern: number; track: string; tick: number; span: number; note: number; remove: boolean }>();
 /** The steps held now already have their undo step (from adding a note, or the first edit). */
 let heldStepsUndo = false;
 /** Pads sounding from Play mode (hit or note repeat), so a release after a mode switch still stops them. */
@@ -129,7 +129,7 @@ function padReleased(pad: number) {
   const step = heldSteps.get(pad);
   if (step) {
     heldSteps.delete(pad);
-    if (step.remove) toggleStep(step.pattern, step.track, step.tick, STEP_TICKS, step.note);
+    if (step.remove) toggleStep(step.pattern, step.track, step.tick, step.span, step.note);
     if (!heldSteps.size) heldStepsUndo = false;
   }
   engine.voices.pressure[pad] = 0;
@@ -191,9 +191,9 @@ export function initController() {
     else if (!s.chop && prev.chop) exitChopHw();
     // Switching between a drum and a keys track: stay on an encoder page that track has.
     if (s.selectedTrack !== prev.selectedTrack || s.project.tracks !== prev.project.tracks) fixPage();
-    // The bar on the step pads must exist in the selected track's clip (a shorter one may have been picked).
-    const bars = trackBars(s.project.patterns[s.currentPattern], s.selectedTrack);
-    if (s.stepPage >= bars) set({ stepPage: bars - 1 });
+    // The page on the step pads must exist in the selected track's clip (a shorter one may have been picked).
+    const pages = stepPages(s.project.patterns[s.currentPattern], s.selectedTrack);
+    if (s.stepPage >= pages) set({ stepPage: pages - 1 });
   });
   launchkey.on((e) => {
     const s = get();
@@ -375,16 +375,18 @@ function onPad(pad: number, vel: number) {
     case "step": {
       const pat = s.project.patterns[s.currentPattern];
       const t = selectedTrack(s);
-      const tick = (s.stepPage * 16 + stepForPad(pad)) * STEP_TICKS;
-      if (tick >= trackLength(pat, t.id)) break;
+      const g = stepGrid(s);
+      const step = stepForPad(pad, g.perRow);
+      const tick = (g.first + step) * g.span;
+      if (step < 0 || tick >= trackLength(pat, t.id)) break;
       const note = t.kind === "drum" ? s.selectedPad : keysStepNote(t);
       // A lit step goes on release, so it can be held and edited first.
-      const lit = stepEvents(clipOf(pat, t.id).events, t.kind === "drum", tick, STEP_TICKS, note).length > 0;
+      const lit = stepEvents(clipOf(pat, t.id).events, t.kind === "drum", tick, g.span, note).length > 0;
       if (!lit) {
-        toggleStep(s.currentPattern, t.id, tick, STEP_TICKS, note, Math.max(vel, 40));
+        toggleStep(s.currentPattern, t.id, tick, g.span, note, Math.max(vel, 40));
         heldStepsUndo = true;
       }
-      heldSteps.set(pad, { pattern: s.currentPattern, track: t.id, tick, note, remove: lit });
+      heldSteps.set(pad, { pattern: s.currentPattern, track: t.id, tick, span: g.span, note, remove: lit });
       break;
     }
     case "track": {
@@ -583,10 +585,10 @@ function onButton(button: string, down: boolean) {
     case "padDown": {
       const dir = button === "padUp" ? -1 : 1;
       if (s.hwMode === "step") {
-        const bars = trackBars(s.project.patterns[s.currentPattern], s.selectedTrack);
-        const page = Math.max(0, Math.min(bars - 1, s.stepPage + dir));
+        const pages = stepPages(s.project.patterns[s.currentPattern], s.selectedTrack);
+        const page = Math.max(0, Math.min(pages - 1, s.stepPage + dir));
         set({ stepPage: page });
-        showTemp("Bar", `${page + 1} / ${bars}`);
+        showTemp("Bar", `${stepPageLabel(page)} / ${trackBars(s.project.patterns[s.currentPattern], s.selectedTrack)}`);
       } else {
         // While playing the switch is queued, so step on from the pattern already queued.
         const i = Math.max(0, Math.min(15, (s.queuedPattern ?? s.currentPattern) + dir));
@@ -666,7 +668,7 @@ function editHeldSteps(index: number, delta: number, fine: boolean) {
   let first: NoteEvent | undefined;
   for (const step of heldSteps.values()) {
     step.remove = false;
-    const e = editStep(step.pattern, step.track, step.tick, STEP_TICKS, step.note, dVel, dNudge, false);
+    const e = editStep(step.pattern, step.track, step.tick, step.span, step.note, dVel, dNudge, false);
     first ??= e;
   }
   if (!first) return;
@@ -675,22 +677,31 @@ function editHeldSteps(index: number, delta: number, fine: boolean) {
   else showTemp("Nudge", nudge > 0 ? `+${nudge}` : String(nudge), { encoder: 1 });
 }
 
+/** The selected track's step grid on the pads: ticks per step, steps per pad row and per page, the page's first step. */
+function stepGrid(s: AppState) {
+  const span = clipStep(s.project.patterns[s.currentPattern], s.selectedTrack);
+  return { span, perRow: rowSteps(span), page: pageSteps(span), first: s.stepPage * pageSteps(span) };
+}
+
+/** Which steps of the page on the pads have notes (of the selected pad, on a drum track). */
 function stepsOf(s: AppState) {
   const pat = s.project.patterns[s.currentPattern];
   const t = selectedTrack(s);
   const len = trackLength(pat, t.id);
+  const g = stepGrid(s);
   const events = clipOf(pat, t.id).events.filter((e) => t.kind !== "drum" || e.note === s.selectedPad);
-  return Array.from({ length: 16 }, (_, step) => {
-    const tick = (s.stepPage * 16 + step) * STEP_TICKS;
-    return tick < len && events.some((e) => e.tick >= tick && e.tick < tick + STEP_TICKS);
+  return Array.from({ length: g.page }, (_, step) => {
+    const tick = (g.first + step) * g.span;
+    return tick < len && events.some((e) => e.tick >= tick && e.tick < tick + g.span);
   });
 }
 
 function playheadStep(s: AppState) {
   const pos = sequencer.trackTickAt(s.selectedTrack);
   if (!pos || pos.tick < 0 || pos.pattern !== s.currentPattern) return -1;
-  const step = Math.floor(pos.tick / STEP_TICKS) - s.stepPage * 16;
-  return step >= 0 && step < 16 ? step : -1;
+  const g = stepGrid(s);
+  const step = Math.floor(pos.tick / g.span) - g.first;
+  return step >= 0 && step < g.page ? step : -1;
 }
 
 /** Graphic screen for the current mode, or null when there is nothing to draw yet (Chop before its buffer). */
@@ -819,8 +830,8 @@ function screenFor(s: AppState, overlay: Overlay | null): Frame | null {
         track: trackLabel(s),
         status,
         item: t.kind === "drum" ? trackItemName(s, t) : `Note ${noteName(keysStepNote(t))}`,
-        bar: s.stepPage, bars: trackBars(p.patterns[s.currentPattern], t.id),
-        steps: stepsOf(s), playhead: playheadStep(s),
+        bar: stepPageLabel(), bars: trackBars(p.patterns[s.currentPattern], t.id),
+        steps: stepsOf(s), perRow: stepGrid(s).perRow, playhead: playheadStep(s),
         pageTag: PAGES[s.encPage].tag, pageInfo: PAGES[s.encPage].summary(),
       });
     }
@@ -875,7 +886,7 @@ function renderLoop() {
   if (s.hwMode === "browse") return showStationaryIfChanged(...browseDisplay());
   const p = s.project;
   const line1 = `P${s.currentPattern + 1} ${p.bpm}BPM ${transportState(s)}`;
-  const line2 = `${MODE_NAMES[s.hwMode]} ${s.hwMode === "step" ? `B${s.stepPage + 1} ` : ""}${trackLabel(s)}`;
+  const line2 = `${MODE_NAMES[s.hwMode]} ${s.hwMode === "step" ? `B${stepPageLabel()} ` : ""}${trackLabel(s)}`;
   showStationaryIfChanged(line1, line2);
 }
 
@@ -921,7 +932,7 @@ function padArrowLeds(s: AppState) {
     const m = chopMarkerArrows();
     return { up: m.up ? LED_FULL : 0, down: m.down ? LED_FULL : 0 };
   }
-  const [pos, last] = s.hwMode === "step" ? [s.stepPage, trackBars(s.project.patterns[s.currentPattern], s.selectedTrack) - 1] : [s.currentPattern, 15];
+  const [pos, last] = s.hwMode === "step" ? [s.stepPage, stepPages(s.project.patterns[s.currentPattern], s.selectedTrack) - 1] : [s.currentPattern, 15];
   return { up: pos > 0 ? LED_FULL : 0, down: pos < last ? LED_FULL : 0 };
 }
 
@@ -961,11 +972,13 @@ function padLeds(s: AppState) {
         break;
       }
       case "step": {
-        const step = stepForPad(i);
-        if ((s.stepPage * 16 + step) * STEP_TICKS >= len) break;
+        const g = stepGrid(s);
+        const step = stepForPad(i, g.perRow);
+        const tick = (g.first + step) * g.span;
+        if (step < 0 || tick >= len) break;
         const t = selectedTrack(s);
         const trackColor = t.kind === "drum" ? t.pads[s.selectedPad].color : t.color;
-        color = steps[step] ? trackColor : step % 4 === 0 ? COLOR.dimWhite : COLOR.off;
+        color = steps[step] ? trackColor : tick % PPQN === 0 ? COLOR.dimWhite : COLOR.off;
         if (step === head) color = COLOR.white;
         break;
       }

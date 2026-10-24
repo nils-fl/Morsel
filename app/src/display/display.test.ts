@@ -163,7 +163,7 @@ describe("keys screen", () => {
 
 describe("headers", () => {
   const pad = { pad: 4, name: "Snare", peaks: null, start: 0, end: 1, status: "P1 PLAY", pageTag: "PAD", pageInfo: "" };
-  const step = { item: "Snare", bar: 0, bars: 1, steps: Array(16).fill(false), playhead: -1, status: "P1 PLAY", pageTag: "STEP", pageInfo: "1bar Sw54 Q1/16" };
+  const step = { item: "Snare", bar: "1", bars: 1, steps: Array(16).fill(false), playhead: -1, status: "P1 PLAY", pageTag: "STEP", pageInfo: "1bar Sw54 Q1/16" };
 
   it("names the selected track on the pad and step screens", () => {
     expect(headerText(padScreen({ ...pad, track: "T1 Drums" }))).not.toEqual(headerText(padScreen({ ...pad, track: "T3 Chop 1" })));
@@ -176,6 +176,12 @@ describe("headers", () => {
     expect(Array.from(play.px.slice(46 * 128, 53 * 128)).some(Boolean)).toBe(true); // the item line
     const footer = (f: Frame) => Array.from(f.px.slice(55 * 128));
     expect(footer(play)).not.toEqual(footer(stepScreen({ ...step, track: "T1 Drums", pageInfo: "2bars Sw60 Q1/8" })));
+  });
+
+  it("draws a triplet page as two rows of 6, like the pads", () => {
+    const at7th = (perRow: number) => stepScreen({ ...step, track: "T1 Drums", steps: Array(perRow * 2).fill(false), perRow }).get(97, 14);
+    expect(at7th(8)).toBe(1);
+    expect(at7th(6)).toBe(0);
   });
 
   it("shows the keys track instead of the preset when given", () => {

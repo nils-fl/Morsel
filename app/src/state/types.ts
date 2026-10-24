@@ -131,14 +131,16 @@ export interface NoteEvent {
   note: number;
   vel: number; // 1..127
   len: number; // ticks
-  /** Micro-timing: sounds this many ticks off `tick` (±MAX_NUDGE), which stays on its step. Missing = 0. */
+  /** Micro-timing: sounds this many ticks off `tick` (under half its clip's step), which stays on its step. Missing = 0. */
   nudge?: number;
 }
 
 export interface Clip {
   events: NoteEvent[];
-  /** The clip's own loop length (1-4 bars); missing = the pattern's length. Clips loop on their own while playing. */
+  /** The clip's own loop length (1-16 bars); missing = the pattern's length. Clips loop on their own while playing. */
   bars?: number;
+  /** The step grid it is edited on, in ticks per step (timing.ts GRID_OPTIONS); missing = 1/16. Only editing uses it. */
+  step?: number;
 }
 
 /** A sequence: one clip per track (by track id; a track without one is silent here). */

@@ -1,8 +1,30 @@
 export const PPQN = 96;
 export const STEP_TICKS = PPQN / 4; // a 16th note
 export const BAR_TICKS = PPQN * 4;
-/** How far a note can be nudged off its step, in ticks: just under half a step. */
-export const MAX_NUDGE = STEP_TICKS / 2 - 1;
+/** The longest a track's loop can be. */
+export const MAX_BARS = 16;
+/** How far a note can be nudged off a step of `step` ticks: just under half a step. */
+export const maxNudge = (step: number) => step / 2 - 1;
+/** How far a note can be nudged off a 16th step. */
+export const MAX_NUDGE = maxNudge(STEP_TICKS);
+
+/** The step grids a clip can be edited on (Clip.step), in ticks per step. */
+export const GRID_OPTIONS = [
+  { label: "1/16", ticks: STEP_TICKS },
+  { label: "1/32", ticks: STEP_TICKS / 2 },
+  { label: "1/8T", ticks: PPQN / 3 },
+  { label: "1/16T", ticks: PPQN / 6 },
+];
+export const gridLabel = (step: number) => GRID_OPTIONS.find((g) => g.ticks === step)?.label ?? "1/16";
+/** Triplet grids: three or six steps a beat. */
+export const isTriplet = (step: number) => (PPQN / step) % 3 === 0;
+
+// The Launchkey shows a page of steps on its 16 pads, two rows that each hold whole beats: a bar of 16ths (two
+// rows of 8), half a bar of 32nds (a beat per row), a bar of 8th triplets or half a bar of 16th triplets (rows of 6).
+/** Steps in a pad row. */
+export const rowSteps = (step: number) => (isTriplet(step) ? 6 : 8);
+/** Steps on the pads at once. */
+export const pageSteps = (step: number) => rowSteps(step) * 2;
 
 export const secondsPerTick = (bpm: number) => 60 / bpm / PPQN;
 
@@ -23,7 +45,9 @@ export function quantizeTick(tick: number, grid: number, length: number): number
 export const QUANTIZE_OPTIONS = [
   { label: "Off", ticks: 0 },
   { label: "1/32", ticks: STEP_TICKS / 2 },
+  { label: "1/16T", ticks: PPQN / 6 },
   { label: "1/16", ticks: STEP_TICKS },
+  { label: "1/8T", ticks: PPQN / 3 },
   { label: "1/8", ticks: STEP_TICKS * 2 },
   { label: "1/4", ticks: PPQN },
 ];
@@ -59,11 +83,14 @@ export function quantizeEvents<E extends { tick: number; note: number; vel: numb
   return [...out.values()];
 }
 
-/** Loosen notes up a little: velocity ±10 and timing ±2 ticks, times `amount` (0..1). `rand` returns 0..1. */
-export function humanizeEvents<E extends { vel: number; nudge?: number }>(events: E[], amount: number, rand = Math.random): E[] {
+/**
+ * Loosen notes up a little: velocity ±10 and timing ±2 ticks, times `amount` (0..1), nudges staying within `limit`.
+ * `rand` returns 0..1.
+ */
+export function humanizeEvents<E extends { vel: number; nudge?: number }>(events: E[], amount: number, rand = Math.random, limit = MAX_NUDGE): E[] {
   return events.map((e) => {
     const vel = Math.max(1, Math.min(127, Math.round(e.vel + (rand() * 2 - 1) * 10 * amount)));
-    const nudge = Math.max(-MAX_NUDGE, Math.min(MAX_NUDGE, Math.round((e.nudge ?? 0) + (rand() * 2 - 1) * 2 * amount)));
+    const nudge = Math.max(-limit, Math.min(limit, Math.round((e.nudge ?? 0) + (rand() * 2 - 1) * 2 * amount)));
     const { nudge: _, ...rest } = e;
     return (nudge ? { ...rest, vel, nudge } : { ...rest, vel }) as E;
   });

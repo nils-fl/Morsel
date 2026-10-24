@@ -59,8 +59,8 @@ export function Matrix() {
             {p.tracks.map((t) => {
               const clip = clipOf(pat, t.id);
               const bars = trackBars(pat, t.id);
-              const steps = bars * 16;
-              // Density strip: one tick per 16th that has a note, over the clip's own length.
+              const steps = Math.min(64, bars * 16);
+              // Density strip: one tick per 16th that has a note (a longer clip in up to 64 columns), over its own length.
               const lit = new Set(clip.events.map((e) => Math.floor((e.tick / trackLength(pat, t.id)) * steps)));
               return (
                 <button

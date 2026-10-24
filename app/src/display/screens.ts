@@ -45,10 +45,11 @@ export interface StepView {
   track: string; // e.g. "T1 Drums"
   status: string; // e.g. "P1 PLAY"
   item: string; // what the steps write: the pad (drum track) or the note (keys track)
-  bar: number;
+  bar: string; // where the page on the pads starts: "3", or "3.3" when a page is half a bar
   bars: number;
-  steps: boolean[]; // 16 steps of the visible bar
-  playhead: number; // step index within this bar, or -1
+  steps: boolean[]; // the steps of the page on the pads
+  perRow?: number; // steps in a pad row: 8, or 6 on a triplet grid
+  playhead: number; // step index within the page, or -1
   pageTag: string; // encoder page
   pageInfo: string; // that page's values
 }
@@ -56,11 +57,12 @@ export interface StepView {
 export function stepScreen(v: StepView): Frame {
   const f = new Frame();
   header(f, v.track, v.status);
-  // Mirrors the pads: top row = steps 1-8, bottom row = 9-16.
+  // Mirrors the pads: top row = steps 1-8, bottom row = 9-16 (rows of 6 from the left on a triplet grid).
+  const n = v.perRow ?? 8;
   const size = 13, gap = 3, x0 = Math.floor((W - (8 * size + 7 * gap)) / 2);
-  stepRow(f, x0, 14, size, gap, v.steps.slice(0, 8), v.playhead, 0);
-  stepRow(f, x0, 14 + size + 4, size, gap, v.steps.slice(8, 16), v.playhead, 8);
-  const bar = `B${v.bar + 1}/${v.bars}`;
+  stepRow(f, x0, 14, size, gap, v.steps.slice(0, n), v.playhead, 0);
+  stepRow(f, x0, 14 + size + 4, size, gap, v.steps.slice(n, 2 * n), v.playhead, n);
+  const bar = `B${v.bar}/${v.bars}`;
   const bw = textWidth(bar);
   f.text(W - 2 - bw, 46, bar);
   f.textFit(2, 46, v.item, W - 4 - bw - 6);

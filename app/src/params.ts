@@ -1,8 +1,8 @@
 // Encoder pages: what each of the 8 encoders edits, with formatting.
 import { DECAY_MAX, cutoffHz, padQDb, synthQDb } from "./audio/dsp";
 import type { Visual } from "./modes/notify";
-import { QUANTIZE_OPTIONS, REPEAT_OPTIONS } from "./seq/timing";
-import { defaultDuck, drumPads, get, inputOf, keysTrack, padDucks, parseInput, setDuckPad, setTrackBars, setTrackDuck, toggleSidechainInput, trackBars, selectedTrack, set, trackById, updateKeys, updatePad, updateProject, updateTrack } from "./state/store";
+import { BAR_TICKS, GRID_OPTIONS, MAX_BARS, PPQN, QUANTIZE_OPTIONS, REPEAT_OPTIONS, STEP_TICKS, gridLabel, pageSteps } from "./seq/timing";
+import { clipStep, defaultDuck, drumPads, get, setClipGrid, stepPages, inputOf, keysTrack, padDucks, parseInput, setDuckPad, setTrackBars, setTrackDuck, toggleSidechainInput, trackBars, selectedTrack, set, trackById, updateKeys, updatePad, updateProject, updateTrack } from "./state/store";
 import { MAX_TRACKS, type KeysLfo, type Pad, type SampleInfo, type SidechainInput, type SynthParams, type TrackDuck, type TrackFx, type TrackKind, type Wave } from "./state/types";
 import { allPresets, applyPreset, currentKit, kitNames, stepKit } from "./actions";
 import { jumpFolder, presetEdited } from "./audio/synthPresets";
@@ -327,23 +327,45 @@ const QUANTIZE = optionParam("Quantize", QUANTIZE_OPTIONS, "quantize");
 // ---------- step page ----------
 
 /** The selected track's loop length in the current pattern. */
-const curBars = () => trackBars(get().project.patterns[get().currentPattern], get().selectedTrack);
+const curPattern = () => get().project.patterns[get().currentPattern];
+const curBars = () => trackBars(curPattern(), get().selectedTrack);
+const curPages = () => stepPages(curPattern(), get().selectedTrack);
+const curGrid = () => clipStep(curPattern(), get().selectedTrack);
 const barsText = (n: number) => `${n} bar${n === 1 ? "" : "s"}`;
 let lastBarsTurn = -Infinity;
 
-/** Step mode's own page: the selected track's length and the bar on the pads, plus swing and quantize. */
+/** Where a page of step pads starts: "3" (bar 3), or "3.3" (bar 3, beat 3) when a page is half a bar. */
+export function stepPageLabel(page = get().stepPage) {
+  const step = curGrid();
+  const tick = page * pageSteps(step) * step;
+  const bar = Math.floor(tick / BAR_TICKS) + 1;
+  return pageSteps(step) * step < BAR_TICKS ? `${bar}.${(tick % BAR_TICKS) / PPQN + 1}` : String(bar);
+}
+
+const GRID: Param = {
+  name: "Grid",
+  value: () => Math.max(0, GRID_OPTIONS.findIndex((g) => g.ticks === curGrid())),
+  range: [0, GRID_OPTIONS.length - 1],
+  nudge: (d) => {
+    const i = clamp(GRID.value() + Math.sign(d), 0, GRID_OPTIONS.length - 1);
+    setClipGrid(get().currentPattern, get().selectedTrack, GRID_OPTIONS[i].ticks);
+  },
+  format: () => gridLabel(curGrid()),
+};
+
+/** Step mode's own page: the selected track's length and the page on the pads, swing, quantize and the step grid. */
 const STEP_PAGE_DEF: Page = {
   name: "Step",
   tag: "STEP",
   stepOnly: true,
-  summary: () => `${curBars()}bar${curBars() === 1 ? "" : "s"} Sw${get().project.swing} Q${QUANTIZE.format()}`,
+  summary: () => `${curBars()}bar${curBars() === 1 ? "" : "s"} Sw${get().project.swing} Q${QUANTIZE.format()}${curGrid() === STEP_TICKS ? "" : ` ${gridLabel(curGrid())}`}`,
   params: [
     {
       name: "Bars",
       value: () => curBars(),
-      range: [1, 4],
+      range: [1, MAX_BARS],
       nudge: (d) => {
-        const bars = clamp(curBars() + Math.sign(d), 1, 4);
+        const bars = clamp(curBars() + Math.sign(d), 1, MAX_BARS);
         if (bars === curBars()) return;
         // Shrinking drops the notes past the end; turns in quick succession share one undo step.
         const now = performance.now();
@@ -353,16 +375,17 @@ const STEP_PAGE_DEF: Page = {
       format: () => barsText(curBars()),
     },
     {
-      name: "Bar",
+      name: "Page",
       value: () => get().stepPage + 1,
       get range(): [number, number] {
-        return [1, Math.max(2, curBars())];
+        return [1, Math.max(2, curPages())];
       },
-      nudge: (d) => set({ stepPage: clamp(get().stepPage + Math.sign(d), 0, curBars() - 1) }),
-      format: () => `${get().stepPage + 1}/${curBars()}`,
+      nudge: (d) => set({ stepPage: clamp(get().stepPage + Math.sign(d), 0, curPages() - 1) }),
+      format: () => `${stepPageLabel()}/${curBars()}`,
     },
     SWING,
     QUANTIZE,
+    GRID,
   ],
 };
 

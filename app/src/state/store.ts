@@ -2,7 +2,7 @@ import { createStore } from "zustand/vanilla";
 import type { SynthPreset } from "../audio/synthPresets";
 import { useStore } from "zustand";
 import { COLOR } from "../midi/protocol";
-import { BAR_TICKS, MAX_NUDGE } from "../seq/timing";
+import { BAR_TICKS, GRID_OPTIONS, MAX_BARS, STEP_TICKS, maxNudge, pageSteps } from "../seq/timing";
 import type { ChopSession, Clip, HwMode, KeysInstrument, KeysLfo, KeysSample, NoteEvent, Pad, Pattern, Project, Returns, SampleInfo, SampleSource, SampleTarget, SidechainInput, SynthParams, Tab, Track, TrackDuck, TrackFx, TrackKind, Wave, Zone } from "./types";
 import { DEFAULT_MASTER_LEVEL, MAX_TRACKS, PAD_COUNT, PATTERN_COUNT } from "./types";
 
@@ -325,8 +325,10 @@ function normalizeTracks(raw: unknown): Track[] {
 }
 
 function normalizeClip(raw: unknown, track: Track, patternBars: number, seen: Set<string>): Clip {
-  const own = isObj(raw) && raw.bars !== undefined ? num(Math.round(Number(raw.bars)), 1, 4, patternBars) : undefined;
+  const own = isObj(raw) && raw.bars !== undefined ? num(Math.round(Number(raw.bars)), 1, MAX_BARS, patternBars) : undefined;
   const bars = own ?? patternBars;
+  const step = isObj(raw) && GRID_OPTIONS.some((g) => g.ticks === raw.step && g.ticks !== STEP_TICKS) ? (raw.step as number) : undefined;
+  const limit = maxNudge(step ?? STEP_TICKS);
   const events = (isObj(raw) && Array.isArray(raw.events) ? raw.events : []).flatMap((e): NoteEvent[] => {
     if (!isObj(e) || typeof e.tick !== "number" || e.tick < 0 || e.tick >= bars * BAR_TICKS) return [];
     if (track.kind === "drum" && (typeof e.note !== "number" || e.note < 0 || e.note >= PAD_COUNT)) return [];
@@ -335,15 +337,15 @@ function normalizeClip(raw: unknown, track: Track, patternBars: number, seen: Se
     if (seen.has(id)) id = newId();
     seen.add(id);
     const ev: NoteEvent = { id, tick: e.tick, note: Math.round(num(e.note, 0, 127, 60)), vel: num(e.vel, 1, 127, 100), len: num(e.len, 1, Number.MAX_SAFE_INTEGER, 1) };
-    const nudge = Math.round(num(e.nudge, -MAX_NUDGE, MAX_NUDGE, 0));
+    const nudge = Math.round(num(e.nudge, -limit, limit, 0));
     return [nudge ? { ...ev, nudge } : ev];
   });
-  return own === undefined ? { events } : { events, bars: own };
+  return { events, ...(own !== undefined && { bars: own }), ...(step !== undefined && { step }) };
 }
 
 function normalizePattern(raw: unknown, tracks: Track[], seen: Set<string>): Pattern {
   if (!isObj(raw)) return emptyPattern();
-  const bars = num(Math.round(Number(raw.bars)), 1, 4, 1);
+  const bars = num(Math.round(Number(raw.bars)), 1, MAX_BARS, 1);
   const clips: Record<string, Clip> = {};
   for (const t of tracks) {
     const c = isObj(raw.clips) ? raw.clips[t.id] : undefined;
@@ -731,6 +733,10 @@ export const patternLength = (pat: Pattern) => pat.bars * BAR_TICKS;
 /** A track's loop length in a pattern, in bars and in ticks. */
 export const trackBars = (pat: Pattern, trackId: string) => pat.clips[trackId]?.bars ?? pat.bars;
 export const trackLength = (pat: Pattern, trackId: string) => trackBars(pat, trackId) * BAR_TICKS;
+/** A clip's step grid in ticks per step (Clip.step; 1/16 when it has none). */
+export const clipStep = (pat: Pattern, trackId: string) => pat.clips[trackId]?.step ?? STEP_TICKS;
+/** How many pages of steps a track's loop fills on the Launchkey's pads (timing.ts pageSteps). */
+export const stepPages = (pat: Pattern, trackId: string) => Math.ceil(trackLength(pat, trackId) / (pageSteps(clipStep(pat, trackId)) * clipStep(pat, trackId)));
 
 /**
  * Give every track's clip its own length (from `lengths`, else what it has now), drop notes past the ends, and make
@@ -739,30 +745,54 @@ export const trackLength = (pat: Pattern, trackId: string) => trackBars(pat, tra
 export function resizeClips(pat: Pattern, tracks: Track[], lengths: Record<string, number> = {}): Pattern {
   const clips: Pattern["clips"] = {};
   for (const t of tracks) {
-    const bars = Math.max(1, Math.min(4, Math.round(lengths[t.id] ?? trackBars(pat, t.id))));
-    clips[t.id] = { events: clipOf(pat, t.id).events.filter((e) => e.tick < bars * BAR_TICKS), bars };
+    const bars = Math.max(1, Math.min(MAX_BARS, Math.round(lengths[t.id] ?? trackBars(pat, t.id))));
+    const clip = clipOf(pat, t.id);
+    clips[t.id] = { ...clip, events: clip.events.filter((e) => e.tick < bars * BAR_TICKS), bars };
   }
   return { bars: Math.max(1, ...Object.values(clips).map((c) => c.bars!)), clips };
 }
 
-/** Set one track's loop length (1-4 bars) in a pattern; notes past its new end are dropped. */
+/** Keep the Launchkey's step page inside the selected track's loop after its length or grid changed. */
+function fitStepPage(index: number, trackId: string) {
+  const s = get();
+  const pages = stepPages(s.project.patterns[index], trackId);
+  if (index === s.currentPattern && trackId === s.selectedTrack && s.stepPage >= pages) set({ stepPage: Math.max(0, pages - 1) });
+}
+
+/** Set one track's loop length (1-16 bars) in a pattern; notes past its new end are dropped. */
 export function setTrackBars(index: number, trackId: string, bars: number, undoable = true) {
   const pat = get().project.patterns[index];
   if (trackBars(pat, trackId) === bars) return;
   updatePattern(index, (p) => resizeClips(p, get().project.tracks, { [trackId]: bars }), undoable);
-  const s = get();
-  if (index === s.currentPattern && trackId === s.selectedTrack && s.stepPage >= bars) set({ stepPage: Math.max(0, bars - 1) });
+  fitStepPage(index, trackId);
 }
 
-/** Double a track's clip: its notes repeat after its current length (up to 4 bars). */
+/**
+ * Set the step grid a track's clip is edited on (ticks per step, timing.ts GRID_OPTIONS). The notes stay where they
+ * are; nudges are kept within the new grid's half step.
+ */
+export function setClipGrid(index: number, trackId: string, step: number, undoable = true) {
+  const pat = get().project.patterns[index];
+  if (clipStep(pat, trackId) === step) return;
+  const limit = maxNudge(step);
+  updatePattern(index, (p) => {
+    const { step: _old, ...clip } = clipOf(p, trackId);
+    const events = clip.events.map((e) => (Math.abs(e.nudge ?? 0) > limit ? { ...e, nudge: Math.sign(e.nudge!) * limit } : e));
+    return { ...p, clips: { ...p.clips, [trackId]: { ...clip, events, ...(step !== STEP_TICKS && { step }) } } };
+  }, undoable);
+  fitStepPage(index, trackId);
+}
+
+/** Double a track's clip: its notes repeat after its current length (up to MAX_BARS). */
 export function doubleClip(index: number, trackId: string) {
   const pat = get().project.patterns[index];
   const bars = trackBars(pat, trackId);
-  if (bars * 2 > 4) return;
+  if (bars * 2 > MAX_BARS) return;
   const shift = bars * BAR_TICKS;
   updatePattern(index, (p) => {
-    const events = clipOf(p, trackId).events;
-    const doubled = { ...p, clips: { ...p.clips, [trackId]: { events: [...events, ...events.map((e) => ({ ...e, id: newId(), tick: e.tick + shift }))] } } };
+    const clip = clipOf(p, trackId);
+    const events = clip.events;
+    const doubled = { ...p, clips: { ...p.clips, [trackId]: { ...clip, events: [...events, ...events.map((e) => ({ ...e, id: newId(), tick: e.tick + shift }))] } } };
     return resizeClips(doubled, get().project.tracks, { [trackId]: bars * 2 });
   });
 }
@@ -802,17 +832,19 @@ export function stepEvents(events: NoteEvent[], drum: boolean, tick: number, spa
 }
 
 /**
- * Change the velocity and nudge of a step's notes by `dVel` / `dNudge` (clamped to 1..127 and ±MAX_NUDGE).
+ * Change the velocity and nudge of a step's notes by `dVel` / `dNudge` (clamped to 1..127 and the clip's grid's
+ * maximum nudge).
  * Returns the step's first note as it is now, if there is one.
  */
 export function editStep(patternIndex: number, trackId: string, tick: number, span: number, note: number, dVel: number, dNudge: number, undoable = true) {
   const drum = trackById(get().project, trackId)?.kind === "drum";
   const ids = new Set(stepEvents(clipOf(get().project.patterns[patternIndex], trackId).events, drum, tick, span, note).map((e) => e.id));
   if (!ids.size) return undefined;
+  const limit = maxNudge(clipStep(get().project.patterns[patternIndex], trackId));
   updateClip(patternIndex, trackId, (events) => events.map((e) => {
     if (!ids.has(e.id)) return e;
     const vel = Math.max(1, Math.min(127, e.vel + dVel));
-    const nudge = Math.max(-MAX_NUDGE, Math.min(MAX_NUDGE, (e.nudge ?? 0) + dNudge));
+    const nudge = Math.max(-limit, Math.min(limit, (e.nudge ?? 0) + dNudge));
     const { nudge: _old, ...rest } = e;
     return nudge ? { ...rest, vel, nudge } : { ...rest, vel };
   }), undoable);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DRUMS_ID, KEYS_ID, addEvent, addTrack, clipOf, editStep, markUndo, canRemoveTrack, copyClip, copyPattern, defaultPad, doubleClip, setTrackBars, setTrackDuck, setDuckPad, padDucks, toggleSidechainInput, trackBars, defaultProject, fixSelection, get, migrateV1, normalizeProject, removeTrack, resetSession, selectTrack, set, stepTrack, undo, redo, updateProject,
+  DRUMS_ID, KEYS_ID, addEvent, addTrack, clipOf, editStep, markUndo, canRemoveTrack, copyClip, copyPattern, defaultPad, doubleClip, setClipGrid, setTrackBars, clipStep, stepPages, setTrackDuck, setDuckPad, padDucks, toggleSidechainInput, trackBars, defaultProject, fixSelection, get, migrateV1, normalizeProject, removeTrack, resetSession, selectTrack, set, stepTrack, undo, redo, updateProject,
 } from "./store";
 import { MAX_TRACKS, PATTERN_COUNT, type NoteEvent, type Project } from "./types";
 
@@ -44,12 +44,12 @@ describe("normalizeProject", () => {
       bpm: 9999,
       swing: "x",
       tracks: [{ id: "d", kind: "drum" }, { id: "k", kind: "keys" }],
-      patterns: [{ bars: 9, clips: { d: { events: [ev("a", 0, 0), { id: "b", tick: -5, note: 0 }, ev("c", 0, 99), null] } } }],
+      patterns: [{ bars: 99, clips: { d: { events: [ev("a", 0, 0), { id: "b", tick: -5, note: 0 }, ev("c", 0, 99), null] } } }],
       song: [{ pattern: 3, repeats: 2 }, { pattern: 99, repeats: 1 }, "x"],
     });
     expect(p.bpm).toBe(240);
     expect(p.swing).toBe(defaultProject().swing);
-    expect(p.patterns[0].bars).toBe(4);
+    expect(p.patterns[0].bars).toBe(16);
     expect(p.patterns[0].clips.d.events.map((e) => e.id)).toEqual(["a"]); // pad 99 doesn't exist on a drum track
     expect(p.song).toEqual([{ pattern: 3, repeats: 2 }]);
   });
@@ -257,12 +257,12 @@ describe("sidechain", () => {
 
 describe("track lengths", () => {
   it("keeps each clip's own length on load, and makes the pattern as long as the longest", () => {
-    const p = normalizeProject({ ...defaultProject(), patterns: [{ bars: 1, clips: { [DRUMS_ID]: { events: [ev("a", 0, 0), ev("b", 384 * 2, 1)], bars: 3 }, [KEYS_ID]: { events: [ev("c", 384, 60)], bars: 9 } } }] });
+    const p = normalizeProject({ ...defaultProject(), patterns: [{ bars: 1, clips: { [DRUMS_ID]: { events: [ev("a", 0, 0), ev("b", 384 * 2, 1)], bars: 3 }, [KEYS_ID]: { events: [ev("c", 384, 60)], bars: 20 } } }] });
     const pat = p.patterns[0];
-    expect(pat.bars).toBe(4);
+    expect(pat.bars).toBe(16);
     expect(pat.clips[DRUMS_ID]).toMatchObject({ bars: 3 });
     expect(pat.clips[DRUMS_ID].events.map((e) => e.id)).toEqual(["a", "b"]);
-    expect(pat.clips[KEYS_ID]).toMatchObject({ bars: 4 });
+    expect(pat.clips[KEYS_ID]).toMatchObject({ bars: 16 });
   });
 
   it("shortening every track shortens the pattern; Double repeats one track's notes", () => {
@@ -281,6 +281,63 @@ describe("track lengths", () => {
     expect(trackBars(pat, DRUMS_ID)).toBe(2);
     expect(pat.clips[DRUMS_ID].events.map((e) => e.tick)).toEqual([0, 384]);
     expect(trackBars(pat, KEYS_ID)).toBe(2);
+  });
+});
+
+describe("step grids", () => {
+  it("keeps a clip's grid on load, drops an unknown one, and keeps nudges within its half step", () => {
+    const nudged = (nudge: number) => ({ ...ev("n", 0, 0), nudge });
+    const p = normalizeProject({ ...defaultProject(), patterns: [{ bars: 1, clips: {
+      [DRUMS_ID]: { events: [nudged(9)], step: 12 },
+      [KEYS_ID]: { events: [], step: 7 },
+    } }] });
+    const pat = p.patterns[0];
+    expect(pat.clips[DRUMS_ID].step).toBe(12);
+    expect(pat.clips[DRUMS_ID].events[0].nudge).toBe(5); // 1/32: under half of 12 ticks
+    expect(pat.clips[KEYS_ID].step).toBeUndefined();
+  });
+
+  it("changes the grid without moving notes, and keeps it through length changes, Double and copies", () => {
+    const p = defaultProject();
+    p.patterns[0] = { bars: 1, clips: { [DRUMS_ID]: { events: [{ ...ev("a", 12, 0), nudge: -10 }, ev("b", 32, 1)] } } };
+    reset(p);
+    setClipGrid(0, DRUMS_ID, 12);
+    let pat = get().project.patterns[0];
+    expect(clipStep(pat, DRUMS_ID)).toBe(12);
+    expect(pat.clips[DRUMS_ID].events.map((e) => [e.tick, e.nudge])).toEqual([[12, -5], [32, undefined]]);
+    setTrackBars(0, DRUMS_ID, 2);
+    doubleClip(0, DRUMS_ID);
+    copyClip(0, 1, DRUMS_ID);
+    expect(clipStep(get().project.patterns[0], DRUMS_ID)).toBe(12);
+    expect(clipStep(get().project.patterns[1], DRUMS_ID)).toBe(12);
+    setClipGrid(0, DRUMS_ID, 24);
+    pat = get().project.patterns[0];
+    expect(pat.clips[DRUMS_ID].step).toBeUndefined();
+    expect(trackBars(pat, DRUMS_ID)).toBe(4);
+  });
+
+  it("counts the Launchkey's pages per grid", () => {
+    const p = defaultProject();
+    p.patterns[0] = { bars: 2, clips: { [DRUMS_ID]: { events: [] }, [KEYS_ID]: { events: [], step: 12 } } };
+    reset(p);
+    const pat = get().project.patterns[0];
+    expect(stepPages(pat, DRUMS_ID)).toBe(2); // a bar of 16ths a page
+    expect(stepPages(pat, KEYS_ID)).toBe(4); // half a bar of 32nds a page
+    setClipGrid(0, KEYS_ID, 32);
+    expect(stepPages(get().project.patterns[0], KEYS_ID)).toBe(2); // a bar of 8th triplets
+    setClipGrid(0, KEYS_ID, 16);
+    expect(stepPages(get().project.patterns[0], KEYS_ID)).toBe(4); // half a bar of 16th triplets
+  });
+
+  it("doubles up to 16 bars", () => {
+    const p = defaultProject();
+    p.patterns[0] = { bars: 8, clips: { [DRUMS_ID]: { events: [ev("a", 0, 0)], bars: 8 } } };
+    reset(p);
+    doubleClip(0, DRUMS_ID);
+    expect(trackBars(get().project.patterns[0], DRUMS_ID)).toBe(16);
+    doubleClip(0, DRUMS_ID);
+    expect(trackBars(get().project.patterns[0], DRUMS_ID)).toBe(16);
+    expect(clipOf(get().project.patterns[0], DRUMS_ID).events).toHaveLength(2);
   });
 });
 

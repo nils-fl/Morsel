@@ -548,6 +548,7 @@ html { overflow-anchor: none; }
 .tool-group { display: flex; align-items: center; gap: 6px; padding: 0 14px; border-left: 1px solid var(--line); }
 .tool-group:first-child { padding-left: 0; border-left: none; }
 .tool-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; margin-right: 2px; }
+.seq-view { min-width: 74px; text-align: center; font-variant-numeric: tabular-nums; }
 /* The grid sits inside the Pattern panel, which already draws the box. */
 .seq-grid { display: grid; gap: 3px; overflow-x: auto; }
 .seq-row { display: grid; grid-template-columns: 110px 26px 26px 1fr; gap: 4px; align-items: center; }
