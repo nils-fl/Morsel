@@ -11,6 +11,7 @@ export type Entry =
 export const ROOT = "";
 export const SAMPLES = "Samples";
 export const KITS = "Kits";
+export const FAVORITES = "Favorites";
 
 export const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
 
@@ -47,6 +48,52 @@ export function listDir(path: string, samples: SampleInfo[], kits: string[]): En
     }
   }
   return [...[...folders.values()].sort(byName), ...items.sort(byName)];
+}
+
+/** An entry's identity, as favorites store it: "sample:<id>", "file:<path>", "folder:<path>", "kit:<name>". */
+export const entryKey = (e: Entry) => `${e.kind}:${e.kind === "sample" ? e.id : e.kind === "kit" ? e.name : e.path}`;
+
+/**
+ * The starred entries that are still there: library samples by id, library folders, and files and folders in the
+ * connected folders named in `roots`. Folders first, then by name.
+ */
+export function favoriteEntries(keys: string[], samples: Record<string, { name: string }>, roots: string[]): Entry[] {
+  const out: Entry[] = [];
+  for (const key of keys) {
+    const i = key.indexOf(":");
+    const kind = key.slice(0, i), rest = key.slice(i + 1);
+    const last = rest.split("/").pop() ?? rest;
+    if (kind === "sample") {
+      if (samples[rest]) out.push({ kind: "sample", id: rest, name: samples[rest].name });
+      continue;
+    }
+    const disk = rest.startsWith("disk:");
+    if (disk && !roots.includes(rest.slice(5).split("/")[0])) continue;
+    if (kind === "folder" && (disk || rest.startsWith(SAMPLES))) out.push({ kind: "folder", name: last.replace(/^disk:/, ""), path: rest });
+    else if (kind === "file" && disk) out.push({ kind: "file", name: last.replace(/\.[^.]+$/, ""), path: rest });
+  }
+  const folders = out.filter((e) => e.kind === "folder").sort(byName);
+  return [...folders, ...out.filter((e) => e.kind !== "folder").sort(byName)];
+}
+
+const tokens = (q: string) => q.toLowerCase().split(/\s+/).filter(Boolean);
+
+/**
+ * The paths with every word of `query` in them (any case). Ones with every word in the last part (the file name)
+ * come first, then by name. Up to `limit`.
+ */
+export function searchPaths(paths: string[], query: string, limit = Infinity): string[] {
+  const words = tokens(query);
+  if (!words.length) return [];
+  const named: string[] = [], pathed: string[] = [];
+  for (const p of paths) {
+    const low = p.toLowerCase();
+    if (!words.every((w) => low.includes(w))) continue;
+    const last = low.slice(low.lastIndexOf("/") + 1);
+    (words.every((w) => last.includes(w)) ? named : pathed).push(p);
+  }
+  const byLast = (a: string, b: string) => byName({ name: a.slice(a.lastIndexOf("/") + 1) }, { name: b.slice(b.lastIndexOf("/") + 1) });
+  return [...named.sort(byLast), ...pathed.sort(byLast)].slice(0, limit);
 }
 
 /** Trim from the left so the tail of the path stays visible. */

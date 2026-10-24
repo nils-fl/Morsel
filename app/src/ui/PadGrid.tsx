@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { keyOff, keyOn, loadFilesToPads, playPad, releasePad, repeatPadDown, repeatPadUp, setRepeatLatch } from "../actions";
+import { entryToPads, keyOff, keyOn, loadFilesToPads, playPad, releasePad, repeatPadDown, repeatPadUp, setRepeatLatch } from "../actions";
 import { noteForKeysPad } from "../modes/stepMap";
 import { REPEAT_OPTIONS } from "../seq/timing";
-import { drumPads, selectedTrack, set, useApp } from "../state/store";
+import { drumPads, drumTrack, selectedTrack, set, useApp } from "../state/store";
 import type { Track } from "../state/types";
+import { droppedEntry } from "./drawer";
 import { noteName } from "./notes";
 import { paletteCss } from "./palette";
 
@@ -24,7 +25,19 @@ export function PadGrid() {
   return track.kind === "drum" ? <DrumPads /> : <NotePads track={track} />;
 }
 
+/** The bar over the pads: whose pads they are, and the pads' own controls on the right. */
+function PadsBar({ track, detail, children }: { track: Track; detail: string; children?: React.ReactNode }) {
+  return (
+    <div className="pads-bar" style={{ "--trk": paletteCss(track.color) } as React.CSSProperties}>
+      <span className="pads-track">{track.kind === "drum" ? "▦" : "♪"} {track.name}</span>
+      <span className="pads-detail">{detail}</span>
+      {children && <div className="pads-tools">{children}</div>}
+    </div>
+  );
+}
+
 function DrumPads() {
+  const track = useApp(drumTrack);
   const pads = useApp(drumPads);
   const selected = useApp((s) => s.selectedPad);
   const [hit, setHit] = useState<number | null>(null);
@@ -40,7 +53,7 @@ function DrumPads() {
 
   return (
     <div className="pad-grid">
-      <div className="pad-tools">
+      <PadsBar track={track} detail={`Kit · ${track.kit || "—"}`}>
         <button
           className={latch ? "on" : ""}
           onClick={() => setRepeatLatch(!latch)}
@@ -49,7 +62,7 @@ function DrumPads() {
         <select value={rate} onChange={(e) => set({ repeatRate: Number(e.target.value) })} aria-label="Repeat rate">
           {REPEAT_OPTIONS.map((o) => <option key={o.label} value={o.ticks}>{o.label}</option>)}
         </select>
-      </div>
+      </PadsBar>
       {ROWS.map((row, r) => (
         <div className="pad-row" key={r}>
           {row.map((i) => {
@@ -70,7 +83,9 @@ function DrumPads() {
                 onDrop={(e) => {
                   e.preventDefault();
                   setDropOn(null);
-                  loadFilesToPads([...e.dataTransfer.files], i);
+                  const entry = droppedEntry(e.dataTransfer);
+                  if (entry) void entryToPads(entry, i);
+                  else void loadFilesToPads([...e.dataTransfer.files], i);
                 }}
               >
                 <span className="pad-num">{i + 1}</span>
@@ -93,6 +108,7 @@ function NotePads({ track }: { track: Track }) {
 
   return (
     <div className="pad-grid">
+      <PadsBar track={track} detail={`Notes ${noteName(noteForKeysPad(0))}–${noteName(noteForKeysPad(15))}`} />
       {ROWS.map((row, r) => (
         <div className="pad-row" key={r}>
           {row.map((i) => {

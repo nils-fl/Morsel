@@ -3,15 +3,20 @@ import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App";
 import { boot } from "./boot";
+import { isNative } from "./platform/native";
 import { applyTheme, savedTheme } from "./ui/theme";
 import { applyTips, savedTips } from "./ui/tips";
+import { applyDrawerWidth, applyLibrary, savedDrawerWidth, savedLibrary } from "./ui/drawer";
 
 // Before anything renders, so a light page doesn't flash dark.
 applyTheme(savedTheme());
 applyTips(savedTips());
+applyLibrary(savedLibrary());
+applyDrawerWidth(savedDrawerWidth(), false);
 
-// Offline start and installing as an app (sw.js, written by the build). Not in dev, where it would serve stale modules.
-if (import.meta.env.PROD && "serviceWorker" in navigator) {
+// Offline start and installing as an app (sw.js, written by the build). Not in dev, where it would serve stale modules,
+// nor in the desktop app, which carries its files.
+if (import.meta.env.PROD && "serviceWorker" in navigator && !isNative()) {
   addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js").catch((err: unknown) => console.warn("Morsel: no offline support", err));
   });

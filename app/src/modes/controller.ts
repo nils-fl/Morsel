@@ -1,5 +1,5 @@
 // Maps Launchkey events to actions per hardware mode, and renders LEDs + display.
-import { allPresets, currentKit, keyOff, keyOn, kitNames, liveWhen, openInChop, playPad, releasePad, sendChopToNewTrack, setRepeatLatch, toggleSampling, togglePlay, toggleRecord } from "../actions";
+import { allPresets, bendKeys, currentKit, keyOff, keyOn, modKeys, kitNames, liveWhen, openInChop, playPad, releasePad, sendChopToNewTrack, setRepeatLatch, toggleSampling, togglePlay, toggleRecord } from "../actions";
 import { engine } from "../audio/engine";
 import { launchkey } from "../midi/launchkey";
 import { CC, COLOR, type LedMode, type PadLayout } from "../midi/protocol";
@@ -236,6 +236,16 @@ export function initController() {
       }
       case "key":
         onKey(e.note, e.velocity, e.on);
+        break;
+      case "pitchbend":
+        bendKeys(e.value);
+        break;
+      case "keyCC":
+        // CC 1: the Mod strip. It shows where it is; the Pitch strip doesn't (it springs back at once).
+        if (e.cc === 1) {
+          modKeys(e.value);
+          showTemp("Mod", `${Math.round((e.value / 127) * 100)}%`);
+        }
         break;
       case "encoder": {
         if (s.hwMode === "step" && heldSteps.size && e.index < 2) {

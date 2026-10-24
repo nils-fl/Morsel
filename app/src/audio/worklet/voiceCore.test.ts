@@ -1,18 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { defaultKeys, defaultPad } from "../../state/store";
 import { DECAY_MAX } from "../dsp";
-import { Param, SampleVoice, SynthVoice, biquadCoefficients, hermite, tablesFor, type SampleData } from "./voiceCore";
+import { Expression, Param, SampleVoice, SynthVoice, biquadCoefficients, hermite, tablesFor, type SampleData } from "./voiceCore";
 
 const SR = 48000;
 
-/** Render a voice for `seconds` (mono or stereo out), in blocks like the audio thread. `ended`: the block it ended in. */
-function render(v: SampleVoice | SynthVoice, seconds: number, channels = 2) {
+/**
+ * Render a voice for `seconds` (mono or stereo out), in blocks like the audio thread, bent by `expr` as the processor
+ * does. `ended`: the block it ended in.
+ */
+function render(v: SampleVoice | SynthVoice, seconds: number, channels = 2, expr?: Expression) {
   const n = Math.round(seconds * SR);
   const out = Array.from({ length: channels }, () => new Float32Array(n));
   let ended = -1;
   for (let f = 0; f < n; f += 128) {
     const block = out.map((c) => c.subarray(f, Math.min(n, f + 128)));
-    if (!v.render(block, f, block[0].length)) {
+    expr?.fill(f, block[0].length, SR);
+    if (!v.render(block, f, block[0].length, expr)) {
       ended = f;
       break;
     }
@@ -173,5 +177,71 @@ describe("synth voice", () => {
     expect(peak).toBeGreaterThan(0.05);
     expect(ended).toBeGreaterThan(0.2 * SR - 128);
     expect(ended).toBeLessThanOrEqual(0.2 * SR);
+  });
+});
+
+describe("expression (the Launchkey's strips)", () => {
+  // A plain sine: osc 2, sub, noise, drive and the filter out of the way, so zero crossings count the pitch.
+  const sine = { ...defaultKeys().synth, wave: "sine" as const, osc2Level: 0, sub: 0, noise: 0, drive: 0, cutoff: 1, envAmount: 0, attack: 0.002, sustain: 1 };
+  const crossings = (c: Float32Array, from: number, to: number) => {
+    let n = 0;
+    for (let i = from + 1; i < to; i++) if ((c[i - 1] < 0) !== (c[i] < 0)) n++;
+    return n;
+  };
+
+  it("bends a synth note an octave up at +1200 cents, held notes too", () => {
+    const straight = render(new SynthVoice({ kind: "synth", synth: sine, note: 57, vel: 100 }, 0, SR), 0.5, 1).out[0];
+    const expr = new Expression();
+    expr.set(0.1, 1200, 0);
+    const bent = render(new SynthVoice({ kind: "synth", synth: sine, note: 57, vel: 100 }, 0, SR), 0.5, 1, expr).out[0];
+    // Before the bend the two match; well after it (0.3–0.5 s) the bent one crosses zero twice as often.
+    expect(crossings(bent, 0, 4800)).toBe(crossings(straight, 0, 4800));
+    expect(crossings(bent, 0.3 * SR, 0.5 * SR) / crossings(straight, 0.3 * SR, 0.5 * SR)).toBeCloseTo(2, 1);
+  });
+
+  it("bends a sample voice: an octave up plays the region in half the time", () => {
+    const pad = { decay: DECAY_MAX, attack: 0.001 };
+    const straight = render(sampleVoice(pad, ones(SR)), 1.5);
+    const expr = new Expression();
+    expr.set(0, 1200, 0);
+    const bent = render(sampleVoice(pad, ones(SR)), 1.5, 2, expr);
+    expect(straight.ended).toBeGreaterThan(0.99 * SR);
+    expect(Math.abs(bent.ended - 0.5 * SR)).toBeLessThan(0.01 * SR);
+  });
+
+  it("leaves voices exactly as they were while the strips are at rest", () => {
+    const synth = { ...defaultKeys().synth, attack: 0.002 };
+    const plain = render(new SynthVoice({ kind: "synth", synth, note: 60, vel: 100 }, 0, SR), 0.2, 1).out[0];
+    const rested = render(new SynthVoice({ kind: "synth", synth, note: 60, vel: 100 }, 0, SR), 0.2, 1, new Expression()).out[0];
+    expect(Array.from(rested)).toEqual(Array.from(plain));
+  });
+
+  it("eases to a new value in a few milliseconds and settles back to rest", () => {
+    const expr = new Expression();
+    expr.set(0, 100, 0.5);
+    expr.fill(0, 128, SR);
+    expect(expr.bend[0]).toBeGreaterThan(0);
+    expect(expr.bend[0]).toBeLessThan(5);
+    for (let f = 128; f < 0.1 * SR; f += 128) expr.fill(f, 128, SR);
+    expect(expr.bend[127]).toBeCloseTo(100, 1);
+    expect(expr.mod[127]).toBeCloseTo(0.5, 3);
+    expr.set(0.1, 0, 0);
+    for (let f = 0.1 * SR; f < 0.5 * SR; f += 128) expr.fill(f, 128, SR);
+    expect(expr.idle).toBe(true);
+    expect(expr.bend.every((x) => x === 0)).toBe(true);
+  });
+
+  it("adds vibrato with the mod wheel, the pitch swinging both ways", () => {
+    const expr = new Expression();
+    expr.set(0, 0, 1);
+    for (let f = 0; f < 0.1 * SR; f += 128) expr.fill(f, 128, SR);
+    // Over one 5 Hz cycle the extra cents reach about ±50.
+    const cents: number[] = [];
+    for (let f = 0.1 * SR; f < 0.3 * SR; f += 128) {
+      expr.fill(f, 128, SR);
+      cents.push(expr.cents(0, f / SR, 5));
+    }
+    expect(Math.max(...cents)).toBeGreaterThan(45);
+    expect(Math.min(...cents)).toBeLessThan(-45);
   });
 });

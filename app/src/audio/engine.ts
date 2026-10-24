@@ -5,29 +5,23 @@ import { encodeChannels, toFloat } from "./pcm";
 import { buildClick } from "./dsp";
 import { loadVoiceWorklet } from "./worklet/voiceNode";
 import type { SampleInfo } from "../state/types";
+import { inRange, isString, oneOf, pref } from "../state/prefs";
 
 /** Default jitter budget for live notes, ms (see Engine.liveTime). */
 export const LIVE_BUDGET_MS = 8;
-const LIVE_BUDGET_KEY = "morsel.liveBudget";
-
-function loadLiveBudget() {
-  try {
-    const v = Number(localStorage.getItem(LIVE_BUDGET_KEY) ?? NaN);
-    if (Number.isFinite(v) && v >= 0 && v <= 50) return v;
-  } catch { /* storage blocked: use the default */ }
-  return LIVE_BUDGET_MS;
-}
+/** The budgets to pick from (Lab, Preferences). */
+export const LIVE_BUDGETS = [0, 4, 8, 12, 20];
+const liveBudgetPref = pref("morsel.liveBudget", LIVE_BUDGET_MS, inRange(0, 50));
 
 /** Where voices play: in an AudioWorklet (sample-accurate, off the main thread) or as Web Audio node graphs. */
 export type VoiceEngine = "worklet" | "nodes";
-const VOICE_ENGINE_KEY = "morsel.voiceEngine";
+const voiceEnginePref = pref<VoiceEngine>("morsel.voiceEngine", "worklet", oneOf(["worklet", "nodes"]));
 
-function loadVoiceEngine(): VoiceEngine {
-  try {
-    if (localStorage.getItem(VOICE_ENGINE_KEY) === "nodes") return "nodes";
-  } catch { /* storage blocked: use the default */ }
-  return "worklet";
-}
+/** The audio output's device id ("" = the system's default output). */
+const outputDevicePref = pref("morsel.outputDevice", "", isString);
+
+// AudioContext.setSinkId: Chromium only, not in TypeScript's DOM types yet.
+type SinkContext = AudioContext & { setSinkId?(id: string): Promise<void>; sinkId?: string };
 
 const encode = (b: AudioBuffer) => encodeChannels(Array.from({ length: b.numberOfChannels }, (_, c) => b.getChannelData(c)));
 const baseName = (f: File) => f.name.replace(/\.[^.]+$/, "");
@@ -40,17 +34,22 @@ class Engine {
   private buffers = new Map<string, AudioBuffer>();
   private clickOut!: GainNode;
 
-  /** The voice engine this session plays on; picked in the Lab tab, remembered per browser, used from the next load. */
-  readonly voiceEngine = loadVoiceEngine();
+  /** The voice engine this session plays on; picked in Preferences or the Lab, used from the next load. */
+  readonly voiceEngine = voiceEnginePref.get();
+
+  /** The voice engine the next load plays on. */
+  get nextVoiceEngine() {
+    return voiceEnginePref.get();
+  }
 
   setVoiceEngine(e: VoiceEngine) {
-    try {
-      localStorage.setItem(VOICE_ENGINE_KEY, e);
-    } catch { /* storage blocked */ }
+    voiceEnginePref.set(e);
   }
 
   async init() {
     this.ctx = new AudioContext({ latencyHint: "interactive" });
+    const device = outputDevicePref.get();
+    if (device) await this.useOutput(device);
     const worklet = this.voiceEngine === "worklet" && (await loadVoiceWorklet(this.ctx).then(() => true, (err) => {
       console.warn("The voice worklet couldn't be loaded; playing on Web Audio nodes", err);
       return false;
@@ -71,14 +70,48 @@ class Engine {
     return this.ctx.currentTime;
   }
 
-  /** Jitter budget for live notes, ms; picked in the Lab tab, remembered per browser. 0 = play at once. */
-  liveBudget = loadLiveBudget();
+  /** Jitter budget for live notes, ms; picked in Preferences or the Lab. 0 = play at once. */
+  liveBudget = liveBudgetPref.get();
 
   setLiveBudget(ms: number) {
     this.liveBudget = ms;
+    liveBudgetPref.set(ms);
+  }
+
+  /** Whether the output device can be picked (Chromium). */
+  get canPickOutput() {
+    return typeof (this.ctx as SinkContext).setSinkId === "function";
+  }
+
+  /** The picked output device's id ("" = the system's default). */
+  get outputDevice() {
+    return outputDevicePref.get();
+  }
+
+  /** Play through another output device and remember it. */
+  async setOutputDevice(id: string) {
+    outputDevicePref.set(id);
+    await this.useOutput(id);
+  }
+
+  /** A device that's gone (unplugged) leaves the default output playing; the choice is kept for when it's back. */
+  private async useOutput(id: string) {
+    const ctx = this.ctx as SinkContext;
+    if (!ctx.setSinkId || (ctx.sinkId ?? "") === id) return;
     try {
-      localStorage.setItem(LIVE_BUDGET_KEY, String(ms));
-    } catch { /* storage blocked */ }
+      await ctx.setSinkId(id);
+    } catch (err) {
+      console.warn("Output device unavailable", err);
+      set({ status: "The chosen audio output isn't available; playing through the default output" });
+    }
+  }
+
+  /** The audio outputs the system has (names need a microphone permission in browsers). */
+  async outputDevices(): Promise<{ id: string; label: string }[]> {
+    const all = await navigator.mediaDevices?.enumerateDevices?.().catch(() => []) ?? [];
+    return all
+      .filter((d) => d.kind === "audiooutput" && d.deviceId && d.deviceId !== "default")
+      .map((d, i) => ({ id: d.deviceId, label: d.label || `Output ${i + 1}` }));
   }
 
   /**

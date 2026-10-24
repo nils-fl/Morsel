@@ -48,8 +48,8 @@ export async function loadSampleIndex(): Promise<Record<string, SampleInfo> | un
   return idbGet(INDEX_KEY);
 }
 
-// Connected folders: the browser keeps the handle, the permission is asked again after a restart.
-export interface StoredFolder { name: string; handle: FileSystemDirectoryHandle }
+// Connected folders: a browser keeps the handle (the permission is asked again after a restart), the desktop app the path.
+export interface StoredFolder { name: string; handle?: FileSystemDirectoryHandle; path?: string }
 
 export async function saveFolders(folders: StoredFolder[]) {
   await idbSet("folders", folders);
@@ -57,6 +57,31 @@ export async function saveFolders(folders: StoredFolder[]) {
 
 export async function loadFolders(): Promise<StoredFolder[]> {
   return (await idbGet<StoredFolder[]>("folders")) ?? [];
+}
+
+// Every audio file in a connected folder, so search doesn't walk the disk each time (browse/search.ts).
+export interface FolderIndex { files: string[]; scannedAt: number }
+
+export async function saveFolderIndex(name: string, index: FolderIndex) {
+  await idbSet(`folderIndex:${name}`, index);
+}
+
+export async function loadFolderIndex(name: string): Promise<FolderIndex | undefined> {
+  return idbGet(`folderIndex:${name}`);
+}
+
+export async function deleteFolderIndex(name: string) {
+  await del(`folderIndex:${name}`);
+}
+
+// Starred files, folders and samples (browse/favorites.ts).
+export async function saveFavorites(favorites: string[]) {
+  await idbSet("favorites", favorites);
+}
+
+export async function loadFavorites(): Promise<string[]> {
+  const f = await idbGet<unknown>("favorites");
+  return Array.isArray(f) ? f.filter((x): x is string => typeof x === "string") : [];
 }
 
 export async function listSampleIds(): Promise<string[]> {

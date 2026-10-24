@@ -1,4 +1,5 @@
 import { engine } from "./engine";
+import { isNative } from "../platform/native";
 
 const WORKLET = `
 class Tap extends AudioWorkletProcessor {
@@ -34,6 +35,21 @@ export interface Recording {
 
 let tabStream: MediaStream | null = null;
 
+/** The words for the "tab" source: a browser tab, or in the desktop app the Mac's sound output (electron/main.ts). */
+export const TAB_WORDS = isNative()
+  ? {
+      source: "System audio", share: "Capture system audio…", shared: "System audio captured", stopped: "System audio capture stopped",
+      failed: "System audio capture failed", first: "Capture system audio on screen first (Sample → Capture system audio…)",
+      hint: "Capture the Mac's sound once (macOS asks to allow Morsel under Screen & System Audio Recording). After that the Launchkey runs the takes.",
+      noAudio: "No system audio – allow Morsel under Screen & System Audio Recording in System Settings",
+    }
+  : {
+      source: "Browser tab (YouTube…)", share: "Share tab…", shared: "Tab shared", stopped: "Tab sharing stopped",
+      failed: "Tab share failed", first: "Share the tab on screen first (Sample → Share tab…)",
+      hint: "Share the YouTube tab once (tick “Share tab audio” in Chrome's picker). After that the Launchkey runs the takes.",
+      noAudio: "No audio shared – tick 'Share tab audio' in the picker",
+    };
+
 export const tabConnected = () => !!tabStream?.getAudioTracks().some((t) => t.readyState === "live");
 
 /** Open Chrome's share picker for a tab with audio. `onEnded` fires when the share stops ("Stop sharing"). */
@@ -48,7 +64,7 @@ export async function connectTab(onEnded: () => void) {
   } as DisplayMediaStreamOptions);
   if (!stream.getAudioTracks().length) {
     stream.getTracks().forEach((t) => t.stop());
-    throw new Error("No audio shared – tick 'Share tab audio' in the picker");
+    throw new Error(TAB_WORDS.noAudio);
   }
   tabStream = stream;
   const ended = () => {

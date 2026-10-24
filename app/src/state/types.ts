@@ -195,7 +195,8 @@ export interface TrackDuck {
 export type HwMode = "play" | "step" | "track" | "mute" | "pattern" | "browse" | "chop";
 
 /** "Track" shows the selected track: the drum rack or the keys instrument. */
-export const TABS = ["Track", "Chop", "Sequencer", "Mixer", "Song", "Help", "Lab"] as const;
+// The guide is an overlay (Guide button, ?) and the Lab opens from Preferences, so the tabs are all about the music.
+export const TABS = ["Track", "Chop", "Sequencer", "Mixer", "Song"] as const;
 export type Tab = (typeof TABS)[number];
 
 /** The synthesized kit that is always there, listed first among the kits (its samples live in the library folder of the same name). */

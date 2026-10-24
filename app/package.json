@@ -18,7 +18,10 @@
     "measure": "node scripts/measure-morsel.mjs && node scripts/compare-sounds.mjs",
     "deploy": "npm run build && wrangler deploy",
     "preview:worker": "npm run build && wrangler dev",
-    "og-image": "node scripts/og-image.mjs"
+    "og-image": "node scripts/og-image.mjs",
+    "desktop:dev": "node scripts/electron.mjs dev",
+    "desktop:build": "npm run build && node scripts/electron.mjs build",
+    "desktop:dist": "npm run desktop:build && electron-builder --mac --config electron/builder.yml"
   },
   "dependencies": {
     "fflate": "^0.8.3",
@@ -32,11 +35,16 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
+    "electron": "^45.0.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
     "node-web-audio-api": "^2.2.0",
     "oxlint": "^1.81.0",
     "typescript": "~6.0.2",
     "vite": "^8.3.0",
     "vitest": "^5.0.5",
     "wrangler": "^4.151.1"
-  }
+  },
+  "productName": "Morsel",
+  "main": "dist-electron/main.cjs"
 }

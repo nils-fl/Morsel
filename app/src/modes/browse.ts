@@ -17,12 +17,13 @@ let previewTimer = 0;
 
 // The screen redraws every 33 ms and asks for the list several times per frame; only rebuild
 // (filter + sort the whole library) when the folder, the library, the kits or a connected folder changes.
-let cache: { path: string; samples: object; kits: string[]; disk: number; folders: object; listing: Listing } | null = null;
+let cache: { path: string; samples: object; kits: string[]; disk: number; folders: object; favorites: string[]; listing: Listing } | null = null;
 
 function listing(): Listing {
-  const { samples, diskTick: disk, folders } = get();
-  if (!cache || cache.path !== cursor.path || cache.samples !== samples || cache.kits !== kits || cache.disk !== disk || cache.folders !== folders) {
-    cache = { path: cursor.path, samples, kits, disk, folders, listing: listAt(cursor.path, kits) };
+  const { samples, diskTick: disk, folders, favorites } = get();
+  if (!cache || cache.path !== cursor.path || cache.samples !== samples || cache.kits !== kits || cache.disk !== disk || cache.folders !== folders ||
+    cache.favorites !== favorites) {
+    cache = { path: cursor.path, samples, kits, disk, folders, favorites, listing: listAt(cursor.path, kits) };
   }
   return cache.listing;
 }

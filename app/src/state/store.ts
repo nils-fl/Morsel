@@ -431,6 +431,12 @@ export interface AppState {
   folders: { name: string; access: FolderAccess }[];
   /** Bumped when a connected folder's listing arrives. */
   diskTick: number;
+  /** Starred entries (browse/favorites.ts): "disk:…" paths and "sample:<id>". */
+  favorites: string[];
+  /** Connected folders being indexed for search: files found so far, or "done" (browse/search.ts). */
+  scans: Record<string, number | "done">;
+  /** The library drawer (ui/Library.tsx) is open. */
+  library: boolean;
   /** The user's saved Keys synth presets (factory ones live in audio/synthPresets.ts). */
   userPresets: SynthPreset[];
   // transport
@@ -494,6 +500,9 @@ export const store = createStore<AppState>(() => ({
   bufferTick: 0,
   folders: [],
   diskTick: 0,
+  favorites: [],
+  scans: {},
+  library: false,
   userPresets: [],
   playing: false,
   recording: false,

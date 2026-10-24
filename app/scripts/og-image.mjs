@@ -1,5 +1,5 @@
-// Renders the link preview (public/og-image.png, 1200x630), the home-screen icon (public/apple-touch-icon.png) and the
-// installed app's icons (public/icon-192.png, public/icon-512.png).
+// Renders the link preview (public/og-image.png, 1200x630), the home-screen icon (public/apple-touch-icon.png), the
+// installed app's icons (public/icon-192.png, public/icon-512.png) and the desktop app's icon (electron/icon.png).
 // The preview is the Launchkey screen showing the boot logo (src/display/bootAnim.ts) above a lit 2x8 pad grid.
 // Needs rsvg-convert on the PATH (brew install librsvg). Run: npm run og-image
 import { spawnSync } from "node:child_process";
@@ -101,6 +101,17 @@ try {
   rsvg(touch, resolve(publicDir, "apple-touch-icon.png"), 180, 180);
   // The installed app's icons (manifest.webmanifest): the same square.
   for (const size of [192, 512]) rsvg(touch, resolve(publicDir, `icon-${size}.png`), size, size);
+
+  // The desktop app's (Dock, Finder): on Apple's macOS icon grid, the body 824 of 1024 px with a soft shadow below and
+  // the bite see-through. A hairline of the outline keeps the dark body apart from a dark Dock.
+  const mac = readFileSync(resolve(publicDir, "favicon.svg"), "utf8")
+    .replace(/^<svg[^>]*>|<\/svg>\s*$/g, "")
+    .replace(/ stroke="([^"]*)"/g, ' stroke="$1" stroke-width=".3"');
+  const macIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs><filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000" flood-opacity=".35"/></filter></defs>
+  <g filter="url(#shadow)"><g transform="translate(100 100) scale(25.75)">${mac}</g></g>
+</svg>`;
+  rsvg(macIcon, resolve(appDir, "electron", "icon.png"), 1024, 1024);
 } finally {
   await vite.close();
 }

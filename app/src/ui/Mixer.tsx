@@ -5,7 +5,8 @@ import { FX_FILTER_NAMES, hz, setFx } from "../params";
 import { selectTrack, toggleTrackFlag, updateProject, updateTrack, useApp } from "../state/store";
 import { type Returns, type Track, type TrackFx } from "../state/types";
 import { Field, Section, Slider } from "./controls";
-import { PALETTE_CHOICES, paletteCss } from "./palette";
+import { paletteCss } from "./palette";
+import { ColorPicker } from "./ColorPicker";
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 const db = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)} dB`;
@@ -58,9 +59,7 @@ function Channel({ track: t, index }: { track: Track; index: number }) {
         <input value={t.name} maxLength={16} onChange={(e) => up({ name: e.target.value })} onClick={(e) => e.stopPropagation()} aria-label="Track name" />
       </header>
       <div className="row">
-        <select value={t.color} onChange={(e) => up({ color: Number(e.target.value) })} aria-label="Track colour" style={{ color: paletteCss(t.color) }}>
-          {PALETTE_CHOICES.map((c) => <option key={c} value={c} style={{ color: paletteCss(c) }}>■ {c}</option>)}
-        </select>
+        <ColorPicker value={t.color} onPick={(c) => up({ color: c })} label="Track colour" />
         <button className={`ms ${t.mute ? "on" : ""}`} onClick={() => toggleTrackFlag(t.id, "mute")}>M</button>
         <button className={`ms solo ${t.solo ? "on" : ""}`} onClick={() => toggleTrackFlag(t.id, "solo")}>S</button>
       </div>
@@ -80,8 +79,8 @@ function Channel({ track: t, index }: { track: Track; index: number }) {
       <Slider label="Drive" value={t.fx.drive} min={0} max={1} format={pct} onChange={(v) => fx({ drive: v })} />
       <Slider label="Comp" value={t.fx.comp} min={0} max={1} format={(v) => (v <= 0 ? "Off" : pct(v))} onChange={(v) => fx({ comp: v })} />
       <h4>Sends</h4>
-      <Slider label="A Reverb" value={t.sendA} min={0} max={1} format={pct} onChange={(v) => up({ sendA: v })} />
-      <Slider label="B Delay" value={t.sendB} min={0} max={1} format={pct} onChange={(v) => up({ sendB: v })} />
+      <Slider label="Reverb" value={t.sendA} min={0} max={1} format={pct} onChange={(v) => up({ sendA: v })} />
+      <Slider label="Delay" value={t.sendB} min={0} max={1} format={pct} onChange={(v) => up({ sendB: v })} />
       <h4>Out</h4>
       <Slider label="Pan" value={t.pan} min={-1} max={1} step={0.02} format={panText} onChange={(v) => up({ pan: v })} />
       <Slider label="Level" value={t.level} min={0} max={1} format={pct} onChange={(v) => up({ level: v })} />

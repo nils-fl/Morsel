@@ -7,10 +7,8 @@ import { Frame, W, H } from "../display/frame";
 import { ScreenPreview } from "./ScreenPreview";
 import { useApp } from "../state/store";
 import { Section } from "./controls";
-import { engine } from "../audio/engine";
+import { LIVE_BUDGETS, engine } from "../audio/engine";
 import { EngineCompare } from "./EngineCompare";
-
-const LIVE_BUDGETS = [0, 4, 8, 12, 20];
 
 const pct = (sorted: number[], p: number) => sorted[Math.min(sorted.length - 1, Math.floor((sorted.length * p) / 100))];
 const ms = (v: number | undefined) => (v === undefined ? "—" : `${v.toFixed(1)} ms`);
@@ -50,6 +48,27 @@ function TimingProbe() {
 }
 
 const hex = (d: number[]) => d.map((b) => b.toString(16).padStart(2, "0").toUpperCase()).join(" ");
+
+/** The Lab over the app (opened from Preferences). Esc or the backdrop closes it, which gives the LEDs back. */
+export function LabOverlay({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="g-overlay" onClick={onClose}>
+      <div className="g-panel" role="dialog" aria-modal="true" aria-label="Lab" onClick={(e) => e.stopPropagation()}>
+        <header className="g-head">
+          <strong>MORSEL</strong>
+          <span>Lab · MIDI, LEDs, screen and timing</span>
+          <button onClick={onClose}>Esc ✕</button>
+        </header>
+        <div className="lab-scroll"><Lab /></div>
+      </div>
+    </div>
+  );
+}
 
 export function Lab() {
   const connected = useApp((s) => s.connected);

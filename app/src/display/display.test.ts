@@ -5,7 +5,7 @@ import { Frame, PACKED_SIZE, fitText } from "./frame";
 import { browserScreen, chopScreen, duckScreen, encoderScreen, gridScreen, keysScreen, padScreen, shiftCoverText, shiftEncHint, shiftRows, shiftScreen, shortName, shortValue, stepScreen } from "./screens";
 import type { HwMode } from "../state/types";
 import { BOOT_BURP_MS, BOOT_EAT_MS, BOOT_MS, bootFrame } from "./bootAnim";
-import { filterPanel, footer, header, highpassDb, lowpassDb, overlayBar, scrollTop } from "./widgets";
+import { HEADER_H, ROW_H, filterPanel, footer, header, highpassDb, lowpassDb, overlayBar, scrollTop } from "./widgets";
 
 describe("Frame.pack", () => {
   it("packs to 1216 bytes, all 7-bit", () => {
@@ -38,16 +38,19 @@ describe("text", () => {
 });
 
 describe("list scrolling", () => {
-  it("keeps the cursor in view", () => {
-    expect(scrollTop(3, 2, 6)).toBe(0);
-    expect(scrollTop(40, 0, 6)).toBe(0);
-    expect(scrollTop(40, 20, 6)).toBe(17);
-    expect(scrollTop(40, 39, 6)).toBe(34);
+  it("keeps the cursor on the middle row, even at the ends", () => {
+    expect(scrollTop(0, 6)).toBe(-3);
+    expect(scrollTop(2, 6)).toBe(-1);
+    expect(scrollTop(20, 6)).toBe(17);
+    expect(scrollTop(39, 5)).toBe(37);
+    expect(scrollTop(-1, 6)).toBe(0); // no cursor: from the top
   });
-  it("renders the cursor row inverted", () => {
+  it("renders the cursor row inverted on the middle row, empty rows above the first item", () => {
     const f = browserScreen({ folder: "Kicks", index: 0, items: [{ label: "Kick" }, { label: "Snare" }], targetPad: 0 });
-    expect(f.get(0, 10)).toBe(1); // selected row background
-    expect(f.get(0, 19)).toBe(0); // next row background
+    const mid = HEADER_H + 1 + 3 * ROW_H; // 6 rows: the 4th is the middle one
+    expect(f.get(0, mid)).toBe(1); // selected row background
+    expect(f.get(0, mid + ROW_H)).toBe(0); // next row background
+    expect(f.get(0, HEADER_H + 1)).toBe(0); // nothing above the first item
   });
 });
 
@@ -143,15 +146,18 @@ describe("keys screen", () => {
   it("highlights nothing for index -1 (pads that aren't a saved kit)", () => {
     const none = keysScreen({ presets, index: -1, title: "", status: "P1 STOP", summary: "No kit" });
     const first = keysScreen({ presets, index: 0, title: "Init", status: "P1 STOP", summary: "" });
-    expect(none.get(0, 10)).toBe(0);
-    expect(first.get(0, 10)).toBe(1);
+    const mid = HEADER_H + 1 + 2 * ROW_H; // 5 rows above the footer: the 3rd is the middle one
+    expect(none.get(0, mid)).toBe(0);
+    expect(none.get(0, HEADER_H + 1)).toBe(0);
+    expect(first.get(0, mid)).toBe(1);
   });
   it("puts the folder line above the folder's presets, pushing the list down a row", () => {
     const plain = keysScreen({ presets, index: 0, title: "Init", status: "P1 STOP", summary: "" });
     const foldered = keysScreen({ presets, index: 0, title: "Init", status: "P1 STOP", summary: "", folder: { name: "Bass", pos: "1/4" } });
-    expect(plain.get(0, 10)).toBe(1); // selected row right under the header
-    expect(foldered.get(0, 10)).toBe(0); // the folder line is there instead
-    expect(foldered.get(0, 19)).toBe(1); // selected row one line lower
+    const top = HEADER_H + 1;
+    expect(plain.get(0, top + 2 * ROW_H)).toBe(1); // selected on the middle of 5 rows
+    expect(foldered.get(0, top)).toBe(0); // the folder line is first
+    expect(foldered.get(0, top + 3 * ROW_H)).toBe(1); // middle of the 4 rows below it (rows 2–5)
   });
 });
 

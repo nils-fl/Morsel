@@ -1,23 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  chopSelected, confirmDeleteSample, deleteSavedKit, kitNames, stepKit, renameSavedKit, samplesToPads, loadNamedKit, openInChop, saveCurrentKit, samplingLevel, shareTab,
+  chopSelected, confirmDeleteSample, deleteSavedKit, folderToPads, kitNames, stepKit, renameSavedKit, loadNamedKit, openInChop, saveCurrentKit, samplingLevel, shareTab,
   toggleSampling, unshareTab,
 } from "../actions";
 import { DECAY_MAX } from "../audio/dsp";
 import { hz } from "../params";
 import { engine } from "../audio/engine";
+import { TAB_WORDS } from "../audio/recorder";
 import { KIT_ACCEPT, KIT_EXT } from "../state/fileFormat";
 import { exportKit, importKit } from "../state/projectFile";
 import { download } from "../seq/render";
 import { drumPads, drumTrack, set, updatePad, useApp } from "../state/store";
-import { PAD_COUNT, STOCK_KITS, type SampleSource, type SampleTarget } from "../state/types";
+import { STOCK_KITS, type SampleSource, type SampleTarget } from "../state/types";
 import { Field, Section, Slider } from "./controls";
-import { PALETTE_CHOICES, paletteCss } from "./palette";
+import { paletteCss } from "./palette";
+import { ColorPicker } from "./ColorPicker";
 import { Waveform } from "./Waveform";
 import { SamplePicker } from "./SamplePicker";
-import { DuckPanel, SidechainInputs } from "./Sidechain";
+import { SidechainPanel } from "./Sidechain";
 import { connectFolder, diskSupported } from "../browse/disk";
-import { folderLabel, folderSamples } from "../browse/source";
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 const ms = (v: number) => (v >= 1 ? `${v.toFixed(2)} s` : `${Math.round(v * 1000)} ms`);
@@ -36,7 +37,6 @@ export function PadEditor() {
 
   return (
     <div className="pad-editor">
-      <KitBar />
       <Section
         title={`${trackName} · Pad ${i + 1} · ${pad.name}`}
         color={paletteCss(pad.color)}
@@ -58,12 +58,7 @@ export function PadEditor() {
             <SamplePicker value={pad.sampleId} onPick={(id) => up({ sampleId: id, start: 0, end: 1 })} folderAction={{
               label: "Folder → pads",
               title: "Put this folder's first 16 samples on pads 1–16 as a kit",
-              run: async (path) => {
-                const loaded = await folderSamples(path, PAD_COUNT);
-                if (!loaded.length) return set({ status: "No samples in that folder" });
-                const n = samplesToPads(loaded, folderLabel(path));
-                set({ status: `${n} samples on ${drumTrack().name} pads 1–${n}` });
-              },
+              run: folderToPads,
             }} />
           </Field>
           <Field label="Mode">
@@ -80,37 +75,48 @@ export function PadEditor() {
           <Field label="Reverse">
             <input type="checkbox" checked={pad.reverse} onChange={(e) => up({ reverse: e.target.checked })} />
           </Field>
-          <div className="swatches">
-            {PALETTE_CHOICES.map((c) => (
-              <button key={c} className={`swatch ${c === pad.color ? "on" : ""}`} style={{ background: paletteCss(c) }} onClick={() => up({ color: c })} aria-label={`colour ${c}`} />
-            ))}
-          </div>
+          <Field label="Colour">
+            <ColorPicker value={pad.color} onPick={(c) => up({ color: c })} label="Pad colour" />
+          </Field>
         </div>
-        <div className="sliders">
-          <Slider label="Start" value={pad.start} min={0} max={1} step={0.001} format={pct} onChange={(v) => up({ start: v })} />
-          <Slider label="End" value={pad.end} min={0} max={1} step={0.001} format={pct} onChange={(v) => up({ end: v })} />
-          <Slider label="Pitch" value={pad.pitch} min={-24} max={24} step={0.1} format={(v) => `${v.toFixed(1)} st`} onChange={(v) => up({ pitch: v })} />
-          <Slider label="Attack" value={pad.attack} min={0} max={1} step={0.001} format={ms} onChange={(v) => up({ attack: v })} />
-          <Slider label="Decay" value={pad.decay} min={0.02} max={DECAY_MAX} step={0.01} format={(v) => (v >= DECAY_MAX ? "Full" : ms(v))} onChange={(v) => up({ decay: v })} />
-          <Slider label="HP Filter" value={pad.hpCutoff} min={0} max={1} format={(v) => (v <= 0 ? "Off" : hz(v))} onChange={(v) => up({ hpCutoff: v })} />
-          <Slider label="LP Filter" value={pad.cutoff} min={0} max={1} format={(v) => (v >= 1 ? "Open" : hz(v))} onChange={(v) => up({ cutoff: v })} />
-          <Slider label="Resonance" value={pad.resonance} min={0} max={1} format={pct} onChange={(v) => up({ resonance: v })} />
-          <Slider label="Pan" value={pad.pan} min={-1} max={1} format={(v) => v.toFixed(2)} onChange={(v) => up({ pan: v })} />
-          <Slider label="Volume" value={pad.volume} min={0} max={1} format={pct} onChange={(v) => up({ volume: v })} />
+        {/* One column per stage of the sound: what plays, its envelope, its filter, where it goes. */}
+        <div className="slider-groups">
+          <div className="slider-group">
+            <h4 className="sub-head">Sample</h4>
+            <Slider label="Start" value={pad.start} min={0} max={1} step={0.001} format={pct} onChange={(v) => up({ start: v })} />
+            <Slider label="End" value={pad.end} min={0} max={1} step={0.001} format={pct} onChange={(v) => up({ end: v })} />
+            <Slider label="Pitch" value={pad.pitch} min={-24} max={24} step={0.1} format={(v) => `${v.toFixed(1)} st`} onChange={(v) => up({ pitch: v })} />
+          </div>
+          <div className="slider-group">
+            <h4 className="sub-head">Envelope</h4>
+            <Slider label="Attack" value={pad.attack} min={0} max={1} step={0.001} format={ms} onChange={(v) => up({ attack: v })} />
+            <Slider label="Decay" value={pad.decay} min={0.02} max={DECAY_MAX} step={0.01} format={(v) => (v >= DECAY_MAX ? "Full" : ms(v))} onChange={(v) => up({ decay: v })} />
+          </div>
+          <div className="slider-group">
+            <h4 className="sub-head">Filter</h4>
+            <Slider label="High-pass" value={pad.hpCutoff} min={0} max={1} format={(v) => (v <= 0 ? "Off" : hz(v))} onChange={(v) => up({ hpCutoff: v })} />
+            <Slider label="Low-pass" value={pad.cutoff} min={0} max={1} format={(v) => (v >= 1 ? "Open" : hz(v))} onChange={(v) => up({ cutoff: v })} />
+            <Slider label="Resonance" value={pad.resonance} min={0} max={1} format={pct} onChange={(v) => up({ resonance: v })} />
+          </div>
+          <div className="slider-group">
+            <h4 className="sub-head">Output</h4>
+            <Slider label="Pan" value={pad.pan} min={-1} max={1} format={(v) => v.toFixed(2)} onChange={(v) => up({ pan: v })} />
+            <Slider label="Volume" value={pad.volume} min={0} max={1} format={pct} onChange={(v) => up({ volume: v })} />
+          </div>
         </div>
       </Section>
       <div className="panels">
         <KitPanel />
-        <SamplingPanel />
-        <ChopPanel />
-        <SidechainInputs />
-        <DuckPanel />
+        <SampleChopPanel />
+        <SidechainPanel />
       </div>
     </div>
   );
 }
 
-function SamplingPanel() {
+/** Getting sounds onto pads: record a take, or slice the selected pad's sample across the next pads. */
+function SampleChopPanel() {
+  const [count, setCount] = useState(8);
   const sampling = useApp((s) => s.sampling);
   const source = useApp((s) => s.sampleSource);
   const pad = useApp((s) => s.selectedPad);
@@ -126,10 +132,11 @@ function SamplingPanel() {
   const level = sampling === "idle" ? 0 : polled;
 
   return (
-    <Section title="Sample">
+    <Section title="Sample & chop">
+      <h4 className="sub-head first">Record</h4>
       <p className="hint">
         {source === "tab" && !tabShared
-          ? "Share the YouTube tab once (tick “Share tab audio” in Chrome's picker). After that the Launchkey runs the takes."
+          ? TAB_WORDS.hint
           : `Shift + Record (or ● Sample) arms a take; it starts with the sound${source === "tab" ? " (press play in the tab), up to 2 min" : ", up to 30 s"}. ` +
             (target === "chop" ? "The take opens in Chop with its hits marked; Function on the Launchkey makes a new drum rack." : `The take goes on pad ${pad + 1}.`)}
       </p>
@@ -137,7 +144,7 @@ function SamplingPanel() {
         <select value={source} disabled={sampling !== "idle"} onChange={(e) => set({ sampleSource: e.target.value as SampleSource })}>
           <option value="input">Audio input</option>
           <option value="master">Resample (master out)</option>
-          <option value="tab">Browser tab (YouTube…)</option>
+          <option value="tab">{TAB_WORDS.source}</option>
         </select>
         <button className={sampling !== "idle" ? "rec on" : "rec"} onClick={() => toggleSampling()}>
           {sampling === "idle" ? "● Sample" : sampling === "waiting" ? "Waiting… (stop)" : "■ Stop"}
@@ -151,20 +158,12 @@ function SamplingPanel() {
         <div className="row">
           {tabShared
             ? <button disabled={sampling !== "idle"} onClick={unshareTab}>Stop sharing</button>
-            : <button disabled={sampling !== "idle"} onClick={() => void shareTab()}>Share tab…</button>}
+            : <button disabled={sampling !== "idle"} onClick={() => void shareTab()}>{TAB_WORDS.share}</button>}
           <span className={`hint tab-state ${tabShared ? "on" : ""}`}>{tabShared ? "● Shared" : "Not shared"}</span>
         </div>
       )}
       <div className="meter"><div style={{ width: `${Math.min(100, level * 100)}%` }} /></div>
-    </Section>
-  );
-}
-
-function ChopPanel() {
-  const [count, setCount] = useState(8);
-  const pad = useApp((s) => s.selectedPad);
-  return (
-    <Section title="Chop">
+      <h4 className="sub-head">Chop pad {pad + 1}</h4>
       <p className="hint">Slices the pad's region across pads {pad + 1}–{Math.min(16, pad + count)}.</p>
       <div className="row">
         <select value={count} onChange={(e) => setCount(Number(e.target.value))}>
@@ -178,46 +177,32 @@ function ChopPanel() {
   );
 }
 
-/** Pick and step through kits for this drum track, like the Keys presets. Launchkey: encoder page Kit, encoder 1. */
-function KitBar() {
+/** This drum track's kit: pick or step through kits (like the Keys presets; Launchkey: encoder page Kit, encoder 1),
+ *  and save, rename, import, export and delete your own. */
+function KitPanel() {
   const kit = useApp((s) => drumTrack(s).kit);
-  useApp((s) => s.kits); // re-render when kits are saved or deleted
+  const kits = useApp((s) => s.kits); // re-render when kits are saved or deleted
   const list = kitNames();
   const saved = list.slice(STOCK_KITS.length);
-  const i = list.indexOf(kit);
-  return (
-    <Section title="Kit" actions={
-      <>
-        <button onClick={() => stepKit(-1)} disabled={i === 0} aria-label="Previous kit">◀</button>
-        <select value={i >= 0 ? kit : ""} title="Load a kit onto this drum track (Undo brings the pads back)" onChange={(e) => e.target.value && void loadNamedKit(e.target.value)}>
-          {i < 0 && <option value="">{kit || "—"}</option>}
-          <optgroup label="Built-in">{STOCK_KITS.map((k) => <option key={k} value={k}>{k}</option>)}</optgroup>
-          {saved.length > 0 && <optgroup label="Saved">{saved.map((k) => <option key={k} value={k}>{k}</option>)}</optgroup>}
-        </select>
-        <button onClick={() => stepKit(1)} disabled={i >= list.length - 1} aria-label="Next kit">▶</button>
-      </>
-    }>
-      <p className="hint tip">Built-in kits are synthesized; your saved kits follow them in the list. ◀ ▶ load the previous / next kit. Launchkey: encoder page <b>Kit</b>, encoder 1 scrolls the kits.</p>
-    </Section>
-  );
-}
-
-function KitPanel() {
-  const kits = useApp((s) => s.kits);
+  const at = list.indexOf(kit);
   const [name, setName] = useState("");
   // The saved kit last picked here: the one Rename renames.
   const [picked, setPicked] = useState<string | null>(null);
   const canRename = !!picked && kits.includes(picked) && !!name.trim() && name.trim() !== picked;
   const kitInput = useRef<HTMLInputElement>(null);
   return (
-    <Section title="Kits" actions={
+    <Section title="Kit" actions={
       <>
-        <button onClick={() => kitInput.current?.click()} title="Import one or more .morsel-kit files">Import kits…</button>
-        <button disabled={!name.trim()} title="Save the pads as a kit file with their samples, to share or keep" onClick={() => {
-          void exportKit(name.trim(), drumPads()).then((blob) => download(blob, `${name.trim()}${KIT_EXT}`));
-        }}>Export kit…</button>
+        <button onClick={() => stepKit(-1)} disabled={at === 0} aria-label="Previous kit">◀</button>
+        <select value={at >= 0 ? kit : ""} title="Load a kit onto this drum track (Undo brings the pads back)" onChange={(e) => e.target.value && void loadNamedKit(e.target.value)}>
+          {at < 0 && <option value="">{kit || "—"}</option>}
+          <optgroup label="Built-in">{STOCK_KITS.map((k) => <option key={k} value={k}>{k}</option>)}</optgroup>
+          {saved.length > 0 && <optgroup label="Saved">{saved.map((k) => <option key={k} value={k}>{k}</option>)}</optgroup>}
+        </select>
+        <button onClick={() => stepKit(1)} disabled={at >= list.length - 1} aria-label="Next kit">▶</button>
       </>
     }>
+      <p className="hint tip">Built-in kits are synthesized; your saved kits follow them in the list. ◀ ▶ load the previous / next kit. Launchkey: encoder page <b>Kit</b>, encoder 1 scrolls the kits.</p>
       <input ref={kitInput} type="file" accept={KIT_ACCEPT} multiple hidden onChange={async (e) => {
         const files = [...(e.target.files ?? [])];
         e.target.value = "";
@@ -236,12 +221,21 @@ function KitPanel() {
         }
       }} />
       <div className="row">
-        <input placeholder="Kit name" value={name} onChange={(e) => setName(e.target.value)} />
-        <button disabled={!name.trim()} onClick={() => void saveCurrentKit(name)}>Save</button>
-        <button disabled={!canRename} title={picked ? `Rename “${picked}” to the name typed here` : "Pick a saved kit below first"} onClick={async () => {
+        <input placeholder="Save the pads as…" value={name} onChange={(e) => setName(e.target.value)} aria-label="Kit name" />
+        {/* Save and Rename show once they can do something: a name typed, and for Rename a saved kit picked below. */}
+        {name.trim() && <button onClick={() => void saveCurrentKit(name)}>Save</button>}
+        {canRename && <button title={`Rename “${picked}” to the name typed here`} onClick={async () => {
           if (picked && (await renameSavedKit(picked, name))) setPicked(name.trim());
-        }}>Rename</button>
+        }}>Rename</button>}
       </div>
+      <div className="row">
+        <button onClick={() => kitInput.current?.click()} title="Import one or more .morsel-kit files">Import…</button>
+        <button title="Save the pads as a kit file with their samples, to share or keep (named as typed above, or after the kit)" onClick={() => {
+          const file = name.trim() || kit || "Kit";
+          void exportKit(file, drumPads()).then((blob) => download(blob, `${file}${KIT_EXT}`));
+        }}>Export…</button>
+      </div>
+      {kits.length > 0 && <h4 className="sub-head">Saved kits</h4>}
       <div className="row wrap">
         {kits.map((k) => (
           <span key={k} className="kit-chip">

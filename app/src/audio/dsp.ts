@@ -35,6 +35,8 @@ export const velGain = (vel: number) => Math.pow(vel / 127, 1.5);
 
 /** Vibrato depth 1 = ±100 cents; filter depth 1 = ±2 octaves. */
 export const VIB_CENTS = 100;
+/** The Launchkey's mod strip all the way up: ±50 cents of vibrato on top of the track's own. */
+export const MOD_VIB_CENTS = 50;
 export const FILTER_LFO_CENTS = 2400;
 
 /** A sine LFO from `when` into `targets` (cent params), or null when it is off. Stop it with the voice. */
@@ -50,14 +52,20 @@ function lfo(ctx: BaseAudioContext, rate: number, cents: number, when: number, t
   return o;
 }
 
-/** Vibrato on `pitch` params and a filter LFO on `filter` params; returns a function that stops both. */
-function noteLfos(ctx: BaseAudioContext, mod: KeysLfo | undefined, when: number, pitch: AudioParam[], filter: AudioParam[]) {
-  if (!mod) return () => {};
-  const oscs = [
+/**
+ * Vibrato on `pitch` params and a filter LFO on `filter` params, and `pitchIn` (the strip's pitch bend and mod
+ * wheel, in cents) into the pitch params; returns a function that undoes all of it.
+ */
+function noteLfos(ctx: BaseAudioContext, mod: KeysLfo | undefined, when: number, pitch: AudioParam[], filter: AudioParam[], pitchIn?: AudioNode) {
+  for (const p of pitch) pitchIn?.connect(p);
+  const oscs = mod ? [
     lfo(ctx, mod.vibRate, mod.vibDepth * VIB_CENTS, when, pitch),
     lfo(ctx, mod.filterRate, mod.filterDepth * FILTER_LFO_CENTS, when, filter),
-  ].filter((o): o is OscillatorNode => o !== null);
-  return () => oscs.forEach((o) => o.stop());
+  ].filter((o): o is OscillatorNode => o !== null) : [];
+  return () => {
+    oscs.forEach((o) => o.stop());
+    for (const p of pitch) pitchIn?.disconnect(p);
+  };
 }
 
 export function buildSampleVoice(
@@ -70,6 +78,7 @@ export function buildSampleVoice(
   pitchOffset = 0,
   gate = pad.mode === "gate",
   mod?: KeysLfo,
+  pitchIn?: AudioNode,
 ): Voice {
   const src = ctx.createBufferSource();
   src.buffer = buffer;
@@ -101,7 +110,7 @@ export function buildSampleVoice(
     chain = chain.connect(f);
   }
   chain.connect(amp).connect(pan).connect(out);
-  const stopLfos = noteLfos(ctx, mod, when, [src.detune], lowpass ? [lowpass.detune] : []);
+  const stopLfos = noteLfos(ctx, mod, when, [src.detune], lowpass ? [lowpass.detune] : [], pitchIn);
 
   const peak = velGain(vel) * pad.volume;
   const g = amp.gain;
@@ -183,6 +192,7 @@ export function buildSynthVoice(
   vel: number,
   when: number,
   mod?: KeysLfo,
+  pitchIn?: AudioNode,
 ): Voice {
   const freq = 440 * Math.pow(2, (note - 69) / 12);
   const o1 = ctx.createOscillator();
@@ -261,7 +271,7 @@ export function buildSynthVoice(
   g.setTargetAtTime(peak * s.sustain, when + a, Math.max(0.01, s.decay) / 3);
   for (const src of sources) src.start(when);
   const pitched = sources.filter((x): x is OscillatorNode => x instanceof OscillatorNode);
-  const stopLfos = noteLfos(ctx, mod, when, pitched.map((o) => o.detune), filter2 ? [filter.detune, filter2.detune] : [filter.detune]);
+  const stopLfos = noteLfos(ctx, mod, when, pitched.map((o) => o.detune), filter2 ? [filter.detune, filter2.detune] : [filter.detune], pitchIn);
 
   let stopAt = Infinity;
   const ended = new Promise<void>((res) => (o1.onended = () => {

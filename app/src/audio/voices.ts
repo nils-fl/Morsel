@@ -89,13 +89,14 @@ export class Voices {
     }
     const buf = this.sampleFor(sampleId, pad.reverse);
     if (!buf) return null;
-    return buildSampleVoice(this.ctx, out === KEYS_STEREO_OUT ? strip.input : strip.padBus[out], buf, pad, vel, when, pitchOffset, gate, mod);
+    const keys = out === KEYS_STEREO_OUT;
+    return buildSampleVoice(this.ctx, keys ? strip.input : strip.padBus[out], buf, pad, vel, when, pitchOffset, gate, mod, keys ? strip.pitchIn ?? undefined : undefined);
   }
 
   private synthVoice(t: Track, s: SynthParams, note: number, vel: number, when: number, mod: KeysLfo): Voice {
     const strip = this.strip(t);
     if (strip.voices) return strip.voices.play(KEYS_MONO_OUT, { kind: "synth", synth: s, note, vel, lfo: mod }, when);
-    return buildSynthVoice(this.ctx, strip.input, s, note, vel, when, mod);
+    return buildSynthVoice(this.ctx, strip.input, s, note, vel, when, mod, strip.pitchIn ?? undefined);
   }
 
   /** Samples deleted from the library: free the voice processors' copies. */
@@ -200,6 +201,12 @@ export class Voices {
       this.track(this.seqKeyVoices, trackId, v);
     }
     return v;
+  }
+
+  /** The Launchkey's strips on a keys track from `when`: pitch bend in cents, mod wheel 0..1. */
+  expression(trackId: string, bend: number, mod: number, when: number) {
+    const t = trackById(this.getProject(), trackId);
+    if (t?.kind === "keys") this.strip(t).setExpression(when, bend, mod);
   }
 
   keyOn(trackId: string, note: number, vel: number, when: number) {

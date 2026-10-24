@@ -1,6 +1,6 @@
 // Actions shared by the on-screen UI and the Launchkey controller.
 import { engine } from "./audio/engine";
-import { connectTab, disconnectTab, normalize, startRecording, tabConnected, type Recording } from "./audio/recorder";
+import { TAB_WORDS, connectTab, disconnectTab, normalize, startRecording, tabConnected, type Recording } from "./audio/recorder";
 import { slicesFromMarkers } from "./audio/chop";
 import { STOCK_REV, renderStockKit, stockLengths, stockSounds } from "./audio/kit";
 import { DECAY_MAX } from "./audio/dsp";
@@ -9,9 +9,13 @@ import { showTemp } from "./modes/notify";
 import { launchkey } from "./midi/launchkey";
 import { sequencer } from "./seq/sequencer";
 import { addTrack, defaultPad, drumPads, drumTrack, get, keysTrack, set, updateKeys, updateProject, updateTrack, usedSampleIds } from "./state/store";
-import { deleteKit, deleteSynthPreset, listKits, loadKit, renameKit, saveKit, saveSynthPreset } from "./state/persist";
+import { deleteKit, deleteSynthPreset, listKits, loadKit, loadSample, renameKit, saveKit, saveSample, saveSynthPreset } from "./state/persist";
+import { dropSampleFavorites, moveFavorites } from "./browse/favorites";
+import { entrySample, folderLabel, folderSamples } from "./browse/source";
+import { SAMPLES, type Entry } from "./browse/tree";
 import { padsFromSamples, slicePads } from "./state/pads";
 import { ask } from "./state/confirm";
+import { oneOf, pref } from "./state/prefs";
 import { FACTORY_PRESETS, USER_FOLDER, type SynthPreset } from "./audio/synthPresets";
 import { FACTORY_KIT, MAX_TRACKS, PAD_COUNT, STOCK_KITS, stockFolder, type Pad, type Project, type SampleInfo, type SampleSource } from "./state/types";
 
@@ -44,6 +48,34 @@ export function keyOff(note: number, track = keysTrack().id) {
   const when = liveWhen();
   engine.voices.keyOff(track, note, when);
   sequencer.recordKeyOff(track, note, when);
+}
+
+// ---------- the Launchkey's Pitch and Mod strips (live only, not recorded) ----------
+
+export const BEND_RANGES = [2, 7, 12] as const;
+/** How far the Pitch strip bends at either end, in semitones. */
+export const bendRangePref = pref<number>("morsel.bendRange", 2, oneOf(BEND_RANGES));
+
+const strips = { bend: 0, mod: 0, track: "" };
+
+/** Bend and mod onto the keys track the keybed plays; a track left behind goes back to straight. */
+export function applyStrips() {
+  const track = keysTrack().id, when = liveWhen();
+  if (strips.track && strips.track !== track) engine.voices.expression(strips.track, 0, 0, when);
+  strips.track = track;
+  engine.voices.expression(track, strips.bend * bendRangePref.get() * 100, strips.mod, when);
+}
+
+/** The Pitch strip: -8192..8191, 0 in the middle (it springs back there). */
+export function bendKeys(value: number) {
+  strips.bend = Math.max(-1, Math.min(1, value / 8192));
+  applyStrips();
+}
+
+/** The Mod strip (CC 1): 0..127, stays where it's left. */
+export function modKeys(value: number) {
+  strips.mod = Math.max(0, Math.min(1, value / 127));
+  applyStrips();
 }
 
 /** Latch note repeat on or off (double-press Scene on the Launchkey, or Repeat by the on-screen pads). */
@@ -122,21 +154,21 @@ const THRESHOLD: Record<SampleSource, number> = { input: 0.02, master: 0.001, ta
 export async function shareTab() {
   try {
     await connectTab(() => {
-      set({ tabShared: false, status: "Tab sharing stopped" });
+      set({ tabShared: false, status: TAB_WORDS.stopped });
       void finishSampling();
     });
   } catch (err) {
-    set({ tabShared: false, status: `Tab share failed: ${(err as Error).message}` });
+    set({ tabShared: false, status: `${TAB_WORDS.failed}: ${(err as Error).message}` });
     return false;
   }
-  set({ tabShared: true, status: "Tab shared – Shift + Record on the Launchkey starts and stops takes" });
+  set({ tabShared: true, status: `${TAB_WORDS.shared} – Shift + Record on the Launchkey starts and stops takes` });
   return true;
 }
 
 export function unshareTab() {
   if (get().sampling !== "idle") void finishSampling();
   disconnectTab();
-  set({ tabShared: false, status: "Tab sharing stopped" });
+  set({ tabShared: false, status: TAB_WORDS.stopped });
 }
 
 /** Start or stop sampling. Sharing a tab needs a click on the page; once shared, the hardware can run takes. */
@@ -146,7 +178,7 @@ export async function toggleSampling(fromHardware = false) {
   if (starting) return;
   const tab = s.sampleSource === "tab";
   if (tab && !tabConnected()) {
-    if (fromHardware) return set({ status: "Share the tab on screen first (Sample → Share tab…)" });
+    if (fromHardware) return set({ status: TAB_WORDS.first });
     // The click that got us here opens the picker, then the take starts right away.
     if (!(await shareTab())) return;
   }
@@ -293,22 +325,29 @@ export function openInChop() {
   set({ chop: newChop(pad.sampleId, [Math.min(pad.start, pad.end), Math.max(pad.start, pad.end)]), tab: "Chop" });
 }
 
-/** Pads and Keys zones using a sample, on every track. */
-export function sampleUsers(id: string) {
+/** Pads and Keys zones using any of the samples, on every track. */
+export function sampleUsers(id: string | Set<string>) {
+  const ids = typeof id === "string" ? new Set([id]) : id;
+  const has = (x: string | null) => x !== null && ids.has(x);
   const tracks = get().project.tracks;
   return {
-    pads: tracks.reduce((n, t) => n + t.pads.filter((pad) => pad.sampleId === id).length, 0),
-    zones: tracks.reduce((n, t) => n + (t.keys?.zones.filter((z) => z.sampleId === id).length ?? 0) + (t.keys?.sample.sampleId === id ? 1 : 0), 0),
+    pads: tracks.reduce((n, t) => n + t.pads.filter((pad) => has(pad.sampleId)).length, 0),
+    zones: tracks.reduce((n, t) => n + (t.keys?.zones.filter((z) => has(z.sampleId)).length ?? 0) + (t.keys && has(t.keys.sample.sampleId) ? 1 : 0), 0),
   };
 }
 
+/** "3 pads and 1 Keys zone", or "" when nothing uses them. */
+function usersText({ pads, zones }: { pads: number; zones: number }) {
+  return [pads && `${pads} pad${pads === 1 ? "" : "s"}`, zones && `${zones} Keys zone${zones === 1 ? "" : "s"}`].filter(Boolean).join(" and ");
+}
+
 /**
- * Delete a sample for good: clears the pads and Keys zones that use it and closes it in the chop editor.
+ * Delete samples for good: clears the pads and Keys zones that use them and closes them in the chop editor.
  * Not undoable (the audio is gone), so the pad changes skip the undo stack.
  */
-export async function deleteSampleEverywhere(id: string) {
-  const name = get().samples[id]?.name ?? "sample";
-  if (get().chop?.sampleId === id) {
+async function deleteSamplesEverywhere(ids: Set<string>) {
+  const chop = get().chop;
+  if (chop && ids.has(chop.sampleId)) {
     chopStop();
     set({ chop: null });
   }
@@ -316,26 +355,31 @@ export async function deleteSampleEverywhere(id: string) {
     ...p,
     tracks: p.tracks.map((t) => ({
       ...t,
-      pads: t.pads.map((pad, i) => (pad.sampleId === id ? { ...pad, sampleId: null, name: `Pad ${i + 1}`, start: 0, end: 1 } : pad)),
+      pads: t.pads.map((pad, i) => (pad.sampleId && ids.has(pad.sampleId) ? { ...pad, sampleId: null, name: `Pad ${i + 1}`, start: 0, end: 1 } : pad)),
       keys: t.keys && {
         ...t.keys,
-        zones: t.keys.zones.filter((z) => z.sampleId !== id),
-        sample: t.keys.sample.sampleId === id ? { ...t.keys.sample, sampleId: null } : t.keys.sample,
+        zones: t.keys.zones.filter((z) => !ids.has(z.sampleId)),
+        sample: t.keys.sample.sampleId && ids.has(t.keys.sample.sampleId) ? { ...t.keys.sample, sampleId: null } : t.keys.sample,
       },
     })),
   });
   updateProject(strip, false);
   // Undo must not bring back pads pointing at audio that no longer exists.
   set({ undo: get().undo.map(strip) });
-  await engine.removeSample(id);
+  await engine.removeSamples([...ids]);
+  dropSampleFavorites([...ids]);
+}
+
+export async function deleteSampleEverywhere(id: string) {
+  const name = get().samples[id]?.name ?? "sample";
+  await deleteSamplesEverywhere(new Set([id]));
   set({ status: `Deleted ${name}` });
 }
 
 /** Ask, then delete. Says how many pads / Keys zones lose the sample. */
 export async function confirmDeleteSample(id: string) {
   const name = get().samples[id]?.name ?? "this sample";
-  const { pads, zones } = sampleUsers(id);
-  const used = [pads && `${pads} pad${pads === 1 ? "" : "s"}`, zones && `${zones} Keys zone${zones === 1 ? "" : "s"}`].filter(Boolean).join(" and ");
+  const used = usersText(sampleUsers(id));
   if (!(await ask({
     title: "Delete sample",
     message: `Delete “${name}” from the library?${used ? ` It is used by ${used}, which will be cleared.` : ""} This can't be undone.`,
@@ -371,7 +415,88 @@ export async function removeUnusedSamples() {
     danger: true,
   }))) return;
   await engine.removeSamples(unused);
+  dropSampleFavorites(unused);
   set({ status: `Removed ${unused.length} unused sample${unused.length === 1 ? "" : "s"}` });
+}
+
+// ---------- organising the library (ui/Library.tsx) ----------
+
+const libFolder = (path: string) => (path === SAMPLES ? "" : path.slice(SAMPLES.length + 1));
+const inLibFolder = (s: SampleInfo, folder: string) => !folder || s.folder === folder || !!s.folder?.startsWith(folder + "/");
+
+/** Write new names and folders into the stored samples too, so a rebuilt index keeps them. In the background. */
+async function restamp(ids: string[]) {
+  for (const id of ids) {
+    const info = get().samples[id];
+    const stored = info && (await loadSample(id).catch(() => undefined));
+    // Deleted meanwhile: never write it back.
+    if (stored && get().samples[id]) await saveSample(id, { ...stored, name: info.name, folder: info.folder }).catch(() => undefined);
+  }
+}
+
+function patchSamples(patch: Record<string, Partial<SampleInfo>>) {
+  const samples = { ...get().samples };
+  for (const [id, p] of Object.entries(patch)) if (samples[id]) samples[id] = { ...samples[id], ...p };
+  set({ samples });
+  void restamp(Object.keys(patch));
+}
+
+/** A folder path as the library keeps it: no empty parts, no slashes at the ends. */
+export const cleanFolder = (folder: string) => folder.split("/").map((p) => p.trim()).filter(Boolean).join("/");
+
+export function renameSample(id: string, name: string) {
+  const n = name.trim();
+  if (!n || !get().samples[id] || get().samples[id].name === n) return;
+  patchSamples({ [id]: { name: n } });
+}
+
+/** Move a sample into a library folder ("Drums/Kicks"; "" is the top). */
+export function moveSample(id: string, folder: string) {
+  const f = cleanFolder(folder);
+  patchSamples({ [id]: { folder: f || undefined } });
+  set({ status: `Moved ${get().samples[id]?.name ?? "the sample"} to ${[SAMPLES, f].filter(Boolean).join(" / ")}` });
+}
+
+/** Rename (or move) a library folder, given as a tree path ("Samples/Drums"), with everything in it. */
+export function renameLibraryFolder(path: string, to: string) {
+  const from = libFolder(path), dest = cleanFolder(to);
+  if (!from || !dest || from === dest || dest.startsWith(from + "/")) return;
+  const patch: Record<string, Partial<SampleInfo>> = {};
+  for (const s of Object.values(get().samples)) if (inLibFolder(s, from)) patch[s.id] = { folder: dest + s.folder!.slice(from.length) };
+  patchSamples(patch);
+  moveFavorites(path, `${SAMPLES}/${dest}`);
+}
+
+/** Ask, then delete a library folder's samples, its subfolders' too. */
+export async function confirmDeleteLibraryFolder(path: string) {
+  const folder = libFolder(path);
+  const ids = new Set(Object.values(get().samples).filter((s) => inLibFolder(s, folder)).map((s) => s.id));
+  if (!ids.size) return;
+  const used = usersText(sampleUsers(ids));
+  const label = folder || SAMPLES;
+  if (!(await ask({
+    title: "Delete folder",
+    message: `Delete “${label}” and its ${ids.size} sample${ids.size === 1 ? "" : "s"} from the library?${used ? ` They are used by ${used}, which will be cleared.` : ""}` +
+      " Connected folders aren't touched. This can't be undone.",
+    ok: "Delete",
+    danger: true,
+  }))) return;
+  await deleteSamplesEverywhere(ids);
+  set({ status: `Deleted ${label} (${ids.size} sample${ids.size === 1 ? "" : "s"})` });
+}
+
+/**
+ * Something dropped on a pad from the library drawer: a sample or file goes on that pad, a folder's samples on the
+ * pads from there on. One undo step.
+ */
+export async function entryToPads(e: Entry, firstPad: number) {
+  try {
+    const loaded = e.kind === "folder" ? await folderSamples(e.path, PAD_COUNT - firstPad) : [{ id: await entrySample(e), name: e.name }];
+    if (!loaded.length) return set({ status: "No samples in that folder" });
+    samplesOnPads(loaded, firstPad);
+  } catch (err) {
+    set({ status: `${e.name}: ${(err as Error).message}` });
+  }
 }
 
 /** Copy a region of a sample into a new library sample; returns its id. */
@@ -398,10 +523,23 @@ export async function loadFilesToPads(files: File[], firstPad: number) {
     const id = await engine.addFile(f).catch(() => undefined);
     if (id) loaded.push(get().samples[id]);
   }
+  samplesOnPads(loaded, firstPad);
+}
+
+/** Samples on consecutive pads from `firstPad`, each pad keeping its other settings. One undo step. */
+function samplesOnPads(samples: { id: string; name: string }[], firstPad: number) {
   changePads((pads) => pads.map((pad, i) => {
-    const s = loaded[i - firstPad];
+    const s = samples[i - firstPad];
     return s ? { ...pad, sampleId: s.id, name: s.name.slice(0, 12), start: 0, end: 1, reverse: false } : pad;
   }));
+}
+
+/** A folder's first 16 samples on pads 1–16 as a kit, named after the folder. */
+export async function folderToPads(path: string) {
+  const loaded = await folderSamples(path, PAD_COUNT);
+  if (!loaded.length) return set({ status: "No samples in that folder" });
+  const n = samplesToPads(loaded, folderLabel(path));
+  set({ status: `${n} samples on ${drumTrack().name} pads 1–${n}` });
 }
 
 /** Put up to 16 library samples on the pads as a kit (in the given order, hats choked). One undo step. Returns how many. */

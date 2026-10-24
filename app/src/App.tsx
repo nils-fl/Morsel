@@ -1,21 +1,27 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { togglePlay, toggleRecord } from "./actions";
 import { currentFrame, setHwMode } from "./modes/controller";
 import { ScreenPreview } from "./ui/ScreenPreview";
 import { toggleTheme } from "./ui/theme";
 import { toggleTips } from "./ui/tips";
+import { toggleLibrary } from "./ui/drawer";
 import { sequencer } from "./seq/sequencer";
 import { QUANTIZE_OPTIONS } from "./seq/timing";
 import { get, patternHasNotes, redo, selectedTrack, set, undo, updateProject, useApp } from "./state/store";
 import { PATTERN_COUNT, TABS, type HwMode, type Tab } from "./state/types";
 import { ChopEditor } from "./ui/ChopEditor";
 import { EncoderStrip } from "./ui/EncoderStrip";
-import { Guide, GuideOverlay } from "./ui/Guide";
+import { GuideOverlay } from "./ui/Guide";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
+import { Preferences } from "./ui/Preferences";
+import { native } from "./platform/native";
+import { newProject } from "./state/projectFile";
 import { KeysPanel } from "./ui/KeysPanel";
 import { Mixer } from "./ui/Mixer";
-import { Lab } from "./ui/Lab";
+import { LabOverlay } from "./ui/Lab";
+import { Library } from "./ui/Library";
+import { ProjectMenu } from "./ui/ProjectMenu";
 import { PadEditor } from "./ui/PadEditor";
 import { PadGrid } from "./ui/PadGrid";
 import { SeqGrid } from "./ui/SeqGrid";
@@ -24,7 +30,7 @@ import { TrackStrip } from "./ui/TrackStrip";
 
 // Each page has its own colour, like the page LEDs on an Elektron box.
 const TAB_COLOR: Record<Tab, string> = {
-  Track: "var(--amber)", Chop: "var(--orange)", Sequencer: "var(--cyan)", Mixer: "var(--yellow)", Song: "var(--lime)", Help: "var(--white)", Lab: "var(--magenta)",
+  Track: "var(--amber)", Chop: "var(--orange)", Sequencer: "var(--cyan)", Mixer: "var(--yellow)", Song: "var(--lime)",
 };
 const KEYS_COLOR = "var(--violet)";
 
@@ -38,7 +44,12 @@ export default function App() {
   const color = (t: Tab) => (t === "Track" && track.kind === "keys" ? KEYS_COLOR : TAB_COLOR[t]);
   const setTab = (t: Tab) => set({ tab: t });
   const [guide, setGuide] = useState(false);
+  const [prefs, setPrefs] = useState(false);
+  const [lab, setLab] = useState(false);
   useEffect(() => { document.documentElement.style.setProperty("--page", color(tab)); });
+  const closePrefs = useCallback(() => setPrefs(false), []);
+  const openLab = useCallback(() => { setPrefs(false); setLab(true); }, []);
+  const closeLab = useCallback(() => setLab(false), []);
   useEffect(() => {
     // Computer-keyboard shortcuts, unless you're typing in a field. The Chop tab has its own Space.
     const onKey = (e: KeyboardEvent) => {
@@ -46,7 +57,8 @@ export default function App() {
       if (t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement) return;
       const mod = e.metaKey || e.ctrlKey;
       const key = e.key.toLowerCase();
-      if (mod && (key === "z" || (key === "y" && e.ctrlKey))) {
+      // In the desktop app the Edit menu has undo and redo.
+      if (mod && !native && (key === "z" || (key === "y" && e.ctrlKey))) {
         e.preventDefault();
         if (key === "y" || e.shiftKey) redo();
         else undo();
@@ -60,6 +72,7 @@ export default function App() {
         if (t instanceof HTMLButtonElement) t.blur();
         togglePlay();
       } else if (key === "r" && !e.repeat) toggleRecord();
+      else if (key === "b" && !e.repeat) toggleLibrary();
       else if (e.key === "[" || e.key === "]") {
         // As the Launchkey's pad arrows: while playing, step on from the pattern already queued.
         const s = get();
@@ -69,12 +82,31 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [tab]);
+  // The desktop app's menu.
+  useEffect(() => native?.onMenu((cmd) => {
+    if (cmd === "preferences") setPrefs(true);
+    else if (cmd === "guide") setGuide(true);
+    else if (cmd === "newProject") void newProject();
+    else if (cmd === "toggleTheme") toggleTheme();
+    else if (cmd === "toggleTips") toggleTips();
+    else if (cmd === "toggleLibrary") toggleLibrary();
+    else {
+      // In a text field undo and redo edit the text, as anywhere else on a Mac.
+      const t = document.activeElement;
+      if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) document.execCommand(cmd);
+      else if (cmd === "undo") undo();
+      else redo();
+    }
+  }), []);
   return (
     <div className="app">
       <AudioBanner />
-      <TopBar onGuide={() => setGuide(true)} />
+      <TopBar onGuide={() => setGuide(true)} onPrefs={() => setPrefs(true)} />
       {guide && <GuideOverlay onClose={() => setGuide(false)} />}
+      {prefs && <Preferences onClose={closePrefs} onLab={openLab} />}
+      {lab && <LabOverlay onClose={closeLab} />}
       <ConfirmDialog />
+      <Library />
       <PadGrid />
       <nav className="tabs">
         {TABS.filter((t) => t !== "Chop" || showChop).map((t) => (
@@ -89,8 +121,6 @@ export default function App() {
         {tab === "Sequencer" && <SeqGrid />}
         {tab === "Mixer" && <Mixer />}
         {tab === "Song" && <SongPanel />}
-        {tab === "Help" && <Guide />}
-        {tab === "Lab" && <Lab />}
       </main>
     </div>
   );
@@ -103,18 +133,19 @@ function AudioBanner() {
   return <button className="audio-banner">Audio is paused by the browser. Click anywhere to start it.</button>;
 }
 
-/** Narrow windows (an iPad held upright) get the smaller screen preview, so it fits beside the transport. */
-const COMPACT_QUERY = "(max-width: 900px)";
+/** Wide windows draw the screen preview at 3x (192 px tall: the Pattern, Track and Launchkey rows plus the encoders);
+ *  narrower ones at 2x beside the rows. Keep in sync with the 1180px media query in index.css. */
+const WIDE_QUERY = "(min-width: 1181px)";
 
-function useCompact() {
-  const [compact, setCompact] = useState(() => window.matchMedia(COMPACT_QUERY).matches);
+function useWide() {
+  const [wide, setWide] = useState(() => window.matchMedia(WIDE_QUERY).matches);
   useEffect(() => {
-    const mq = window.matchMedia(COMPACT_QUERY);
-    const on = () => setCompact(mq.matches);
+    const mq = window.matchMedia(WIDE_QUERY);
+    const on = () => setWide(mq.matches);
     mq.addEventListener("change", on);
     return () => mq.removeEventListener("change", on);
   }, []);
-  return compact;
+  return wide;
 }
 
 /** A number field that applies its value when you leave it (or press Enter), so typing "12" doesn't clamp "1" first. */
@@ -136,83 +167,89 @@ function NumberField({ value, min, max, step, onCommit }: { value: number; min: 
   );
 }
 
-function TopBar({ onGuide }: { onGuide: () => void }) {
+function TopBar({ onGuide, onPrefs }: { onGuide: () => void; onPrefs: () => void }) {
   // Only what the bar shows: the whole store would redraw it on every recorded note and knob move.
   const s = useApp(useShallow((s) => ({
-    connected: s.connected, theme: s.theme, tips: s.tips, playing: s.playing, recording: s.recording, countIn: s.countIn, metronome: s.metronome,
+    connected: s.connected, theme: s.theme, tips: s.tips, library: s.library, playing: s.playing, recording: s.recording, countIn: s.countIn, metronome: s.metronome,
     quantize: s.quantize, undoLength: s.undo.length, redoLength: s.redo.length, currentPattern: s.currentPattern, queuedPattern: s.queuedPattern,
     bpm: s.project.bpm, swing: s.project.swing, patterns: s.project.patterns, hwMode: s.hwMode, status: s.status,
   })));
-  const compact = useCompact();
+  const wide = useWide();
   const p = { bpm: s.bpm, swing: s.swing, patterns: s.patterns };
-  // One labelled row per job: transport, patterns, tracks, then the Launchkey's own mode and encoders.
+  // A header strip (brand, transport, last message, app buttons) over the deck: labelled rows for patterns, tracks and
+  // the Launchkey's mode and encoders, beside the screen preview.
   return (
     <header className="topbar">
-      <div className="bar-main">
-        <div className="bar-row">
-          <div className="brand">
-            <strong>Morsel</strong>
-            <span className={`dot ${s.connected ? "ok" : ""}`} title={s.connected ? "Launchkey connected" : "Launchkey not found"} />
-          </div>
-          <div className="transport">
-            <button className={s.playing ? "on" : ""} onClick={togglePlay} title="Play / stop (Space)">{s.playing ? "■ Stop" : "▶ Play"}</button>
-            <button className={`rec ${s.recording ? "on" : ""}`} onClick={toggleRecord} title="Record (R)">{s.countIn ? "Count-in…" : "● Rec"}</button>
-            <button className={s.metronome ? "on" : ""} onClick={() => set({ metronome: !s.metronome })}>Click</button>
-            <span className="bar-sep" />
-            <label className="field inline">
-              <span>BPM</span>
-              <NumberField min={40} max={240} step={0.1} value={p.bpm} onCommit={(bpm) => updateProject((pr) => ({ ...pr, bpm: Math.round(bpm * 10) / 10 }), false)} />
-            </label>
-            <label className="field inline">
-              <span>Swing</span>
-              <NumberField min={50} max={75} value={p.swing} onCommit={(swing) => updateProject((pr) => ({ ...pr, swing: Math.round(swing) }), false)} />
-            </label>
-            <label className="field inline">
-              <span>Quantize</span>
-              <select value={s.quantize} onChange={(e) => set({ quantize: Number(e.target.value) })}>
-                {QUANTIZE_OPTIONS.map((q) => <option key={q.label} value={q.ticks}>{q.label}</option>)}
-              </select>
-            </label>
-            <span className="bar-sep" />
-            <button className="icon-btn" onClick={undo} disabled={!s.undoLength} title="Undo (⌘Z)" aria-label="Undo">↶</button>
-            <button className="icon-btn" onClick={redo} disabled={!s.redoLength} title="Redo (⇧⌘Z)" aria-label="Redo">↷</button>
-          </div>
-          <div className="utils">
-            <button className={s.tips ? "on" : ""} onClick={toggleTips} title={s.tips ? "Hide the explanations in the panels" : "Show explanations in the panels"}>Tips</button>
-            <button onClick={onGuide} title="Controls, modes and shortcuts (?)">Guide</button>
-            <button className="theme-btn" onClick={toggleTheme} title={s.theme === "light" ? "Switch to the dark theme" : "Switch to the light theme"} aria-label="Toggle light / dark theme">
-              {s.theme === "light" ? "☾" : "☀"}
-            </button>
-          </div>
+      <div className="bar-head">
+        <div className="brand">
+          <strong>Morsel</strong>
+          <span className={`dot ${s.connected ? "ok" : ""}`} title={s.connected ? "Launchkey connected" : "Launchkey not found"} />
         </div>
-        <div className="bar-row">
-          <span className="bar-label">Pattern</span>
-          <div className="patterns">
-            {p.patterns.map((pat, i) => (
-              <button
-                key={i}
-                className={`pat ${i === s.currentPattern ? "on" : ""} ${i === s.queuedPattern ? "queued" : ""} ${patternHasNotes(pat) ? "used" : ""}`}
-                onClick={() => sequencer.selectPattern(i)}
-              >{i + 1}</button>
-            ))}
-          </div>
+        <div className="transport">
+          <button className={s.playing ? "on" : ""} onClick={togglePlay} title="Play / stop (Space)">{s.playing ? "■ Stop" : "▶ Play"}</button>
+          <button className={`rec ${s.recording ? "on" : ""}`} onClick={toggleRecord} title="Record (R)">{s.countIn ? "Count-in…" : "● Rec"}</button>
+          <button className={s.metronome ? "on" : ""} onClick={() => set({ metronome: !s.metronome })} title="Metronome">Click</button>
+          <span className="bar-sep" />
+          <label className="field inline">
+            <span>BPM</span>
+            <NumberField min={40} max={240} step={0.1} value={p.bpm} onCommit={(bpm) => updateProject((pr) => ({ ...pr, bpm: Math.round(bpm * 10) / 10 }), false)} />
+          </label>
+          <label className="field inline">
+            <span>Swing</span>
+            <NumberField min={50} max={75} value={p.swing} onCommit={(swing) => updateProject((pr) => ({ ...pr, swing: Math.round(swing) }), false)} />
+          </label>
+          <label className="field inline">
+            <span>Quant</span>
+            <select value={s.quantize} onChange={(e) => set({ quantize: Number(e.target.value) })} title="Quantize recorded notes to">
+              {QUANTIZE_OPTIONS.map((q) => <option key={q.label} value={q.ticks}>{q.label}</option>)}
+            </select>
+          </label>
+          <span className="bar-sep" />
+          <button className="icon-btn" onClick={undo} disabled={!s.undoLength} title="Undo (⌘Z)" aria-label="Undo">↶</button>
+          <button className="icon-btn" onClick={redo} disabled={!s.redoLength} title="Redo (⇧⌘Z)" aria-label="Redo">↷</button>
         </div>
-        <div className="bar-row">
-          <span className="bar-label">Track</span>
-          <TrackStrip />
+        <div className="status" role="status" title={s.status}>{s.status}</div>
+        <div className="utils">
+          <ProjectMenu />
+          <button className={s.library ? "on" : ""} onClick={toggleLibrary} title={native ? "Connected folders and the sample library (B, ⌘L)" : "Connected folders and the sample library (B)"}>Library</button>
+          <button className={s.tips ? "on" : ""} onClick={toggleTips} title={s.tips ? "Hide the explanations in the panels" : "Show explanations in the panels"}>Tips</button>
+          <button onClick={onGuide} title="Controls, modes and shortcuts (?)">Guide</button>
+          <button className="icon-btn" onClick={toggleTheme} title={s.theme === "light" ? "Switch to the dark theme" : "Switch to the light theme"} aria-label="Toggle light / dark theme">
+            {s.theme === "light" ? "☾" : "☀"}
+          </button>
+          <button className="icon-btn" onClick={onPrefs} title={native ? "Preferences (⌘,)" : "Preferences"} aria-label="Preferences">⚙</button>
         </div>
       </div>
-      <div className="screen-slot"><ScreenPreview source={currentFrame} scale={compact ? 2 : 3} /></div>
-      <div className="bar-row hw">
-        <span className="bar-label" title="What the Launchkey's pads and encoders do right now">Launchkey</span>
-        <div className="hw-modes">
-          {(["play", "step", "track", "mute", "pattern", "browse"] as HwMode[]).map((m) => (
-            <button key={m} className={s.hwMode === m ? "on" : ""} onClick={() => setHwMode(m)}>{m}</button>
-          ))}
+      <div className="bar-deck">
+        <div className="bar-rows">
+          <div className="bar-row">
+            <span className="bar-label">Pattern</span>
+            <div className="patterns">
+              {p.patterns.map((pat, i) => (
+                <button
+                  key={i}
+                  className={`pat ${i === s.currentPattern ? "on" : ""} ${i === s.queuedPattern ? "queued" : ""} ${patternHasNotes(pat) ? "used" : ""}`}
+                  onClick={() => sequencer.selectPattern(i)}
+                >{i + 1}</button>
+              ))}
+            </div>
+          </div>
+          <div className="bar-row">
+            <span className="bar-label">Track</span>
+            <TrackStrip />
+          </div>
+          <div className="bar-row hw">
+            <span className="bar-label" title="What the Launchkey's pads and encoders do right now">Launchkey</span>
+            <div className="hw-modes">
+              {(["play", "step", "track", "mute", "pattern", "browse"] as HwMode[]).map((m) => (
+                <button key={m} className={s.hwMode === m ? "on" : ""} onClick={() => setHwMode(m)}>{m}</button>
+              ))}
+            </div>
+          </div>
         </div>
-        <EncoderStrip />
+        <div className="bar-enc"><EncoderStrip /></div>
       </div>
-      <div className="status" role="status">{s.status}</div>
+      <div className="screen-slot"><ScreenPreview source={currentFrame} scale={wide ? 3 : 2} /></div>
     </header>
   );
 }

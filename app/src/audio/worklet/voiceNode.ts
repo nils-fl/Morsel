@@ -69,6 +69,11 @@ export class VoiceNode {
     };
   }
 
+  /** The Launchkey's strips from `t`: pitch bend in cents, mod wheel 0..1. Every voice of this strip follows them. */
+  expression(t: number, bend: number, mod: number) {
+    this.post({ type: "expression", t, bend, mod });
+  }
+
   /** Resolves once the processor has taken every message sent so far (offline renders wait for it). */
   sync() {
     const id = nextId++;

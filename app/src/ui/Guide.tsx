@@ -1,4 +1,4 @@
-// Overview of the hardware mapping, modes and encoder pages. Shown in the Help tab and as an overlay.
+// Overview of the hardware mapping, modes and encoder pages. Shown as an overlay (Guide button, ?).
 import { useEffect, useState } from "react";
 import { PAGES } from "../params";
 import { PAD_COLORS, drumPads, useApp } from "../state/store";
@@ -7,7 +7,7 @@ import { mute, paletteCss } from "./palette";
 type ControlId = "strips" | "screen" | "shift" | "settings" | "play" | "record" | "octave" | "arpScale" | "padUp" | "padDown" | "encoders" | "pads" | "encUp" | "encDown" | "scene" | "func" | "keys";
 
 const CONTROLS: Record<ControlId, { name: string; does: string; shift?: string }> = {
-  strips: { name: "Pitch / Mod strips", does: "Handled by the Launchkey itself; Morsel doesn't use them yet." },
+  strips: { name: "Pitch / Mod strips", does: "Pitch bends the Keys notes, held ones too, and springs back to the middle (±2 semitones; Preferences → Bend range). Mod adds vibrato to them and stays where you leave it. Live only: neither is recorded." },
   shift: { name: "Shift", does: "Hold for the second function of a button. With an encoder: fine steps. Shift + a pad is the Launchkey's own pad-mode shortcut (labels under the pads), so Morsel doesn't use it." },
   settings: { name: "Settings", does: "The Launchkey's own settings menu. Not used by Morsel." },
   octave: { name: "Oct − / Oct +", does: "Shift the keyboard by octaves (handled by the Launchkey). Step mode on a drum track picks pads from the lowest 16 keys at the default octave." },
@@ -27,7 +27,7 @@ const CONTROLS: Record<ControlId, { name: string; does: string; shift?: string }
 };
 
 // Controls the Launchkey handles itself (drawn faded).
-const NATIVE: ControlId[] = ["strips", "settings", "octave", "arpScale"];
+const NATIVE: ControlId[] = ["settings", "octave", "arpScale"];
 
 const SHORTCUTS: [string, string][] = [
   ["Shift + Play", "Metronome (Chop: start / stop the sequencer)"],
@@ -51,6 +51,7 @@ const SHORTCUTS: [string, string][] = [
   ["Double-tap pad", "Solo (Mute, Track bottom row)"],
   ["Space", "Computer: play / stop (Chop tab: play the region)"],
   ["R", "Computer: record"],
+  ["B", "Computer: show / hide the library"],
   ["[ / ]", "Computer: previous / next pattern"],
   ["⌘ + Z", "Computer: undo (⇧⌘Z or Ctrl+Y: redo)"],
 ];
@@ -87,11 +88,12 @@ function MiniPads({ leds }: { leds: Led[] }) {
   );
 }
 
+const CONTROL_IDS = Object.keys(CONTROLS) as ControlId[];
+
 export function Guide() {
   const pads = useApp(drumPads);
   const selected = useApp((s) => s.selectedPad);
   const [focus, setFocus] = useState<ControlId>("func");
-  const c = CONTROLS[focus];
   // cls = the element's own classes; buttons use the g-ctl look, the areas (encoders, pads, keys) their own.
   const ctl = (id: ControlId, cls = "g-ctl") => ({
     className: `${cls} ${focus === id ? "on" : ""} ${NATIVE.includes(id) ? "native" : ""}`,
@@ -172,12 +174,21 @@ export function Guide() {
               })}
             </div>
           </div>
-          <aside className="g-info" aria-live="polite">
-            <div className="g-info-tag">{c.name}</div>
-            <p>{c.does}</p>
-            {c.shift && (
-              <p className="g-shift"><b>Shift</b> {c.shift}</p>
-            )}
+          {/* Every control's text in one cell, only the current one showing: the box is as tall as the longest one, so
+              hovering the controls never moves the page. */}
+          <aside className="g-info">
+            {CONTROL_IDS.map((id) => {
+              const c = CONTROLS[id];
+              return (
+                <div key={id} className={`g-info-item ${id === focus ? "on" : ""}`} aria-hidden={id !== focus} aria-live={id === focus ? "polite" : undefined}>
+                  <div className="g-info-tag">{c.name}</div>
+                  <p>{c.does}</p>
+                  {c.shift && (
+                    <p className="g-shift"><b>Shift</b> {c.shift}</p>
+                  )}
+                </div>
+              );
+            })}
           </aside>
         </div>
       </section>
@@ -234,7 +245,7 @@ export function Guide() {
             <li>Everything autosaves in this browser. Song tab → Export project to keep a copy with all samples, New project to start over.</li>
             <li>Samples come from connected folders (Connect folder, Chrome / Edge): browsed in place from Sample ▾ or Browse on the Launchkey, and a sample is copied into the browser only when you use it. Folder → pads in Sample ▾ makes the open folder the kit. After a browser restart, click Reconnect next to the folder in Sample ▾.</li>
             <li>Dropping an audio file on an on-screen pad loads just that file.</li>
-            <li>New drum tracks start with the Factory kit. Built-in genre kits (Lo-Fi, Boom Bap, Hip Hop, Trap, Drill, House, Techno, DnB, Electro) are synthesized like it. The kit bar (Track tab), the Kit encoder page or Browse → Kits loads a kit; the Kits panel saves, renames, exports, imports (several at once) and deletes them.</li>
+            <li>New drum tracks start with the Factory kit. Built-in genre kits (Lo-Fi, Boom Bap, Hip Hop, Trap, Drill, House, Techno, DnB, Electro) are synthesized like it. The Kit panel (Track tab), the Kit encoder page or Browse → Kits loads a kit; the Kits panel saves, renames, exports, imports (several at once) and deletes them.</li>
             <li>Keys tracks: Synth, Sample (one sound with a root note), Pad sample or Multisample, plus a vibrato and a filter LFO (encoder page LFO).</li>
             <li>Record → chop → drum rack: Shift + Record, play, Shift + Record, then Func. The take opens in Chop with its hits marked; adjust with pads, encoders and ›.</li>
           </ul>

@@ -2,18 +2,24 @@
 import { engine } from "../audio/engine";
 import { get } from "../state/store";
 import { DISK, fileSample, isDiskPath, listDisk, listDiskNow, previewFile, rootPath, stopFilePreview } from "./disk";
-import { KITS, ROOT, SAMPLES, listDir, type Entry } from "./tree";
+import { FAVORITES, KITS, ROOT, SAMPLES, favoriteEntries, listDir, type Entry } from "./tree";
 
 export interface Listing { entries: Entry[]; note?: string }
 
 /** Entries at `path`. `kits` null leaves the Kits folder out (the sample picker). */
 export function listAt(path: string, kits: string[] | null): Listing {
+  const { folders, favorites, samples } = get();
   if (path === ROOT) {
     const top = listDir(ROOT, [], []).filter((e) => kits || e.name !== KITS);
-    return { entries: [...top, ...get().folders.map((f): Entry => ({ kind: "folder", name: f.name, path: rootPath(f.name) }))] };
+    const fav: Entry[] = favorites.length ? [{ kind: "folder", name: FAVORITES, path: FAVORITES }] : [];
+    return { entries: [...fav, ...top, ...folders.map((f): Entry => ({ kind: "folder", name: f.name, path: rootPath(f.name) }))] };
+  }
+  if (path === FAVORITES) {
+    const entries = favoriteEntries(favorites, samples, folders.map((f) => f.name));
+    return { entries, note: entries.length ? undefined : "Nothing starred" };
   }
   if (isDiskPath(path)) return listDisk(path);
-  return { entries: listDir(path, Object.values(get().samples), kits ?? []) };
+  return { entries: listDir(path, Object.values(samples), kits ?? []) };
 }
 
 /** Last part of a path, for headers. */

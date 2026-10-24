@@ -8,8 +8,21 @@ import { Field, Section, Slider } from "./controls";
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 const ms = (v: number) => (v >= 1 ? `${v.toFixed(2)} s` : `${Math.round(v * 1000)} ms`);
 
-/** Drum track: make the selected pad an input, and list the inputs. */
-export function SidechainInputs() {
+/** Drum track: the inputs (made from this rack's pads) and how this track ducks, in one panel. */
+export function SidechainPanel() {
+  const track = useApp(selectedTrack);
+  return (
+    <Section title="Sidechain" actions={<DuckSwitch />}>
+      <h4 className="sub-head first">Inputs</h4>
+      <InputsBody />
+      <h4 className="sub-head">Duck {track.name}</h4>
+      <DuckBody inputsAbove />
+    </Section>
+  );
+}
+
+/** Make the selected pad an input, and list the inputs. */
+function InputsBody() {
   const track = useApp(drumTrack);
   const pad = useApp((s) => s.selectedPad);
   const inputs = useApp((s) => s.project.sidechain);
@@ -17,11 +30,7 @@ export function SidechainInputs() {
   const n = inputs.indexOf(inputOf(track.id, pad)) + 1;
 
   return (
-    <Section title="Sidechain" actions={
-      <button className={n ? "on" : ""} onClick={() => toggleSidechainInput(track.id, pad)} title="Any track can duck from an input">
-        {n ? `${padLabel(track.id, pad)}: Input ${n}` : `Make ${padLabel(track.id, pad)} an input`}
-      </button>
-    }>
+    <>
       <p className="hint tip">
         Each input's hits duck the tracks listening to it (set in each track's Duck panel). Launchkey: <b>Sidechain</b> page
         {onPage ? " (open)" : ""}, hit a pad, encoder 1.
@@ -39,12 +48,34 @@ export function SidechainInputs() {
           })}
         </ul>
       ) : <p className="hint">No inputs yet.</p>}
+      <div className="row">
+        <button className={n ? "on" : ""} onClick={() => toggleSidechainInput(track.id, pad)} title="Any track can duck from an input">
+          {n ? `${padLabel(track.id, pad)}: Input ${n}` : `Make ${padLabel(track.id, pad)} an input`}
+        </button>
+      </div>
+    </>
+  );
+}
+
+/** Keys track: how it ducks. */
+export function DuckPanel() {
+  return (
+    <Section title="Duck" actions={<DuckSwitch />}>
+      <DuckBody />
     </Section>
   );
 }
 
-/** The selected track ducks from an input: a keys track as a whole, a drum track the pads ticked below. */
-export function DuckPanel() {
+/** The selected track's duck, on or off. */
+function DuckSwitch() {
+  const track = useApp(selectedTrack);
+  const on = track.duck.on;
+  return <button className={on ? "on" : ""} onClick={() => setTrackDuck(track.id, { on: !on })} title={`${track.name} ducks from its input`}>{on ? "Duck on" : "Duck off"}</button>;
+}
+
+/** The selected track ducks from an input: a keys track as a whole, a drum track the pads ticked below.
+ *  `inputsAbove`: the inputs are listed just above (drum track), so no "make an input first" note. */
+function DuckBody({ inputsAbove = false }: { inputsAbove?: boolean }) {
   const track = useApp(selectedTrack);
   const inputs = useApp((s) => s.project.sidechain);
   useApp((s) => s.project.tracks); // pad names in the labels
@@ -66,12 +97,10 @@ export function DuckPanel() {
   const set = (patch: Parameters<typeof setTrackDuck>[1]) => setTrackDuck(track.id, patch);
 
   return (
-    <Section title="Duck" actions={
-      <button className={duck.on ? "on" : ""} onClick={() => set({ on: !duck.on })}>{duck.on ? "On" : "Off"}</button>
-    }>
+    <>
       <p className="hint tip">
         {drum
-          ? <>Hits on the input dip the pads ticked below (never the input itself). Inputs are made above. Launchkey: <b>Duck</b> page{onPage ? " (open)" : ""}, hit a pad, encoder 7.</>
+          ? <>Hits on the input dip the pads ticked below (never the input itself). Launchkey: <b>Duck</b> page{onPage ? " (open)" : ""}, hit a pad, encoder 7.</>
           : <>Hits on the input dip this track. Inputs are drum pads, made on a drum track's Track tab. Launchkey: <b>Duck</b> page{onPage ? " (open)" : ""}.</>}
       </p>
       <Field label="Input">
@@ -80,7 +109,7 @@ export function DuckPanel() {
           {inputs.map((x) => <option key={x} value={x}>{inputLabel(x)}</option>)}
         </select>
       </Field>
-      {!inputs.length && <p className="hint">No inputs yet: make a drum pad an input first.</p>}
+      {!inputs.length && !inputsAbove && <p className="hint">No inputs yet: make a drum pad an input first.</p>}
       <Slider label="Depth" value={duck.depth} min={0} max={1} format={pct} onChange={(v) => set({ depth: v })} />
       <Slider label="Attack" value={duck.attack} min={0} max={0.05} step={0.001} format={ms} onChange={(v) => set({ attack: v })} />
       <Slider label="Hold" value={duck.hold} min={0} max={0.5} step={0.01} format={ms} onChange={(v) => set({ hold: v })} />
@@ -101,6 +130,6 @@ export function DuckPanel() {
         </div>
       )}
       <div className="meter duck-meter" title="Gain reduction"><div style={{ width: `${Math.round((1 - (active ? level : 1)) * 100)}%` }} /></div>
-    </Section>
+    </>
   );
 }

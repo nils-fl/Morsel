@@ -4,9 +4,11 @@ import { presetFolders } from "../audio/synthPresets";
 import { hz, presetLabel } from "../params";
 import { engine } from "../audio/engine";
 import { get, keysTrack, set, updateKeys, useApp } from "../state/store";
-import { folderLabel, folderSamples } from "../browse/source";
+import { entrySample, folderLabel, folderSamples } from "../browse/source";
+import type { Entry } from "../browse/tree";
 import type { KeysLfo, KeysSample, SynthParams, Wave, Zone } from "../state/types";
 import { Field, Section, Slider } from "./controls";
+import { droppedEntry } from "./drawer";
 import { SamplePicker } from "./SamplePicker";
 import { DuckPanel } from "./Sidechain";
 import { noteName, rootFromName } from "./notes";
@@ -31,6 +33,16 @@ export function KeysPanel() {
     upSample({ sampleId, root: rootFromName(f.name) ?? keys.sample.root });
   }
 
+  /** A library drawer row dropped on the Keys panel: a sample or file as the keys sound, a folder as the multisample. */
+  async function loadEntry(e: Entry) {
+    if (e.kind === "folder") return loadMulti(e.path);
+    try {
+      upSample({ sampleId: await entrySample(e), root: rootFromName(e.name) ?? keys.sample.root });
+    } catch (err) {
+      set({ status: `${e.name}: ${(err as Error).message}` });
+    }
+  }
+
   /** A folder of note-named samples as the multisample; only those files are copied into the library. */
   async function loadMulti(path: string) {
     const named = await folderSamples(path, Infinity, (name) => rootFromName(name) !== null);
@@ -41,58 +53,57 @@ export function KeysPanel() {
 
   return (
     <div className="keys-panel">
-      <Section title={`${trackName} · Keys instrument`}>
-        <div className="row">
+      {/* What makes the sound, and how loud: a toolbar over the source's own panels. */}
+      <div className="keys-source" role="group" aria-label={`${trackName} sound source`}>
+        <span className="bar-label">Source</span>
+        <div className="segmented">
           {(["synth", "sample", "chromatic", "multi"] as const).map((t) => (
             <button key={t} className={keys.type === t ? "on" : ""} onClick={() => updateKeys({ type: t })}>
               {t === "synth" ? "Synth" : t === "sample" ? "Sample" : t === "chromatic" ? "Pad sample" : "Multisample"}
             </button>
           ))}
-          <Slider label="Volume" value={keys.volume} min={0} max={1} format={pct} onChange={(v) => updateKeys({ volume: v })} />
         </div>
-      </Section>
+        <Slider label="Volume" value={keys.volume} min={0} max={1} format={pct} onChange={(v) => updateKeys({ volume: v })} />
+      </div>
 
       {keys.type === "synth" && <PresetBar />}
 
       {keys.type === "synth" && (
         <Section title="Synth">
-          <div className="row wrap">
-            <Field label="Osc 1">
-              <select value={synth.wave} onChange={(e) => upSynth({ wave: e.target.value as Wave })}>{WAVES.map((w) => <option key={w}>{w}</option>)}</select>
-            </Field>
-            <Field label="Osc 2">
-              <select value={synth.wave2} onChange={(e) => upSynth({ wave2: e.target.value as Wave })}>{WAVES.map((w) => <option key={w}>{w}</option>)}</select>
-            </Field>
+          {/* One column per part of the voice: what oscillates, how it's filtered, how it fades. */}
+          <div className="slider-groups first">
+            <div className="slider-group">
+              <h4 className="sub-head">Oscillators</h4>
+              <SelectRow label="Osc 1" value={synth.wave} options={WAVES} onPick={(w) => upSynth({ wave: w })} />
+              <SelectRow label="Osc 2" value={synth.wave2} options={WAVES} onPick={(w) => upSynth({ wave2: w })} />
+              <Slider label="Osc 2 lvl" value={synth.osc2Level} min={0} max={1} format={pct} onChange={(v) => upSynth({ osc2Level: v })} />
+              <Slider label="Detune" value={synth.detune} min={-2400} max={2400} step={1} format={(v) => `${v} ct`} onChange={(v) => upSynth({ detune: v })} />
+              <Slider label="Sub" value={synth.sub} min={0} max={1} format={offPct} onChange={(v) => upSynth({ sub: v })} />
+              <Slider label="Noise" value={synth.noise} min={0} max={1} format={offPct} onChange={(v) => upSynth({ noise: v })} />
+            </div>
+            <div className="slider-group">
+              <h4 className="sub-head">Filter</h4>
+              <SelectRow label="Slope" value={synth.slope} options={[12, 24] as const} format={(v) => `${v} dB`} onPick={(v) => upSynth({ slope: v })} />
+              <Slider label="Cutoff" value={synth.cutoff} min={0} max={1} format={pct} onChange={(v) => upSynth({ cutoff: v })} />
+              <Slider label="Resonance" value={synth.resonance} min={0} max={1} format={pct} onChange={(v) => upSynth({ resonance: v })} />
+              <Slider label="Drive" value={synth.drive} min={0} max={1} format={offPct} onChange={(v) => upSynth({ drive: v })} />
+              <Slider label="Key track" value={synth.keyTrack} min={0} max={1} format={offPct} onChange={(v) => upSynth({ keyTrack: v })} />
+            </div>
+            <div className="slider-group">
+              <h4 className="sub-head">Filter envelope</h4>
+              <Slider label="Env amt" value={synth.envAmount} min={0} max={1} format={pct} onChange={(v) => upSynth({ envAmount: v })} />
+              <Slider label="Decay" value={synth.filterDecay} min={0} max={2} format={(v) => (v ? ms(v) : "= Amp")} onChange={(v) => upSynth({ filterDecay: v })} />
+              <Slider label="Velocity" value={synth.velFilter} min={0} max={1} format={offPct} onChange={(v) => upSynth({ velFilter: v })} />
+            </div>
+            <div className="slider-group">
+              <h4 className="sub-head">Amp envelope</h4>
+              <Slider label="Attack" value={synth.attack} min={0.001} max={2} step={0.001} format={ms} onChange={(v) => upSynth({ attack: v })} />
+              <Slider label="Decay" value={synth.decay} min={0.01} max={2} format={ms} onChange={(v) => upSynth({ decay: v })} />
+              <Slider label="Sustain" value={synth.sustain} min={0} max={1} format={pct} onChange={(v) => upSynth({ sustain: v })} />
+              <Slider label="Release" value={synth.release} min={0.01} max={3} format={ms} onChange={(v) => upSynth({ release: v })} />
+            </div>
           </div>
-          <div className="sliders">
-            <Slider label="Osc 2 lvl" value={synth.osc2Level} min={0} max={1} format={pct} onChange={(v) => upSynth({ osc2Level: v })} />
-            <Slider label="Detune" value={synth.detune} min={-2400} max={2400} step={1} format={(v) => `${v} ct`} onChange={(v) => upSynth({ detune: v })} />
-            <Slider label="Cutoff" value={synth.cutoff} min={0} max={1} format={pct} onChange={(v) => upSynth({ cutoff: v })} />
-            <Slider label="Resonance" value={synth.resonance} min={0} max={1} format={pct} onChange={(v) => upSynth({ resonance: v })} />
-            <Slider label="Env amt" value={synth.envAmount} min={0} max={1} format={pct} onChange={(v) => upSynth({ envAmount: v })} />
-            <Slider label="Attack" value={synth.attack} min={0.001} max={2} step={0.001} format={ms} onChange={(v) => upSynth({ attack: v })} />
-            <Slider label="Decay" value={synth.decay} min={0.01} max={2} format={ms} onChange={(v) => upSynth({ decay: v })} />
-            <Slider label="Sustain" value={synth.sustain} min={0} max={1} format={pct} onChange={(v) => upSynth({ sustain: v })} />
-            <Slider label="Release" value={synth.release} min={0.01} max={3} format={ms} onChange={(v) => upSynth({ release: v })} />
-          </div>
-          <h4 className="sub-head">Shape</h4>
-          <div className="row wrap">
-            <Field label="Filter slope">
-              <select value={synth.slope} onChange={(e) => upSynth({ slope: Number(e.target.value) === 24 ? 24 : 12 })}>
-                <option value={12}>12 dB</option>
-                <option value={24}>24 dB</option>
-              </select>
-            </Field>
-          </div>
-          <div className="sliders">
-            <Slider label="Sub" value={synth.sub} min={0} max={1} format={offPct} onChange={(v) => upSynth({ sub: v })} />
-            <Slider label="Noise" value={synth.noise} min={0} max={1} format={offPct} onChange={(v) => upSynth({ noise: v })} />
-            <Slider label="Drive" value={synth.drive} min={0} max={1} format={offPct} onChange={(v) => upSynth({ drive: v })} />
-            <Slider label="Key track" value={synth.keyTrack} min={0} max={1} format={offPct} onChange={(v) => upSynth({ keyTrack: v })} />
-            <Slider label="Vel > filt" value={synth.velFilter} min={0} max={1} format={offPct} onChange={(v) => upSynth({ velFilter: v })} />
-            <Slider label="Filt decay" value={synth.filterDecay} min={0} max={2} format={(v) => (v ? ms(v) : "= Decay")} onChange={(v) => upSynth({ filterDecay: v })} />
-          </div>
-          <p className="hint tip">Filt decay: the filter closes over its own time (plucks that still sustain); at 0 it follows the amp's Decay and Sustain.</p>
+          <p className="hint tip">Filter envelope Decay: the filter closes over its own time (plucks that still sustain); at 0 it follows the amp's Decay and Sustain. Velocity: harder notes open the filter more.</p>
         </Section>
       )}
 
@@ -100,10 +111,13 @@ export function KeysPanel() {
         <Section title="Sample on keys">
           <p className="hint" onDragOver={(e) => e.preventDefault()} onDrop={(e) => {
             e.preventDefault();
+            const entry = droppedEntry(e.dataTransfer);
+            if (entry) return void loadEntry(entry);
             const f = [...e.dataTransfer.files][0];
             if (f) void loadSample(f);
           }}>
-            One sound played across the keys and pads, at its own pitch on the root note. Pick it below, or drop a file here.
+            One sound played across the keys and pads, at its own pitch on the root note. Pick it below, or drop a file
+            (or a library row; a folder makes a multisample) here.
           </p>
           <div className="row wrap">
             <Field label="Sample">
@@ -158,20 +172,27 @@ export function KeysPanel() {
         </Section>
       )}
 
-      <Section title="LFO">
-        <p className="hint tip">
-          Vibrato wobbles the pitch, the filter LFO sweeps the cutoff (set Cutoff below open for a full sweep). Depth 0 = off.
-          Launchkey: encoder page <b>LFO</b>.
-        </p>
-        <div className="sliders">
-          <Slider label="Vib rate" value={keys.lfo.vibRate} min={0.1} max={20} step={0.1} format={(v) => `${v.toFixed(1)} Hz`} onChange={(v) => upLfo({ vibRate: v })} />
-          <Slider label="Vib depth" value={keys.lfo.vibDepth} min={0} max={1} step={0.01} format={(v) => (v ? `±${Math.round(v * 100)} ct` : "Off")} onChange={(v) => upLfo({ vibDepth: v })} />
-          <Slider label="Filter rate" value={keys.lfo.filterRate} min={0.1} max={20} step={0.1} format={(v) => `${v.toFixed(1)} Hz`} onChange={(v) => upLfo({ filterRate: v })} />
-          <Slider label="Filter depth" value={keys.lfo.filterDepth} min={0} max={1} step={0.01} format={(v) => (v ? `±${(v * 2).toFixed(1)} oct` : "Off")} onChange={(v) => upLfo({ filterDepth: v })} />
-        </div>
-      </Section>
-
-      <DuckPanel />
+      <div className="panels">
+        <Section title="LFO">
+          <p className="hint tip">
+            Vibrato wobbles the pitch, the filter LFO sweeps the cutoff (set Cutoff below open for a full sweep). Depth 0 = off.
+            Launchkey: encoder page <b>LFO</b>.
+          </p>
+          <div className="slider-groups first">
+            <div className="slider-group">
+              <h4 className="sub-head">Vibrato</h4>
+              <Slider label="Rate" value={keys.lfo.vibRate} min={0.1} max={20} step={0.1} format={(v) => `${v.toFixed(1)} Hz`} onChange={(v) => upLfo({ vibRate: v })} />
+              <Slider label="Depth" value={keys.lfo.vibDepth} min={0} max={1} step={0.01} format={(v) => (v ? `±${Math.round(v * 100)} ct` : "Off")} onChange={(v) => upLfo({ vibDepth: v })} />
+            </div>
+            <div className="slider-group">
+              <h4 className="sub-head">Filter</h4>
+              <Slider label="Rate" value={keys.lfo.filterRate} min={0.1} max={20} step={0.1} format={(v) => `${v.toFixed(1)} Hz`} onChange={(v) => upLfo({ filterRate: v })} />
+              <Slider label="Depth" value={keys.lfo.filterDepth} min={0} max={1} step={0.01} format={(v) => (v ? `±${(v * 2).toFixed(1)} oct` : "Off")} onChange={(v) => upLfo({ filterDepth: v })} />
+            </div>
+          </div>
+        </Section>
+        <DuckPanel />
+      </div>
 
       <Section title="Try it">
         <MiniKeyboard />
@@ -220,11 +241,25 @@ function PresetBar() {
       </div>
       <p className="hint tip">A * means the sound was edited since the preset was loaded. Launchkey: encoder page <b>Keys</b>, encoder 1 scrolls presets, Shift + encoder 1 jumps to the next folder.</p>
       <div className="row">
-        <input placeholder="Preset name" value={name} maxLength={24} onChange={(e) => setName(e.target.value)} />
-        <button disabled={!name.trim()} onClick={async () => { await saveUserPreset(name); setName(""); }}>Save as preset</button>
+        <input placeholder="Save the sound as…" value={name} maxLength={24} onChange={(e) => setName(e.target.value)} aria-label="Preset name" />
+        {name.trim() && <button onClick={async () => { await saveUserPreset(name); setName(""); }}>Save</button>}
         {isUser && <button onClick={() => deleteUserPreset(current)} title="Delete this saved preset (the current sound stays)">Delete “{current}”</button>}
       </div>
     </Section>
+  );
+}
+
+/** A choice laid out like a slider row (label, then the control), so it lines up in a slider group. */
+function SelectRow<T extends string | number>({ label, value, options, format = String, onPick }: {
+  label: string; value: T; options: readonly T[]; format?: (v: T) => string; onPick: (v: T) => void;
+}) {
+  return (
+    <label className="slider select-row">
+      <span className="slider-label">{label}</span>
+      <select value={value} onChange={(e) => onPick(options.find((o) => String(o) === e.target.value) ?? value)}>
+        {options.map((o) => <option key={o} value={o}>{format(o)}</option>)}
+      </select>
+    </label>
   );
 }
 

@@ -3,7 +3,7 @@
 // timeline, the biquad formulas, the built-in oscillators' band-limited tables and the stereo panner law. Each voice
 // makes the same automation calls as its dsp.ts builder, so both engines play the same envelopes.
 import type { KeysLfo, Pad, SynthParams, Wave } from "../../state/types";
-import { DECAY_MAX, FILTER_LFO_CENTS, REGION_FADE, KEY_TRACK_PIVOT, VIB_CENTS, cutoffHz, driveCurve, padQDb, synthQDb, velGain } from "../dsp";
+import { DECAY_MAX, FILTER_LFO_CENTS, MOD_VIB_CENTS, REGION_FADE, KEY_TRACK_PIVOT, VIB_CENTS, cutoffHz, driveCurve, padQDb, synthQDb, velGain } from "../dsp";
 
 // ---------- messages between the main thread and the processor ----------
 
@@ -32,6 +32,8 @@ export type ToProcessor =
   | { type: "drop"; ids: string[] }
   | { type: "voice"; id: number; out: number; when: number; spec: VoiceSpec }
   | { type: "stop"; id: number; t: number; fast: boolean }
+  /** The Launchkey's strips on a keys track: pitch bend in cents, mod wheel 0..1 (Expression). */
+  | { type: "expression"; t: number; bend: number; mod: number }
   | { type: "sync"; id: number }
   | { type: "close" };
 
@@ -277,13 +279,79 @@ function shape(curve: Float32Array, x: number) {
   return curve[k] + (curve[k + 1] - curve[k]) * (v - k);
 }
 
+// ---------- expression (the Launchkey's pitch and mod strips) ----------
+
+/** How fast bend and mod follow the strips: smooth enough not to step, quick enough to feel direct. */
+const EXPRESSION_TAU = 0.01;
+
+/**
+ * A strip's live pitch bend (cents) and mod wheel (0..1), shared by every voice it plays, so held notes follow too.
+ * The processor fills a block's worth before its voices render (fill), easing towards each new value.
+ */
+export class Expression {
+  bend = new Float32Array(128);
+  mod = new Float32Array(128);
+  private now = { bend: 0, mod: 0 };
+  private target = { bend: 0, mod: 0 };
+  private queue: { t: number; bend: number; mod: number }[] = [];
+  /** Nothing to add: the block is all zeros and stays so (voices then render exactly as without it). */
+  idle = true;
+
+  set(t: number, bend: number, mod: number) {
+    let i = this.queue.length;
+    while (i > 0 && this.queue[i - 1].t > t) i--;
+    this.queue.splice(i, 0, { t, bend, mod });
+  }
+
+  fill(frame: number, n: number, sampleRate: number) {
+    if (this.bend.length < n) {
+      this.bend = new Float32Array(n);
+      this.mod = new Float32Array(n);
+    }
+    const settled = (x: number, y: number) => Math.abs(x - y) < 1e-4;
+    const { now, target, queue } = this;
+    if (!queue.length && settled(now.bend, target.bend) && settled(now.mod, target.mod) && !target.bend && !target.mod) {
+      if (!this.idle) {
+        this.bend.fill(0);
+        this.mod.fill(0);
+        now.bend = now.mod = 0;
+        this.idle = true;
+      }
+      return;
+    }
+    this.idle = false;
+    const k = 1 - Math.exp(-1 / (EXPRESSION_TAU * sampleRate));
+    for (let i = 0; i < n; i++) {
+      const t = (frame + i) / sampleRate;
+      while (queue.length && queue[0].t <= t) {
+        const q = queue.shift()!;
+        target.bend = q.bend;
+        target.mod = q.mod;
+      }
+      now.bend += (target.bend - now.bend) * k;
+      now.mod += (target.mod - now.mod) * k;
+      this.bend[i] = now.bend;
+      this.mod[i] = now.mod;
+    }
+  }
+
+  /** Extra cents for frame i of the block: the bend, plus the mod wheel's vibrato at `rate` Hz (a shared phase). */
+  cents(i: number, t: number, rate: number) {
+    const m = this.mod[i];
+    return this.bend[i] + (m ? m * MOD_VIB_CENTS * Math.sin(2 * Math.PI * rate * t) : 0);
+  }
+}
+
+/** Without a vibrato rate of their own, notes wobble at this one (the Keys LFO's default). */
+const DEFAULT_VIB_RATE = 5;
+
 // ---------- voices ----------
 
 export interface Voice {
   /** Release (gate) or cut (choke). `fast` = 5 ms fade for chokes. The earliest stop wins. */
   stop(t: number, fast: boolean): void;
-  /** Add frames [frame, frame + n) to `out` (1 or 2 channels). Returns false once the voice has ended. */
-  render(out: Float32Array[], frame: number, n: number): boolean;
+  /** Add frames [frame, frame + n) to `out` (1 or 2 channels), bent by `expr` if given. Returns false once the voice has ended. */
+  render(out: Float32Array[], frame: number, n: number, expr?: Expression): boolean;
 }
 
 /** StereoPannerNode gains: [left, right] for mono input; for stereo, how much of each side crosses over. */
@@ -386,17 +454,20 @@ export class SampleVoice implements Voice {
     return hermite(d[i - 1] ?? 0, d[i] ?? 0, d[i + 1] ?? 0, d[i + 2] ?? 0, p - i);
   }
 
-  render(out: Float32Array[], frame: number, n: number) {
+  render(out: Float32Array[], frame: number, n: number, expr?: Expression) {
     const sr = this.sampleRate;
     const stereoIn = this.data.channels.length > 1;
     const { lfo } = this.spec;
+    const bent = expr && !expr.idle ? expr : null;
+    const vibRate = lfo?.vibRate ?? DEFAULT_VIB_RATE;
     const step = (this.data.sampleRate / sr) * this.rate;
     const [gl, gr] = this.pan;
     const pan = this.spec.pad.pan;
     for (let i = Math.max(0, this.startFrame - frame); i < n; i++) {
       const t = (frame + i) / sr;
       if (t >= this.stopTime || this.pos >= this.endPos) return false;
-      const vib = lfo ? lfoAt(lfo.vibRate, lfo.vibDepth * VIB_CENTS, this.when, t) : 0;
+      let vib = lfo ? lfoAt(lfo.vibRate, lfo.vibDepth * VIB_CENTS, this.when, t) : 0;
+      if (bent) vib += bent.cents(i, t, vibRate);
       const filt = lfo ? lfoAt(lfo.filterRate, lfo.filterDepth * FILTER_LFO_CENTS, this.when, t) : 0;
       this.hp?.set(this.hpHz, this.q, sr);
       this.lp?.set(detuned(this.lpHz, filt, sr), this.q, sr);
@@ -507,13 +578,16 @@ export class SynthVoice implements Voice {
     this.stopTime = t + rel + 0.05;
   }
 
-  render(out: Float32Array[], frame: number, n: number) {
+  render(out: Float32Array[], frame: number, n: number, expr?: Expression) {
     const sr = this.sampleRate;
     const { synth: s, lfo } = this.spec;
+    const bent = expr && !expr.idle ? expr : null;
+    const vibRate = lfo?.vibRate ?? DEFAULT_VIB_RATE;
     for (let i = Math.max(0, this.startFrame - frame); i < n; i++) {
       const t = (frame + i) / sr;
       if (t >= this.stopTime) return false;
-      const vib = lfo ? lfoAt(lfo.vibRate, lfo.vibDepth * VIB_CENTS, this.when, t) : 0;
+      let vib = lfo ? lfoAt(lfo.vibRate, lfo.vibDepth * VIB_CENTS, this.when, t) : 0;
+      if (bent) vib += bent.cents(i, t, vibRate);
       const filt = lfo ? lfoAt(lfo.filterRate, lfo.filterDepth * FILTER_LFO_CENTS, this.when, t) : 0;
       const bend = vib ? Math.pow(2, vib / 1200) : 1;
       if (this.lead) {

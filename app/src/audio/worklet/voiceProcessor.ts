@@ -2,7 +2,7 @@
 // each into its own output (a drum pad's bus, or the keys input), sample-accurately in the audio thread. The master
 // processor limits the mix.
 import { MASTER_PROCESSOR_NAME, MasterCore } from "./masterCore";
-import { PROCESSOR_NAME, SampleVoice, SynthVoice, type FromProcessor, type SampleData, type ToProcessor, type Voice } from "./voiceCore";
+import { Expression, PROCESSOR_NAME, SampleVoice, SynthVoice, type FromProcessor, type SampleData, type ToProcessor, type Voice } from "./voiceCore";
 
 // AudioWorkletGlobalScope (not in the DOM lib).
 declare const sampleRate: number;
@@ -17,6 +17,8 @@ const samples = new Map<string, SampleData>();
 
 class VoiceProcessor extends AudioWorkletProcessor {
   private voices = new Map<number, { voice: Voice; out: number }>();
+  /** The Launchkey's strips, when this strip is the keys track they play. */
+  private expression = new Expression();
   private closed = false;
 
   constructor() {
@@ -49,6 +51,9 @@ class VoiceProcessor extends AudioWorkletProcessor {
       case "stop":
         this.voices.get(m.id)?.voice.stop(Math.max(m.t, now), m.fast);
         break;
+      case "expression":
+        this.expression.set(Math.max(m.t, now), m.bend, m.mod);
+        break;
       case "sync":
         this.send({ type: "synced", id: m.id });
         break;
@@ -61,9 +66,11 @@ class VoiceProcessor extends AudioWorkletProcessor {
   process(_inputs: Float32Array[][], outputs: Float32Array[][]) {
     if (this.closed) return false;
     const ended: number[] = [];
+    const n = outputs[0]?.[0]?.length ?? 128;
+    this.expression.fill(currentFrame, n, sampleRate);
     for (const [id, { voice, out }] of this.voices) {
       const o = outputs[out];
-      if (!voice.render(o, currentFrame, o[0].length)) {
+      if (!voice.render(o, currentFrame, o[0].length, this.expression)) {
         this.voices.delete(id);
         ended.push(id);
       }

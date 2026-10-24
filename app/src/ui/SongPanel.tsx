@@ -1,9 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { engine } from "../audio/engine";
-import { removeUnusedSamples } from "../actions";
+import { useState } from "react";
 import { arrangement, download, encodeWav, renderToBuffer } from "../seq/render";
-import { PROJECT_ACCEPT, PROJECT_EXT } from "../state/fileFormat";
-import { exportProject, importProject, newProject } from "../state/projectFile";
 import { get, patternHasNotes, set, updateProject, useApp } from "../state/store";
 import { Section } from "./controls";
 import { Matrix } from "./Matrix";
@@ -15,7 +11,6 @@ export function SongPanel() {
   const [loops, setLoops] = useState(4);
   const bits = useApp((s) => s.bounceBits);
   const [busy, setBusy] = useState(false);
-  const importInput = useRef<HTMLInputElement>(null);
 
   const setSong = (fn: (s: typeof song) => typeof song) => updateProject((p) => ({ ...p, song: fn(p.song) }));
 
@@ -79,55 +74,6 @@ export function SongPanel() {
           </select>
         </div>
       </Section>
-
-      <Section title="Project">
-        <div className="row">
-          <input value={useApp((s) => s.project.name)} onChange={(e) => updateProject((p) => ({ ...p, name: e.target.value }), false)} />
-          <button onClick={async () => download(await exportProject(), `${get().project.name}${PROJECT_EXT}`)}>Export project</button>
-          <button onClick={() => importInput.current?.click()}>Import project…</button>
-          <button onClick={() => void newProject()}>New project…</button>
-          <input ref={importInput} type="file" accept={PROJECT_ACCEPT} hidden onChange={async (e) => {
-            const f = e.target.files?.[0];
-            e.target.value = "";
-            if (!f) return;
-            try {
-              await importProject(f, engine);
-            } catch (err) {
-              set({ status: `Project import failed: ${(err as Error).message}` });
-            }
-          }} />
-        </div>
-        <p className="hint tip">Projects autosave in this browser. Export saves the patterns and every sample in one file. New project starts over with the Factory kit.</p>
-      </Section>
-
-      <LibraryPanel />
     </div>
-  );
-}
-
-const gb = (bytes: number) => (bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.round(bytes / 1e6)} MB`);
-
-/** The sample library in this browser: how big it is, and clearing out what nothing uses. */
-function LibraryPanel() {
-  const count = useApp((s) => Object.keys(s.samples).length);
-  const [usage, setUsage] = useState<number | null>(null);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    // Whole site: samples, projects, kits. Unavailable in some browsers.
-    navigator.storage?.estimate?.().then((e) => setUsage(e.usage ?? null), () => undefined);
-  }, [count]);
-  return (
-    <Section title="Library" actions={
-      <button disabled={busy || !count} title="Delete samples no track, undo step or saved kit uses" onClick={async () => {
-        setBusy(true);
-        await removeUnusedSamples().finally(() => setBusy(false));
-      }}>Remove unused samples…</button>
-    }>
-      <p className="hint">
-        {count} sample{count === 1 ? "" : "s"}{usage !== null && ` · ${gb(usage)} of browser storage`}. Samples live in this browser:
-        clearing the site's data deletes them along with the autosaved project, so export projects you want to keep.
-        For big sample packs, Connect folder instead of importing.
-      </p>
-    </Section>
   );
 }

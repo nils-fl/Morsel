@@ -3,6 +3,7 @@ import {
   bitmapSysex, buttonLedMessage, cc7, displayConfigSysex, isBitmapAck, displayTextSysex, padFromNote, padLedMessage, relativeDelta,
   type Button, type LedMode, type PadLayout,
 } from "./protocol";
+import { isString, oneOf, pref } from "../state/prefs";
 
 export type LaunchkeyEvent =
   | { type: "pad"; pad: number; velocity: number; on: boolean }
@@ -32,15 +33,13 @@ const SHIFT_COVER_KEEP_MS = 700;
  */
 export type ShiftCover = "bitmap" | "text" | "cancel" | "off";
 export const SHIFT_COVERS: ShiftCover[] = ["bitmap", "text", "cancel", "off"];
-const SHIFT_COVER_KEY = "morsel.shiftCover";
+const shiftCoverPref = pref<ShiftCover>("morsel.shiftCover", "bitmap", oneOf(SHIFT_COVERS));
 
-function loadShiftCover(): ShiftCover {
-  try {
-    const v = localStorage.getItem(SHIFT_COVER_KEY);
-    if (SHIFT_COVERS.includes(v as ShiftCover)) return v as ShiftCover;
-  } catch { /* storage blocked: use the default */ }
-  return "bitmap";
-}
+/** Which Launchkey to use when more than one is plugged in, by name ("" = the first one found). */
+const devicePref = pref("morsel.midiDevice", "", isString);
+
+/** A port's device name: "Launchkey Mini MK4 25 DAW Out" → "Launchkey Mini MK4 25". */
+const deviceName = (port: MIDIPort) => (port.name ?? "").replace(/\s+(DAW|MIDI)\b.*$/i, "");
 
 export class Launchkey {
   private access: MIDIAccess | null = null;
@@ -66,8 +65,10 @@ export class Launchkey {
   logRaw = false;
   /** The two lines of the device text popup shown while Shift is held (set by the controller per mode). */
   shiftCover: [string, string] = ["Shift", ""];
-  /** How the device's own Shift popup is covered (see ShiftCover); picked in the Lab tab, remembered per browser. */
-  shiftCoverMode: ShiftCover = loadShiftCover();
+  /** How the device's own Shift popup is covered (see ShiftCover); picked in Preferences or the Lab. */
+  shiftCoverMode: ShiftCover = shiftCoverPref.get();
+  /** The picked device's name, or "" for the first Launchkey found. */
+  device = devicePref.get();
   private shiftTimers: number[] = [];
   /** performance.now() time the message being handled arrived at (undefined outside a handler): live notes use it. */
   eventTime: number | undefined;
@@ -98,15 +99,33 @@ export class Launchkey {
     };
   }
 
+  /** The Launchkeys plugged in, by name. */
+  devices() {
+    if (!this.access) return [];
+    const names = [...this.access.inputs.values()].filter((p) => p.state === "connected" && /launchkey/i.test(p.name ?? "")).map(deviceName);
+    return [...new Set(names)];
+  }
+
+  /** Use another Launchkey ("" = the first one found) and remember it. */
+  setDevice(name: string) {
+    this.device = name;
+    devicePref.set(name);
+    this.scan();
+  }
+
   private scan() {
     if (!this.access) return;
     const find = <T extends MIDIPort>(ports: Iterable<T>, kind: string) =>
-      [...ports].find((p) => p.state === "connected" && /launchkey/i.test(p.name ?? "") && (p.name ?? "").includes(kind)) ?? null;
+      [...ports].find((p) => p.state === "connected" && /launchkey/i.test(p.name ?? "") && (p.name ?? "").includes(kind) &&
+        (!this.device || deviceName(p) === this.device)) ?? null;
     const dawIn = find(this.access.inputs.values(), "DAW");
     const dawOut = find(this.access.outputs.values(), "DAW");
     const midiIn = find(this.access.inputs.values(), "MIDI");
     const ok = !!(dawIn && dawOut);
     if (ok && (dawIn !== this.dawIn || dawOut !== this.dawOut)) {
+      // Another Launchkey picked: hand the one before back to its standalone mode.
+      if (this.dawOut?.state === "connected") this.release();
+      if (this.dawIn) this.dawIn.onmidimessage = null;
       this.dawIn = dawIn;
       this.dawOut = dawOut;
       this.dawIn!.onmidimessage = (m) => this.handle("DAW", m);
@@ -118,6 +137,8 @@ export class Launchkey {
       // statechange fires once per port: the keys port can show up (or go away) after the DAW ports.
       this.bindMidiIn(midiIn);
     } else if (!ok && this.connected) {
+      if (this.dawOut?.state === "connected") this.release();
+      if (this.dawIn) this.dawIn.onmidimessage = null;
       this.bindMidiIn(null);
       this.dawIn = this.dawOut = null;
       this.connected = false;
@@ -271,9 +292,7 @@ export class Launchkey {
 
   setShiftCover(mode: ShiftCover) {
     this.shiftCoverMode = mode;
-    try {
-      localStorage.setItem(SHIFT_COVER_KEY, mode);
-    } catch { /* storage blocked: applies until reload */ }
+    shiftCoverPref.set(mode);
   }
 
   /** Close the temporary popup (ours or the device's) and redraw the latest bitmap over it. */

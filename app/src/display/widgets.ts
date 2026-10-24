@@ -12,9 +12,12 @@ export function header(f: Frame, left: string, right = "") {
   return f.textFit(2, 1, left, W - 4 - (right ? rw + 6 : 0), 0);
 }
 
-/** First visible row so the cursor stays in view (cursor kept centred where possible). */
-export function scrollTop(count: number, cursor: number, rows: number) {
-  return Math.max(0, Math.min(cursor - Math.floor(rows / 2), count - rows));
+/**
+ * Index shown on the first row: the cursor always sits on the middle row, so near the ends of the list the rows past
+ * them stay empty (below 0 at the top). Without a cursor (-1) the list starts at the top.
+ */
+export function scrollTop(cursor: number, rows: number) {
+  return cursor < 0 ? 0 : cursor - Math.floor(rows / 2);
 }
 
 export interface ListItem {
@@ -28,10 +31,11 @@ function folderIcon(f: Frame, x: number, y: number, on: number) {
 }
 
 export function list(f: Frame, y0: number, rows: number, items: ListItem[], cursor: number) {
-  const top = scrollTop(items.length, cursor, rows);
+  const top = scrollTop(cursor, rows);
   const scroll = items.length > rows;
   const width = W - (scroll ? 4 : 0);
   for (let r = 0; r < rows && top + r < items.length; r++) {
+    if (top + r < 0) continue;
     const it = items[top + r];
     const y = y0 + r * ROW_H;
     const sel = top + r === cursor;
@@ -47,7 +51,8 @@ export function list(f: Frame, y0: number, rows: number, items: ListItem[], curs
   if (scroll) {
     const h = rows * ROW_H;
     const thumb = Math.max(4, Math.round((h * rows) / items.length));
-    const pos = Math.round(((h - thumb) * top) / (items.length - rows));
+    // Follows the cursor: the window itself runs past both ends.
+    const pos = Math.round(((h - thumb) * Math.max(0, cursor)) / (items.length - 1));
     f.vline(W - 2, y0, y0 + h - 1);
     f.fillRect(W - 3, y0 + pos, 3, thumb);
   }

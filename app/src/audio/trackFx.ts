@@ -1,12 +1,13 @@
 // Mixer channels: one strip per track (inserts, pan, fader, ducker, sends) and the shared reverb and delay
 // returns. Built on any BaseAudioContext, so the WAV bounce has the same FX as live playback.
 import { DEFAULT_MASTER_LEVEL, PAD_COUNT, type Returns, type Track, type TrackFx } from "../state/types";
-import { cutoffHz } from "./dsp";
+import { MOD_VIB_CENTS, cutoffHz } from "./dsp";
 import { reverbImpulseData } from "./reverb";
 import { MASTER_PROCESSOR_NAME, softClip, type MasterMeter } from "./worklet/masterCore";
 import { KEYS_MONO_OUT, KEYS_STEREO_OUT, VoiceNode } from "./worklet/voiceNode";
 
 const TC = 0.02; // smoothing time constant for knob moves
+const EXPRESSION_TC = 0.01; // the strips: as the worklet engine's Expression
 
 /** How the insert FX knobs map to node settings (kept here so the mixer UI can show the same numbers). */
 export const fxFilterHz = (c: number) => cutoffHz(c);
@@ -51,6 +52,14 @@ export class TrackStrip {
   readonly voices: VoiceNode | null;
   /** Which keys output of the voice processor feeds `input`: mono for the synth, stereo for samples. */
   private keysOut = -1;
+  /**
+   * Node engine, keys tracks: the Launchkey's pitch bend and mod-wheel vibrato in cents, which every keys voice adds
+   * to its detune (the worklet engine does this in its processor).
+   */
+  readonly pitchIn: GainNode | null = null;
+  private bend: ConstantSourceNode | null = null;
+  private vibrato: OscillatorNode | null = null;
+  private modDepth: GainNode | null = null;
 
   constructor(ctx: BaseAudioContext, kind: Track["kind"], master: AudioNode, reverbIn: AudioNode, delayIn: AudioNode, worklet = false) {
     this.ctx = ctx;
@@ -92,8 +101,21 @@ export class TrackStrip {
       }
     }
     this.voices = worklet ? new VoiceNode(ctx) : null;
+    if (!worklet && kind === "keys") {
+      this.pitchIn = g();
+      this.bend = ctx.createConstantSource();
+      this.bend.offset.value = 0;
+      this.vibrato = ctx.createOscillator();
+      this.modDepth = g();
+      this.modDepth.gain.value = 0;
+      this.bend.connect(this.pitchIn);
+      this.vibrato.connect(this.modDepth).connect(this.pitchIn);
+      this.bend.start();
+      this.vibrato.start();
+    }
     if (this.voices && kind === "drum") this.padBus.forEach((bus, i) => this.voices!.node.connect(bus, i));
     this.nodes = [this.input, this.filter, ...this.eq, this.driveIn, this.shaper, this.driveOut, this.comp, this.pan, this.fader, this.duck, this.sendA, this.sendB, ...this.padBus, ...this.padDuck];
+    if (this.pitchIn) this.nodes.push(this.pitchIn, this.bend!, this.vibrato!, this.modDepth!);
     this.applyFx(undefined);
   }
 
@@ -106,6 +128,7 @@ export class TrackStrip {
     this.sendB.gain.setTargetAtTime(t.sendB, now, TC);
     this.padBus.forEach((b, i) => b.gain.setTargetAtTime(padOn(i) ? 1 : 0, now, 0.01));
     this.applyFx(t.fx);
+    if (this.vibrato && t.keys) this.vibrato.frequency.setTargetAtTime(t.keys.lfo.vibRate, now, TC);
     // Only the output in use is connected: a synth alone stays mono up to the pan, as on the node engine.
     const keysOut = t.keys ? (t.keys.type === "synth" ? KEYS_MONO_OUT : KEYS_STEREO_OUT) : -1;
     if (this.voices && keysOut !== this.keysOut) {
@@ -145,7 +168,16 @@ export class TrackStrip {
     this.comp.release.value = 0.12;
   }
 
+  /** The Launchkey's strips from `when`: pitch bend in cents, mod wheel 0..1. Held notes follow. */
+  setExpression(when: number, bend: number, mod: number) {
+    if (this.voices) return this.voices.expression(when, bend, mod);
+    this.bend?.offset.setTargetAtTime(bend, when, EXPRESSION_TC);
+    this.modDepth?.gain.setTargetAtTime(mod * MOD_VIB_CENTS, when, EXPRESSION_TC);
+  }
+
   dispose() {
+    this.bend?.stop();
+    this.vibrato?.stop();
     this.nodes.forEach((n) => n.disconnect());
     this.voices?.dispose();
   }

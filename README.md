@@ -38,19 +38,19 @@ A browser-based groovebox for the **Novation Launchkey Mini MK4 25**. Morsel put
   - **Master**: a gentle glue compressor and a look-ahead limiter at −0.3 dBFS, so a dense pattern never clips, live or bounced. The Master strip has the level and meters for the output peak and the limiter.
 - **Song mode**: chain patterns into a song, then bounce the song or one pattern to WAV (24-bit, or dithered 16-bit).
 - **Browse** (Shift + Encoder-page ⌃, drum tracks): browse imported sample folders and kits from the hardware, with auto-preview.
-- **Drum kits**: a new project and every new drum track (*+ Drums*) start with the synthesized **Factory** kit. Nine more synthesized genre kits are built in: Lo-Fi, Boom Bap, Hip Hop, Trap, Drill, House, Techno, DnB and Electro. Each one renders into the library (*Factory/<kit>*) the first time it is loaded, and again when a new version of Morsel changes its sounds. The voices are tuned against measured one-shots from Ableton Live's Core Library (length, envelope, brightness, band balance, pitch, crest factor); see `npm run measure`. The **kit bar** at the top of a drum track's Track tab (◀, the kit list, ▶) works like the Keys presets: it loads a built-in or a saved kit onto that track and shows which kit it plays. On the Launchkey, the **Kit** encoder page (the first page of a drum track) scrolls the kits with encoder 1 and the screen lists them; Browse → Kits works too. The Kits panel saves (asking before it replaces one), renames (pick a kit, type the new name, *Rename*), exports (a `.morsel-kit` file with the samples), imports (several files at once) and deletes kits. *Folder → pads…* imports a folder and puts its first 16 samples (by name) on pads 1–16; on the Launchkey, Shift + Func on a sample folder in Browse does the same. Closed and open hats are put in the same choke group, and the stock kits come with a little stereo spread (hats, cymbals, toms and percussion off-centre; kick, snare and basses in the middle).
+- **Drum kits**: a new project and every new drum track (*+ Drums*) start with the synthesized **Factory** kit. Nine more synthesized genre kits are built in: Lo-Fi, Boom Bap, Hip Hop, Trap, Drill, House, Techno, DnB and Electro. Each one renders into the library (*Factory/<kit>*) the first time it is loaded, and again when a new version of Morsel changes its sounds. The voices are tuned against measured one-shots from Ableton Live's Core Library (length, envelope, brightness, band balance, pitch, crest factor); see `npm run measure`. The **Kit** panel on a drum track's Track tab (◀, the kit list, ▶) works like the Keys presets: it loads a built-in or a saved kit onto that track and shows which kit it plays. On the Launchkey, the **Kit** encoder page (the first page of a drum track) scrolls the kits with encoder 1 and the screen lists them; Browse → Kits works too. The same panel saves (asking before it replaces one), renames (pick a kit, type the new name, *Rename*), exports (a `.morsel-kit` file with the samples), imports (several files at once) and deletes kits. *Folder → pads…* imports a folder and puts its first 16 samples (by name) on pads 1–16; on the Launchkey, Shift + Func on a sample folder in Browse does the same. Closed and open hats are put in the same choke group, and the stock kits come with a little stereo spread (hats, cymbals, toms and percussion off-centre; kick, snare and basses in the middle).
 - **Sampling**: Shift + Record arms a take from the audio input, the master out or a shared browser tab. Recording starts with the sound and stops on Shift + Record or at the maximum length (30 s, 2 minutes for a tab). The take opens in the Chop editor with its hits already marked (*Take → Chop*), or goes on the selected pad (*Take → pad*).
 - **Tab capture**: pick source *Browser tab* and click *Share tab…* once (tick "Share tab audio" in Chrome's picker). The share stays open, so Shift + Record on the Launchkey arms a take and recording starts when the tab plays.
-- **Keys presets**: 71 factory synth sounds in folders (Basic, Bass, Lead, Keys, Pluck, Pad, Brass, FX) plus your own in *Mine* (*Save as preset* on a keys track's Keys tab, where folder buttons pick the folder). On the Launchkey, the **Keys** encoder page shows the current folder and its presets: encoder 1 scrolls (on into the next folder), Shift + encoder 1 jumps to the next folder, and encoders 2–8 edit waves, detune, cutoff, resonance, env, attack and release. A * marks an edited preset.
+- **Keys presets**: 71 factory synth sounds in folders (Basic, Bass, Lead, Keys, Pluck, Pad, Brass, FX) plus your own in *Mine* (type a name under the presets on a keys track's Keys tab and *Save*, where folder buttons pick the folder). On the Launchkey, the **Keys** encoder page shows the current folder and its presets: encoder 1 scrolls (on into the next folder), Shift + encoder 1 jumps to the next folder, and encoders 2–8 edit waves, detune, cutoff, resonance, env, attack and release. A * marks an edited preset.
 - **Pattern copy**: *Copy to…* on the Sequencer tab, or in Pattern mode hold a pattern pad and tap another. *Copy clip to…* (or holding Scene as well) copies only the selected track's clip.
-- **Sidechain ducker** (like the MPC's Mother Ducker): drum pads are the inputs. Make a pad an input in the *Sidechain* panel of a drum track's Track tab, or on the Launchkey's **Sidechain** page of a drum track (hit the pad, encoder 1); inputs are numbered in the order they were made (Input 1, Input 2, …). Every track can duck from one input with its own Depth, Attack, Hold and Release, so one kick can pump the bass hard and the pad gently: set it in the track's *Duck* panel (Track tab) or on its **Duck** page (enc 1 on/off, 2 input, 3 depth, 4 attack, 5 hold, 6 release), where the screen shows the envelope and live gain reduction. A keys track ducks as a whole. A drum track ducks pad by pad: all 16 by default, untick pads in the Duck panel or hit a pad and turn encoder 7 on the Duck page. The input pad itself never ducks, so a kick on the same rack can pump a chopped loop or the hats. Sequenced hits duck sample-accurately and the duck is included in exports. Projects from before this version load with sidechaining off.
+- **Sidechain ducker** (like the MPC's Mother Ducker): drum pads are the inputs. Make a pad an input in the *Sidechain* panel of a drum track's Track tab, or on the Launchkey's **Sidechain** page of a drum track (hit the pad, encoder 1); inputs are numbered in the order they were made (Input 1, Input 2, …). Every track can duck from one input with its own Depth, Attack, Hold and Release, so one kick can pump the bass hard and the pad gently: set it in the *Sidechain* panel of a drum track (or the *Duck* panel of a keys track) or on its **Duck** page (enc 1 on/off, 2 input, 3 depth, 4 attack, 5 hold, 6 release), where the screen shows the envelope and live gain reduction. A keys track ducks as a whole. A drum track ducks pad by pad: all 16 by default, untick pads in the Sidechain panel or hit a pad and turn encoder 7 on the Duck page. The input pad itself never ducks, so a kick on the same rack can pump a chopped loop or the hats. Sequenced hits duck sample-accurately and the duck is included in exports. Projects from before this version load with sidechaining off.
 - **Start-up animation**: a blob eats a waveform on the Launchkey screen, burps, and the logo bounces in (any input skips it).
 - **Tips**: the panels' explanations (what a panel does, its Launchkey controls) are hidden to keep the screen calm; the **Tips** button in the top bar shows them (remembered in this browser).
 - **Light / dark theme**: the ☀ / ☾ button next to Guide switches the on-screen UI (remembered in this browser; the Launchkey screen preview stays dark).
 - **Deleting samples**: *Delete sample* on a drum track's Track tab or *Delete* in the Chop tab removes a sample from the library and clears every pad (and Keys zone) using it.
 - **Chop editor** (Chop tab): zoomable waveform of a whole sample. Click to add slice markers, drag to move, double-click to remove; auto-place by transients or equal parts; Space plays the region and **M** drops a marker at the playhead (tap-chop); 1–9 audition slices. Markers snap to zero crossings. **→ New drum rack** crops to the region and puts the slices on pads 1–16 of a new drum track ("Chop 1", …); *Send* puts them on the current drum track from a chosen pad instead, and *Crop to region* makes a new sample. While a chop is open the Launchkey is in Chop mode: pads play slices 1–16 (and select that slice's marker), encoder 1 scrolls, 2 zooms, 3 picks a marker, 4 moves it (Shift = fine, single samples), 5 sets the most slices and 6 the sensitivity (both re-detect the hits), Play plays from the selected marker (Shift + Play starts / stops the sequencer), Scene adds a marker at the playhead (Shift + Scene removes the selected one), and **Func sends the slices to a new drum rack**. Shift + Encoder-page ⌄ chops the selected pad's sample and leaves Chop again. The screen shows the zoomed waveform with markers.
 - **Screen**: the Launchkey screen shows the selected track and the pattern and transport (`P1 PLAY`, `REC`, `COUNT`, `SAMPLE`) in its header on every mode screen, and, per mode: in Play the pad's waveform, the keys presets or samples, the duck curve, or on the LFO, Track FX, Mix and Global pages their 8 encoders with values and level bars; the step grid (Step), the browser (Browse), the chop (Chop) or the 16 pads as cells (Track, Mute, Pattern), plus popups for mode and track changes and encoder values (on the 8-encoder screens the turned cell lights up instead), rendered as a bitmap. Holding Shift shows what Shift does with each button in the current mode.
-- **Audio engine**: voices play in an AudioWorklet, sample-accurately in the audio thread, and live notes start a fixed few milliseconds after you play them instead of whenever the page gets to them. The **Lab** tab shows the timing, sets that delay, switches back to the older Web Audio node engine and compares the two by bouncing every pad and synth preset on both.
+- **Audio engine**: voices play in an AudioWorklet, sample-accurately in the audio thread, and live notes start a fixed few milliseconds after you play them instead of whenever the page gets to them. The **Lab** (Preferences → Open Lab…) shows the timing, sets that delay, switches back to the older Web Audio node engine and compares the two by bouncing every pad and synth preset on both.
 - **Persistence**: everything autosaves in the browser's IndexedDB. Projects and kits export as single files with the samples in them (see [File formats](#file-formats)). *New project…* on the Song tab starts over with the Factory kit, after asking (the library, saved kits and presets stay).
 - **Works offline**: after one visit online, Morsel starts without a network (a service worker keeps the app and its fonts). In Chrome it can also be installed as an app (the install icon in the address bar), which opens it in its own window. A new version loads the next time you open it online.
 
@@ -65,11 +65,11 @@ All on the Launchkey:
 
 On the computer: Space plays and stops, R records, `[` and `]` step through the patterns, ⌘Z undoes and ⇧⌘Z redoes.
 
-The **Help** tab in the app has the full hardware map, mode overview, encoder pages and shortcuts. Press `?` anywhere to open it.
+The **Guide** button in the app has the full hardware map, mode overview, encoder pages and shortcuts. Press `?` anywhere to open it.
 
 ## Requirements
 
-- A **Chromium-based browser** (Chrome, Edge, Arc, Brave). Web MIDI with SysEx is required, and Safari doesn't support it.
+- A **Chromium-based browser** (Chrome, Edge, Arc, Brave). Web MIDI with SysEx is required, and Safari doesn't support it. Or the **desktop app** for macOS (see below).
 - A Launchkey Mini MK4 25, connected over USB.
 - **Close Ableton Live** (or any other DAW using the Launchkey's DAW port) before connecting.
 
@@ -85,6 +85,28 @@ Open the URL Vite prints and allow MIDI (with SysEx) access when the browser ask
 
 Load samples by dropping audio files onto an on-screen pad, or use **Import folder** to add a whole folder to the browser.
 
+**Preferences** (⚙ in the top bar): theme, tips, audio output device, live-note budget, voice engine, which Launchkey to use and how its Shift popup is covered. In a browser they're kept per browser.
+
+## Desktop app (macOS)
+
+The same app in its own window ([Electron](https://www.electronjs.org/), so it runs on Chromium as in Chrome). It adds what a browser can't do:
+
+- No permission prompts for MIDI, SysEx or the microphone, and audio starts without a click first.
+- Connected sample folders stay readable after a restart (a browser asks again).
+- The sequencer keeps time while the window is in the background or hidden, and the Mac doesn't nap the app while it plays.
+- An app menu (⌘, Preferences, ⌘N New project, ⌘Z / ⇧⌘Z undo and redo), and the window remembers where it was.
+- Preferences in `~/Library/Application Support/Morsel/preferences.json`, with *Open in full screen* added.
+- Quitting right after an edit keeps it: the window waits for the project to be saved.
+- The *Browser tab* sample source becomes *System audio*: it records what the Mac is playing (allow Morsel under Screen & System Audio Recording in System Settings).
+
+```sh
+cd app
+npm run desktop:dev    # the app on Vite's dev server (HMR)
+npm run desktop:dist   # release/Morsel-<version>-arm64.dmg
+```
+
+The desktop app keeps its own library, projects and kits, separate from the browser's. Move them with the project and kit export and import. The `.dmg` is signed ad hoc. It runs on this Mac, and on others after right-click → Open the first time. To sign it properly, put the name of a Developer ID certificate from the keychain in `mac.identity` in `app/electron/builder.yml`; setting `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` also notarizes it. The web build and the Cloudflare deploy are unchanged.
+
 ## Scripts
 
 Run these inside `app/`:
@@ -96,11 +118,14 @@ Run these inside `app/`:
 | `npm run preview` | Serve the production build |
 | `npm test` | Unit tests (Vitest) |
 | `npm run lint` | Lint (Oxlint) |
+| `npm run desktop:dev` | The desktop app on the dev server |
+| `npm run desktop:build` | Production build plus the Electron main process and preload in `app/dist-electron` |
+| `npm run desktop:dist` | The desktop app as a `.dmg` in `app/release` (electron-builder, `app/electron/builder.yml`) |
 | `npm run ableton-ref` | Measure Ableton Live's Core Library (drum one-shots, Drum Racks, Drift presets) into `reference/` as a tuning reference (needs Ableton Live and ffmpeg; only measurements are written, `reference/` is git-ignored). An optional argument points at another Core Library folder |
 | `npm run measure` | Render the stock kits and synth presets in Node, compare them with `reference/` and write `reference/report.md`: each kit pad against the reference one-shots of its category, each preset folder against Drift's |
 | `npm run kits -- "<packs folder>"` | Build kit files from a folder of sample packs into `kits/` (needs ffmpeg). Each pack's drum one-shots are sorted by name into kick, snare, clap, hats, … and laid out like the Factory kit; big packs get an A and a B kit. Import them with *Import kits…* |
 | `npm run boot-gif` | Re-render `docs/boot-animation.gif` from the start-up animation code (needs ffmpeg) |
-| `npm run og-image` | Re-render the link preview `public/og-image.png`, `public/apple-touch-icon.png` and the app icons `public/icon-192.png` / `icon-512.png` (from `public/favicon.svg`) (needs rsvg-convert) |
+| `npm run og-image` | Re-render the link preview `public/og-image.png`, `public/apple-touch-icon.png` and the app icons `public/icon-192.png` / `icon-512.png` and the desktop app's `electron/icon.png` (from `public/favicon.svg`) (needs rsvg-convert) |
 | `npm run deploy` | Build and deploy to Cloudflare as the `morsel` Worker (static assets, see `app/wrangler.jsonc`). Log in once with `npx wrangler login` |
 | `npm run preview:worker` | Build and serve it locally in the Worker runtime |
 
@@ -115,8 +140,10 @@ app/src/
   display/   Screen bitmap: frame buffer, fonts, widgets, screens
   state/     Zustand store, types, IndexedDB persistence, project/kit files
   browse/    Sample browser tree
-  ui/        React panels (Pads, Sequencer, Keys, Mixer, Song/Matrix, Help, Lab)
+  ui/        React panels (Pads, Sequencer, Keys, Mixer, Song/Matrix, Guide, Lab, Preferences)
+  platform/  Desktop app or browser, and the desktop app's bridge
   params.ts  Encoder pages and parameters
+app/electron/  Desktop app: main process (window, menu, files, settings), preload bridge, packaging
 kits/        Saved kit files (*.morsel-kit, git-ignored: they embed samples)
 reference/   Measurements of third-party sounds and the tuning report (git-ignored, see npm run measure)
 protocol_notes.md  DAW-mode protocol details measured on the hardware
@@ -124,7 +151,7 @@ protocol_notes.md  DAW-mode protocol details measured on the hardware
 
 ## Hardware notes
 
-The Launchkey's DAW-mode protocol differs from Novation's programmer's guide in several places. For example, the bitmap ack, the button channels and the LED channels are different. `protocol_notes.md` lists what was measured on the device and what is still unverified. Use the **Lab** tab to test raw MIDI and screen bitmaps against the hardware.
+The Launchkey's DAW-mode protocol differs from Novation's programmer's guide in several places. For example, the bitmap ack, the button channels and the LED channels are different. `protocol_notes.md` lists what was measured on the device and what is still unverified. Use the **Lab** (Preferences → Open Lab…) to test raw MIDI and screen bitmaps against the hardware.
 
 ## File formats
 
