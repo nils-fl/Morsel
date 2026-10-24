@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { DUCK_PAGE, PAGES, SIDECHAIN_PAGE, fixPage, pagesFor } from "./params";
+import { DUCK_PAGE, PAGES, SIDECHAIN_PAGE, fixPage, pagesFor, turnEncoder } from "./params";
 import { defaultProject, get, set, updateKeys } from "./state/store";
 
 // The actions pull in the sequencer's worker clock; the pages only need the preset list.
@@ -28,6 +28,38 @@ describe("encoder pages per track kind", () => {
     set({ encPage: PAGES.findIndex((p) => p.tag === "PAD"), selectedTrack: "keys" });
     fixPage();
     expect(PAGES[get().encPage].tag).toBe("KEYS");
+  });
+});
+
+describe("turning an encoder", () => {
+  it("takes a few detents a step on a param with few settings, the first one straight away", () => {
+    set({ selectedTrack: "drums" });
+    const page = DUCK_PAGE;
+    const on = () => PAGES[page].params[0].value();
+    let now = 10_000;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+    turnEncoder(page, 0, -1, false);
+    expect(on()).toBe(0);
+    now += 1000;
+    turnEncoder(page, 0, 1, false); // a new turn: on with the first detent
+    expect(on()).toBe(1);
+    for (let k = 0; k < 3; k++) {
+      now += 20;
+      turnEncoder(page, 0, -1, false); // the other way: the first detent steps again
+      expect(on()).toBe(0);
+      now += 20;
+      turnEncoder(page, 0, 1, false);
+    }
+    expect(on()).toBe(1);
+    for (let k = 0; k < 4; k++) {
+      now += 20;
+      turnEncoder(page, 0, -1, false); // a quick turn: one step for the first detent, the next three do nothing
+    }
+    expect(on()).toBe(0);
+    now += 20;
+    turnEncoder(page, 0, 1, false, true); // a whole step (arrow key)
+    expect(on()).toBe(1);
+    clock.mockRestore();
   });
 });
 

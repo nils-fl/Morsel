@@ -58,8 +58,8 @@ function EncoderCell({ page, index, p }: { page: number; index: number; p: Param
   const drag = useRef<number | null>(null); // the pointer's y at the last detent
   const [turning, setTurning] = useState(false);
   // Detent by detent, like the hardware, so list params (presets, kits) step one entry each.
-  const turn = (detents: number, fine: boolean) => {
-    for (let k = 0; k < Math.abs(detents); k++) turnPageEncoder(page, index, Math.sign(detents), fine);
+  const turn = (detents: number, fine: boolean, whole = false) => {
+    for (let k = 0; k < Math.abs(detents); k++) turnPageEncoder(page, index, Math.sign(detents), fine, whole);
   };
   const live = !!p;
   useEffect(() => {
@@ -119,7 +119,7 @@ function EncoderCell({ page, index, p }: { page: number; index: number; p: Param
         const d = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1 }[e.key];
         if (!d || e.metaKey || e.ctrlKey || e.altKey) return;
         e.preventDefault();
-        turn(d, e.shiftKey);
+        turn(d, e.shiftKey, true); // a key press is a whole step, even on a param that takes a few detents a step
       }}
     >
       <Knob value={p.value()} range={[lo, hi]} />

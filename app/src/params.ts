@@ -16,11 +16,16 @@ export interface Param {
   format(): string;
   /** Value range, for drawing the knob on screen. */
   range?: [number, number];
+  /** Detents per step, for a param with only a few settings (on/off, bars, grid), so a quick turn doesn't run through
+   *  them all. The first detent of a turn steps straight away. */
+  detents?: number;
   /** Optional graphic shown on the Launchkey screen while turning. */
   visual?(): Visual;
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+/** Detents per step of a param with only a few settings. */
+const STEPPED = 4;
 
 function padParam(name: string, key: keyof Pad & ("start" | "end" | "pitch" | "attack" | "decay" | "cutoff" | "hpCutoff" | "resonance" | "pan" | "volume"),
   lo: number, hi: number, step: number, fmt: (v: number) => string): Param {
@@ -92,6 +97,7 @@ function optionParam(name: string, options: { label: string; ticks: number }[], 
     name,
     value: idx,
     range: [0, options.length - 1],
+    detents: STEPPED,
     nudge: (d) => set({ [key]: options[clamp(idx() + Math.sign(d), 0, options.length - 1)].ticks }),
     format: () => options[idx()].label,
   };
@@ -220,6 +226,7 @@ const SYNTH_PARAMS: Param[] = [
     name: "Waves",
     value: () => WAVES.indexOf(keysNow().synth.wave) * 4 + WAVES.indexOf(keysNow().synth.wave2),
     range: [0, 15],
+    detents: STEPPED,
     nudge: (d) => {
       const s = keysNow().synth;
       const i = clamp(WAVES.indexOf(s.wave) * 4 + WAVES.indexOf(s.wave2) + Math.sign(d), 0, 15);
@@ -308,6 +315,7 @@ const CHROMATIC_PARAMS: Param[] = [
     get range(): [number, number] {
       return [0, Math.max(1, sourcePads().length - 1)];
     },
+    detents: STEPPED,
     nudge: (d) => {
       const list = sourcePads();
       const next = list[clamp(sourcePadIndex() + Math.sign(d), 0, list.length - 1)];
@@ -366,6 +374,7 @@ const GRID: Param = {
   name: "Grid",
   value: () => Math.max(0, GRID_OPTIONS.findIndex((g) => g.ticks === curGrid())),
   range: [0, GRID_OPTIONS.length - 1],
+  detents: STEPPED,
   nudge: (d) => {
     const i = clamp(GRID.value() + Math.sign(d), 0, GRID_OPTIONS.length - 1);
     setClipGrid(get().currentPattern, get().selectedTrack, GRID_OPTIONS[i].ticks);
@@ -384,6 +393,7 @@ const STEP_PAGE_DEF: Page = {
       name: "Bars",
       value: () => curBars(),
       range: [1, MAX_BARS],
+      detents: STEPPED,
       nudge: (d) => {
         const bars = clamp(curBars() + Math.sign(d), 1, MAX_BARS);
         if (bars === curBars()) return;
@@ -400,6 +410,7 @@ const STEP_PAGE_DEF: Page = {
       get range(): [number, number] {
         return [1, Math.max(2, curPages())];
       },
+      detents: STEPPED,
       nudge: (d) => set({ stepPage: clamp(get().stepPage + Math.sign(d), 0, curPages() - 1) }),
       format: () => `${stepPageLabel()}/${curBars()}`,
     },
@@ -416,6 +427,7 @@ const DUCK_PARAMS: Param[] = [
     name: "Duck",
     value: () => (duckNow().on ? 1 : 0),
     range: [0, 1],
+    detents: STEPPED,
     nudge: (d) => setDuck({ on: d > 0 }),
     format: () => (duckNow().on ? "On" : "Off"),
   },
@@ -425,6 +437,7 @@ const DUCK_PARAMS: Param[] = [
     get range(): [number, number] {
       return [0, Math.max(1, duckInputs().length - 1)];
     },
+    detents: STEPPED,
     nudge: (d) => {
       const list = duckInputs();
       setDuck({ input: list[clamp(list.indexOf(duckNow().input) + Math.sign(d), 0, list.length - 1)] });
@@ -442,6 +455,7 @@ const DUCK_PAD_PARAM: Param = {
   name: "Pad",
   value: () => (padDucks(selectedTrack(), get().selectedPad) ? 1 : 0),
   range: [0, 1],
+  detents: STEPPED,
   nudge: (d) => setDuckPad(get().selectedTrack, get().selectedPad, d > 0),
   format: () => {
     const t = selectedTrack(), pad = get().selectedPad;
@@ -554,6 +568,7 @@ export const PAGES: Page[] = [
         name: "Filter",
         value: () => FX_FILTERS.indexOf(fxNow().filter),
         range: [0, FX_FILTERS.length - 1],
+        detents: STEPPED,
         nudge: (d) => setFx({ filter: FX_FILTERS[clamp(FX_FILTERS.indexOf(fxNow().filter) + Math.sign(d), 0, FX_FILTERS.length - 1)] }),
         format: () => FX_FILTER_NAMES[fxNow().filter],
       },
@@ -618,6 +633,7 @@ export const PAGES: Page[] = [
         name: "Input",
         value: () => (padInput() ? 1 : 0),
         range: [0, 1],
+        detents: STEPPED,
         nudge: (d) => {
           if ((d > 0) !== !!padInput()) toggleSidechainInput(get().selectedTrack, get().selectedPad);
         },
@@ -674,10 +690,27 @@ export function fixPage() {
 }
 
 
-/** Apply an encoder move (the mixer follows the project through the store subscription in boot.ts). */
-export function turnEncoder(page: number, index: number, delta: number, fine: boolean) {
+/** Where each stepped param's turn is: detents towards the next step, its direction and when the last one came. */
+const turns = new Map<Param, { acc: number; dir: number; at: number }>();
+/** A pause this long (ms) ends a turn. */
+const TURN_GAP = 300;
+
+/** Apply an encoder move (the mixer follows the project through the store subscription in boot.ts). `whole`: the delta
+ *  counts in steps, not detents (the arrow keys on the on-screen encoders). */
+export function turnEncoder(page: number, index: number, delta: number, fine: boolean, whole = false) {
   const p = PAGES[page]?.params[index];
   if (!p) return null;
-  p.nudge(delta, fine);
+  const n = p.detents ?? 1;
+  if (n === 1 || whole || !delta) {
+    p.nudge(delta, fine);
+    return p;
+  }
+  const now = performance.now(), dir = Math.sign(delta);
+  const t = turns.get(p);
+  // A new turn, or one that changes direction, steps on its first detent; then every n detents.
+  const acc = (t && t.dir === dir && now - t.at < TURN_GAP ? t.acc : n - 1) + Math.abs(delta);
+  const steps = Math.floor(acc / n);
+  turns.set(p, { acc: acc - steps * n, dir, at: now });
+  for (let k = 0; k < steps; k++) p.nudge(dir, fine);
   return p;
 }

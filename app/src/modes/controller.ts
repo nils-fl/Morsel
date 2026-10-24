@@ -38,8 +38,8 @@ let pageBeforeStep: number | null = null;
 
 /** Turn encoder `index` of encoder page `page` and show its value on the screen: the Launchkey's encoders and the
  *  on-screen knobs (ui/EncoderStrip.tsx) both come here. */
-export function turnPageEncoder(page: number, index: number, delta: number, fine: boolean) {
-  const p = turnEncoder(page, index, delta, fine);
+export function turnPageEncoder(page: number, index: number, delta: number, fine: boolean, whole = false) {
+  const p = turnEncoder(page, index, delta, fine, whole);
   // The Duck screen already draws the curve, so its popup goes without the visual.
   if (p) showTemp(p.name, p.format(), { visual: page === DUCK_PAGE ? undefined : p.visual?.(), encoder: index });
 }
