@@ -80,6 +80,12 @@ export async function browseEnter() {
     schedulePreview();
     return;
   }
+  const done = await loadItem(e);
+  if (done) showTemp(...done.popup);
+}
+
+/** Load a sample, file or kit onto the selected pad, the keys or the drum track: what the popup says, and whether it loaded. */
+async function loadItem(e: Exclude<Entry, { kind: "folder" }>): Promise<{ popup: [string, string]; loaded: boolean } | null> {
   const pad = get().selectedPad;
   if (e.kind === "sample" || e.kind === "file") {
     const track = selectedTrack();
@@ -88,20 +94,32 @@ export async function browseEnter() {
       sampleId = await entrySample(e);
     } catch (err) {
       set({ status: `${e.name}: ${(err as Error).message}` });
-      return showTemp("Can't load", fitName(e.name));
+      return { popup: ["Can't load", fitName(e.name)], loaded: false };
     }
     if (track.keys) {
       // The keys track becomes a sample one; a note in the name ("Bass_C2") is the root, as in the Keys panel.
       updateKeys({ type: "sample", sample: { ...track.keys.sample, sampleId, root: rootFromName(e.name) ?? track.keys.sample.root } }, track.id);
-      return showTemp("LOADED > KEYS", fitName(e.name));
+      return { popup: ["LOADED > KEYS", fitName(e.name)], loaded: true };
     }
     updatePad(pad, { sampleId, name: fitName(e.name, 12), start: 0, end: 1, reverse: false }, true);
-    showTemp(`LOADED > PAD ${pad + 1}`, fitName(e.name));
-  } else if (forKeys()) {
-    showTemp("Kits", "Drum track only"); // a starred kit in Favorites
-  } else if (await loadNamedKit(e.name)) {
-    showTemp("KIT LOADED", fitName(e.name));
+    return { popup: [`LOADED > PAD ${pad + 1}`, fitName(e.name)], loaded: true };
   }
+  if (forKeys()) return { popup: ["Kits", "Drum track only"], loaded: false }; // a starred kit in Favorites
+  return (await loadNamedKit(e.name)) ? { popup: ["KIT LOADED", fitName(e.name)], loaded: true } : null;
+}
+
+/** The highlighted entry is a folder (Shift + Function puts it on the pads) rather than an item (load and leave). */
+export const browseOnFolder = () => current()?.kind === "folder";
+
+/** Shift + Function: a sample, file or kit loads and Browse closes (`leave`, then the popup); a folder goes on the pads
+ *  or becomes the multisample, as browseLoadFolder. */
+export async function browseShiftEnter(leave: () => void) {
+  const e = current();
+  if (!e) return;
+  if (e.kind === "folder") return browseLoadFolder();
+  const done = await loadItem(e);
+  if (done?.loaded && get().hwMode === "browse") leave();
+  if (done) showTemp(...done.popup);
 }
 
 /** Shift + Function on a sample folder: its first 16 samples become the drum track's kit, or (keys track) its

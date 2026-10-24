@@ -282,7 +282,7 @@ describe("shift map", () => {
         expect(action.length).toBeLessThanOrEqual(13);
         expect(ascii(key) && ascii(action)).toBe(true);
       }
-      for (const line of shiftCoverText(mode, kind)) {
+      for (const line of [...shiftCoverText(mode, kind), ...shiftCoverText(mode, kind, false)]) {
         expect(line.length).toBeLessThanOrEqual(16);
         expect(ascii(line)).toBe(true);
       }
@@ -296,6 +296,8 @@ describe("shift map", () => {
     // Browse works on keys tracks too (a sample on the keys, a folder as the multisample); Chop doesn't.
     expect(shiftRows("play", "keys", false)).toContainEqual(["Enc ^", "Browse"]);
     expect(shiftRows("browse", "keys", false)).toContainEqual(["Func", "Folder>multi"]);
+    // On a sample, Shift + Func loads it and leaves Browse.
+    expect(shiftRows("browse", "drum", false, false)).toContainEqual(["Func", "Load + exit"]);
     expect(shiftRows("play", "drum", true).map((r) => r[1])).toContain("Stop sampling");
   });
   it("draws different maps per mode and leaves the bottom rows free", () => {

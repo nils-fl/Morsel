@@ -15,7 +15,7 @@ import { noteForKeysPad, stepForPad } from "./stepMap";
 import { noteName } from "../ui/notes";
 import { activeOverlay, releaseHold, showTemp, type Overlay } from "./notify";
 import { chopAddMarker, chopEncoder, chopMarkerArrows, chopPad, chopPadLeds, chopRemoveMarker, chopStepMarker, chopStop, chopTogglePlay, chopView } from "./chop";
-import { browseCan, browseDisplay, browseEncoder, browseEnter, browseLoadFolder, browseLeds, browsePad, browseUp, browseView, enterBrowse, exitBrowse } from "./browse";
+import { browseCan, browseDisplay, browseEncoder, browseEnter, browseLeds, browseOnFolder, browseShiftEnter, browsePad, browseUp, browseView, enterBrowse, exitBrowse } from "./browse";
 import { H, W, type Frame } from "../display/frame";
 import { browserScreen, chopScreen, duckScreen, encoderScreen, gridScreen, keysScreen, padScreen, shiftCoverText, shiftEncHint, shiftRows, shiftScreen, stepScreen } from "../display/screens";
 import { HEADER_H, computePeaks, duckPanel, filterPanel, overlayBar, type Peaks } from "../display/widgets";
@@ -472,7 +472,7 @@ function onButton(button: string, down: boolean) {
     if (button === "scene" || (button === "padUp" && !s.shift)) return browseUp();
     if (button === "encPageUp" || button === "encPageDown") return browseEncoder(0, button === "encPageUp" ? -1 : 1, false);
   }
-  if (s.hwMode === "browse" && down && button === "func" && s.shift) return void browseLoadFolder();
+  if (s.hwMode === "browse" && down && button === "func" && s.shift) return void browseShiftEnter(() => setHwMode(get().prevHwMode));
   // Scene let go: note repeat (and the held popup) end, in every mode.
   if (button === "scene" && !down) {
     sceneHeld = false;
@@ -852,10 +852,10 @@ function renderLoop() {
   const msg = boot ? null : activeOverlay();
   // Shift held: the shift map, until an encoder is turned (fine steps), when the value matters more.
   const shiftMap = s.shift && msg?.encoder === undefined && !boot;
-  const next = boot ?? (shiftMap ? shiftScreen({ rows: shiftRows(s.hwMode, selectedTrack(s).kind, s.sampling !== "idle"), enc: shiftEncHint(s.hwMode) }) : screenFor(s, msg));
+  const next = boot ?? (shiftMap ? shiftScreen({ rows: shiftRows(s.hwMode, selectedTrack(s).kind, s.sampling !== "idle", browseOnFolder()), enc: shiftEncHint(s.hwMode) }) : screenFor(s, msg));
   // Nothing to draw yet (Chop waiting for its buffer): keep the last frame rather than flashing device text.
   frame = next ?? frame;
-  launchkey.shiftCover = shiftCoverText(s.hwMode, selectedTrack(s).kind);
+  launchkey.shiftCover = shiftCoverText(s.hwMode, selectedTrack(s).kind, browseOnFolder());
   // On the 8-encoder screen the turned cell is highlighted instead; a popup would cover the bottom row.
   const suppress = msg?.encoder !== undefined && onEncoderScreen(s) && !shiftMap;
   if (frame && msg && !suppress) {
