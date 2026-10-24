@@ -4,7 +4,7 @@
 const SR = 44100;
 
 /** Bumped whenever the sounds change, so kits rendered by an older version are rendered again (actions.ts). */
-export const STOCK_REV = 3;
+export const STOCK_REV = 4;
 
 /** A drum voice: builds its nodes into `out` (the sound's bus) at time 0. */
 type Gen = (ctx: BaseAudioContext, out: AudioNode) => void;
@@ -183,12 +183,33 @@ const snap = (band = 2400): Gen => (c, out) => {
   chain(sweptOsc(c, "sine", 2200, 1600, 0.004, 0.02), envGain(c, 0.25, 0.0003, 0.008), out);
 };
 
-/** Rimshot / side stick: a short tonal knock and a click. */
-const rim = (hi = 1700, lo = 480): Gen => (c, out) => {
-  const hp = chain(filter(c, "highpass", 500), out);
-  chain(sweptOsc(c, "triangle", hi * 1.1, hi, 0.003, 0.12), envGain(c, 0.7, 0.0003, 0.06), hp);
-  chain(sweptOsc(c, "sine", lo * 1.2, lo, 0.004, 0.12), envGain(c, 0.45, 0.0003, 0.05), hp);
-  noiseHit(c, hp, [filter(c, "bandpass", 4000, 1.2)], 0.6, 0.0003, 0.03);
+/** A struck mode of a rim: frequency, level and decay (s). */
+type Mode = [freq: number, amp: number, decay: number];
+
+// Modes measured from sampled rims (Ableton's Core Library). In all of them the high partials are gone within
+// ~10 ms, or ring on as a dense, noisy shell; one clean high tone that rings reads as a beep.
+/** TR-808: two bridged-T tones, the high one leading, gone within ~15 ms. */
+const RIM_808: Mode[] = [[480, 0.45, 0.012], [1800, 1, 0.008]];
+/** TR-909: three resonators over a 226 Hz body that outlasts them (a dark sound: centroid ~300 Hz). */
+const RIM_909: Mode[] = [[226, 0.5, 0.05], [484, 0.55, 0.035], [742, 0.4, 0.02], [1010, 1, 0.016], [1300, 0.3, 0.01]];
+/** Side stick: a short thump of the drum's body under the stick's crack and the brighter, longer ring of the shell. */
+const SIDESTICK: Mode[] = [[215, 0.7, 0.035], [473, 0.35, 0.03], [1108, 0.5, 0.07], [1819, 0.45, 0.08], [2304, 0.35, 0.06], [3150, 0.2, 0.04]];
+
+interface RimOpts { tune?: number; drive?: number; click?: number; grain?: number }
+/**
+ * Rimshot / side stick: struck modes (each with a slight pitch drop), a noise click for the stick, and optionally
+ * `grain`, noise rung through the upper modes so they sound wooden rather than like sine tones.
+ */
+const rim = (modes: Mode[], o: RimOpts = {}): Gen => (c, out) => {
+  const { tune = 1, drive = 0, click = 0.3, grain = 0 } = o;
+  const hp = chain(filter(c, "highpass", modes[0][0] * tune * 0.6), out);
+  const bus = drive ? shaperInto(c, drive, hp) : hp;
+  for (const [f0, amp, d] of modes) {
+    const f = f0 * tune;
+    chain(sweptOsc(c, "sine", f * 1.04, f, 0.003, d * 1.5 + 0.01), envGain(c, amp, 0.0002, d), bus);
+    if (grain && f > 400) noiseHit(c, bus, [filter(c, "bandpass", f, 8)], amp * grain, 0.0003, d * 0.7);
+  }
+  if (click) noiseHit(c, bus, [filter(c, "highpass", 1750), filter(c, "bandpass", 3500, 0.8)], click, 0.0002, 0.006);
 };
 
 /** 808-style hat: the six metal squares through a band-pass at 10 kHz and a high-pass, plus a little noise sizzle. */
@@ -459,7 +480,7 @@ const KITS: Record<string, StockKit> = {
     ["Kick", 0.6, kick({ f0: 190, f1: 48 })],
     ["Snare", 0.5, snare({ tone: 200, snap: 0.125 }), { room: 0.15 }],
     ["Clap", 0.5, clap(), { room: 0.2 }],
-    ["Rim", 0.25, rim()],
+    ["Rim", 0.25, rim(RIM_808)],
     ["Hat Cl", 0.3, hat(0.1)],
     ["Hat Op", 0.8, hat(0.396, { amt: 0.5 })],
     ["Shaker", 0.3, shaker()],
@@ -478,7 +499,7 @@ const KITS: Record<string, StockKit> = {
   "Lo-Fi": { fx: { drive: 1.4, lp: 4500, bits: 12, hold: 2, room: 0.1 }, sounds: [
     ["Kick", 0.6, kick({ f0: 120, f1: 48, tau: 0.025, decay: 0.22, click: 0.05, knock: 0.08, drive: 0.3, grit: 0.04, body: 0.25 })],
     ["Snare", 0.5, snare({ tone: 190, snap: 0.115, noise: 0.6, presence: 3500, body: 0.6 })],
-    ["Rim", 0.25, rim(1500, 420)],
+    ["Rim", 0.25, rim(SIDESTICK, { tune: 0.95, click: 1.4, grain: 4 })],
     ["Snap", 0.2, snap(2100)],
     ["Hat Cl", 0.3, noiseHat(0.1, 5500, 0.5)],
     ["Hat Op", 0.7, noiseHat(0.385, 5000, 0.45)],
@@ -498,7 +519,7 @@ const KITS: Record<string, StockKit> = {
     ["Kick", 0.6, kick({ f0: 170, f1: 50, tau: 0.018, decay: 0.22, click: 0.45, knock: 0.45, drive: 0.45, grit: 0.25, body: 0.2 })],
     ["Snare", 0.5, snare({ tone: 200, snap: 0.144, noise: 0.95, presence: 4000, drive: 0.6 }), { room: 0.18 }],
     ["Clap", 0.5, clap({ band: 1300, tail: 0.096 })],
-    ["Rim", 0.25, rim()],
+    ["Rim", 0.25, rim(SIDESTICK, { click: 2, grain: 4 })],
     ["Hat Cl", 0.3, noiseHat(0.1, 6500, 0.55)],
     ["Hat Op", 0.7, noiseHat(0.352, 6000, 0.5)],
     ["Shaker", 0.3, shaker(6000, 0.08)],
@@ -520,7 +541,7 @@ const KITS: Record<string, StockKit> = {
     ["Clap", 0.5, clap({ band: 1250, tail: 0.104 }), { room: 0.15 }],
     ["Hat Cl", 0.3, hat(0.088, { hp: 7000 })],
     ["Hat Op", 0.8, hat(0.396, { hp: 6500, amt: 0.5 })],
-    ["Rim", 0.25, rim(1800, 520)],
+    ["Rim", 0.25, rim(SIDESTICK, { tune: 1.05, click: 2, grain: 3 })],
     ["Snap", 0.2, snap(2800)],
     ["Kick 2", 0.7, kick({ f0: 155, f1: 45, tau: 0.022, decay: 0.3, click: 0.2, knock: 0.2 })],
     ["808 Hi", 2, bass808({ from: 73, to: 73, decay: 1.4 })],
@@ -540,7 +561,7 @@ const KITS: Record<string, StockKit> = {
     ["Hat Cl", 0.2, hat(0.062, { hp: 7500 })],
     ["Hat Op", 0.7, hat(0.352, { hp: 7000, amt: 0.5 })],
     ["Hat Tick", 0.12, hat(0.025, { hp: 8000, sizzle: 0.4 })],
-    ["Rim", 0.2, rim(1900, 600)],
+    ["Rim", 0.2, rim(RIM_808, { tune: 1.05 })],
     ["Kick 2", 0.4, kick({ f0: 240, f1: 56, tau: 0.012, decay: 0.16, click: 0.5, knock: 0.4, drive: 0.35 })],
     ["808 Hi", 2.4, bass808({ from: 65, to: 65, decay: 1.8, drive: 0.6 })],
     ["Snap", 0.2, snap(3000)],
@@ -558,7 +579,7 @@ const KITS: Record<string, StockKit> = {
     ["Clap", 0.4, clap({ band: 1500, tail: 0.08, spread: 0.006 })],
     ["Hat Cl", 0.2, hat(0.056, { hp: 8000 })],
     ["Hat Op", 0.6, hat(0.308, { hp: 7500, amt: 0.5 })],
-    ["Rim", 0.2, rim(2000, 650)],
+    ["Rim", 0.2, rim(RIM_808, { tune: 1.1 })],
     ["Perc", 0.2, wood(1400)],
     ["Kick 2", 0.35, kick({ f0: 260, f1: 60, tau: 0.01, decay: 0.14, click: 0.5, knock: 0.45, drive: 0.4 })],
     ["808 Up", 2.4, bass808({ from: 41, to: 62, glide: 0.3, decay: 1.8, drive: 0.7 })],
@@ -574,7 +595,7 @@ const KITS: Record<string, StockKit> = {
     ["Kick", 0.7, kick({ f0: 210, f1: 50, tau: 0.018, decay: 0.3, click: 0.45, knock: 0.3, drive: 0.35, punch: 0.04 })],
     ["Clap", 0.6, clap({ band: 1100, tail: 0.12 }), { room: 0.25 }],
     ["Snare", 0.5, snare({ tone: 200, snap: 0.134, presence: 4500 }), { room: 0.15 }],
-    ["Rim", 0.2, rim(1700, 500)],
+    ["Rim", 0.2, rim(RIM_909)],
     ["Hat Cl", 0.3, hat(0.088, { pitch: 1.1 })],
     ["Hat Op", 0.7, hat(0.374, { pitch: 1.1, amt: 0.5 })],
     ["Shaker", 0.3, shaker(6500, 0.09)],
@@ -593,7 +614,7 @@ const KITS: Record<string, StockKit> = {
     ["Kick", 0.7, kick({ f0: 240, f1: 46, tau: 0.02, decay: 0.272, click: 0.6, knock: 0.45, drive: 1.2, punch: 0.04, grit: 0.25, body: 0.09 })],
     ["Clap", 0.6, clap({ band: 1200, tail: 0.128, spread: 0.007 }), { room: 0.3 }],
     ["Snare", 0.5, snare({ tone: 210, snap: 0.144, noise: 0.95, body: 0.7, presence: 4000, drive: 0.7 })],
-    ["Rim", 0.2, rim(1900, 550)],
+    ["Rim", 0.2, rim(RIM_909, { tune: 1.05, drive: 0.4 })],
     ["Hat Cl", 0.25, hat(0.075, { hp: 7000, pitch: 1.15 })],
     ["Hat Op", 0.6, hat(0.33, { hp: 6500, pitch: 1.15, amt: 0.5 })],
     ["Ride", 1.8, ride(1.2, { pitch: 1.5, bell: 0.1 })],
@@ -612,7 +633,7 @@ const KITS: Record<string, StockKit> = {
     ["Kick", 0.5, kick({ f0: 200, f1: 54, tau: 0.014, decay: 0.2, click: 0.5, knock: 0.4 })],
     ["Snare", 0.5, snare({ tone: 230, snap: 0.144, noise: 1, body: 0.8, presence: 4500, drive: 0.7 }), { room: 0.15 }],
     ["Ghost", 0.3, snare({ tone: 250, snap: 0.077, noise: 0.5, body: 0.35, presence: 6000 })],
-    ["Rim", 0.2, rim(1800, 520)],
+    ["Rim", 0.2, rim(SIDESTICK, { tune: 1.1, click: 2.2, grain: 3 })],
     ["Hat Cl", 0.2, hat(0.062, { hp: 7500 })],
     ["Hat Op", 0.6, hat(0.33, { hp: 7000, amt: 0.5 })],
     ["Shaker", 0.2, shaker(7500, 0.08)],
@@ -631,7 +652,7 @@ const KITS: Record<string, StockKit> = {
     ["Kick", 1.2, bass808({ from: 52, to: 47, decay: 0.8, drive: 0.3 })],
     ["Snare", 0.4, snare({ tone: 238, ratio: 2, toneDecay: 0.09, snap: 0.115, noise: 0.7, presence: 5000, drive: 0 })],
     ["Clap", 0.5, clap({ band: 1100, tail: 0.112 })],
-    ["Rim", 0.2, rim(1700, 500)],
+    ["Rim", 0.2, rim(RIM_808)],
     ["Hat Cl", 0.3, hat(0.088)],
     ["Hat Op", 0.8, hat(0.462, { amt: 0.5 })],
     ["Cowbell", 0.5, cowbell()],
