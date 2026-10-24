@@ -371,6 +371,13 @@ main .panels > .section + .section::before { content: ""; position: absolute; le
 .enc-knob { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 4px 2px 3px; min-width: 0; border-left: 1px solid var(--line); }
 .enc-knob:first-child { border-left: none; }
 .enc-knob.empty { opacity: .35; }
+/* A live encoder turns by dragging up and down (EncoderStrip.tsx): a tint on hover, more while turning. */
+.enc-knob:not(.empty) { cursor: ns-resize; touch-action: none; user-select: none; -webkit-user-select: none; transition: background .06s; }
+.enc-knob:not(.empty):hover { background: color-mix(in srgb, var(--page) 8%, transparent); }
+.enc-knob.turning { background: color-mix(in srgb, var(--page) 16%, transparent); }
+.enc-knob:focus { outline: none; }
+.enc-knob:focus-visible { outline: 1px solid var(--page); outline-offset: -2px; }
+.enc-knob:hover .knob-pointer, .enc-knob.turning .knob-pointer { stroke-width: 2; }
 .knob { width: 26px; height: 26px; flex: none; margin-bottom: 1px; }
 @media (min-width: 1181px) {
   .enc-knob { justify-content: center; gap: 3px; }

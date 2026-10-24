@@ -63,7 +63,7 @@ All on the Launchkey:
 3. Optionally fix the slices: encoder 5 or 6 re-detects the hits, Scene adds a marker at the playhead, encoders 3 and 4 pick and move a marker.
 4. **Func**. A new drum track with the slices on its pads is selected and the Launchkey goes back to Play mode. Undo (Shift + Func) takes it back.
 
-On the computer: Space plays and stops, R records, `[` and `]` step through the patterns, ⌘Z undoes and ⇧⌘Z redoes.
+On the computer: Space plays and stops, R records, `[` and `]` step through the patterns, ⌘Z undoes and ⇧⌘Z redoes. The on-screen encoders in the top bar turn like the Launchkey's: drag one up or down, scroll over it, or click it and use the arrow keys (Shift for fine steps); the screen preview shows the value as the hardware screen does.
 
 The **Guide** button in the app has the full hardware map, mode overview, encoder pages and shortcuts. Press `?` anywhere to open it.
 

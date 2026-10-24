@@ -36,6 +36,14 @@ let lastLayoutFix = -Infinity;
 /** Encoder page to go back to when leaving Step mode (which opens its own Step page). */
 let pageBeforeStep: number | null = null;
 
+/** Turn encoder `index` of encoder page `page` and show its value on the screen: the Launchkey's encoders and the
+ *  on-screen knobs (ui/EncoderStrip.tsx) both come here. */
+export function turnPageEncoder(page: number, index: number, delta: number, fine: boolean) {
+  const p = turnEncoder(page, index, delta, fine);
+  // The Duck screen already draws the curve, so its popup goes without the visual.
+  if (p) showTemp(p.name, p.format(), { visual: page === DUCK_PAGE ? undefined : p.visual?.(), encoder: index });
+}
+
 export function setHwMode(mode: HwMode) {
   const prev = get().hwMode;
   if (prev === mode) return;
@@ -260,9 +268,7 @@ export function initController() {
           chopEncoder(e.index, e.delta, s.shift);
           break;
         }
-        const p = turnEncoder(s.encPage, e.index, e.delta, s.shift);
-        // The Duck screen already draws the curve, so its popup goes without the visual.
-        if (p) showTemp(p.name, p.format(), { visual: s.encPage === DUCK_PAGE ? undefined : p.visual?.(), encoder: e.index });
+        turnPageEncoder(s.encPage, e.index, e.delta, s.shift);
         break;
       }
       case "button":
