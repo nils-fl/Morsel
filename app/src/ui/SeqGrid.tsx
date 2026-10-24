@@ -44,7 +44,7 @@ export function SeqGrid() {
   // Drum track: one row per pad. Keys track: one row with every note.
   const rows = drum
     ? Array.from({ length: PAD_COUNT }, (_, i) => ({ key: i, name: track.pads[i].name, color: paletteCss(track.pads[i].color), note: i, events: clip.events.filter((e) => e.note === i) }))
-    : [{ key: -1, name: track.name, color: mute("#a46bff"), note: keyNote, events: clip.events }];
+    : [{ key: -1, name: track.name, color: mute("#a46bff", 0.12), note: keyNote, events: clip.events }];
 
   return (
     <div className="seq">

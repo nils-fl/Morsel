@@ -1,5 +1,5 @@
 // Launchkey palette index -> approximate CSS colour (for on-screen pads).
-// The LED colours are neon; on screen they are muted toward a neutral grey to suit the UI.
+// The LED colours are neon; on screen they keep most of that (Neon studio), muted only a little toward grey.
 
 const MUTE_TOWARD = [0x8a, 0x90, 0x97];
 
@@ -16,7 +16,7 @@ const LED: Record<number, string> = {
   21: "#2fe05a", 23: "#1a5c2a", 29: "#3bffb0", 37: "#3be7ff", 41: "#3ba4ff", 45: "#3b5bff", 47: "#1a2770",
   49: "#8a3bff", 53: "#ff3bf0", 57: "#ff3b8a",
 };
-const PALETTE: Record<number, string> = Object.fromEntries(Object.entries(LED).map(([k, v]) => [k, mute(v)]));
+const PALETTE: Record<number, string> = Object.fromEntries(Object.entries(LED).map(([k, v]) => [k, mute(v, 0.12)]));
 export const paletteCss = (i: number) => PALETTE[i] ?? `hsl(${(i * 37) % 360} 45% 60%)`;
 /** Text on a filled `color` (#rrggbb): near-black or white, whichever contrasts more. Blues and violets take white. */
 export function inkOn(color: string) {
