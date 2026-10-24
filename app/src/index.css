@@ -275,14 +275,26 @@ main .panels > .section { grid-column: span var(--span, 4); margin: 0; padding: 
 main .panels > .section:first-child { padding-left: 0; }
 main .panels > .section:last-child { padding-right: 0; }
 main .panels > .section + .section::before { content: ""; position: absolute; left: -4.5px; top: 0; bottom: 0; width: 1px; background: var(--line); }
-/* Track tab: Kit and Sample & chop over three pads each, Sidechain over two. */
-.pad-editor .panels > :nth-child(-n+2) { --span: 3; }
-.pad-editor .panels > :nth-child(3) { --span: 2; }
+/* Mixer: the strips fill five or six pad columns and the returns, one above the other, the rest (Mixer.tsx splits). */
+.mixer-panel.side > :first-child { --span: var(--mix-span); }
+.mixer-panel.side > :last-child { --span: var(--ret-span); }
+.mixer-panel.side .mixer { grid-auto-columns: minmax(190px, 1fr); }
+.mixer-panel.side .returns { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+/* Song: the arrangement and the export share a row. */
+.song-panel .panels > .section { --span: 4; }
 /* Narrower windows stack the regions, a hairline across the shell between them. */
 @media (max-width: 900px) {
   main .panels { grid-template-columns: minmax(0, 1fr); }
   main .panels > .section { grid-column: auto; padding: 18px 0 22px; }
   main .panels > .section + .section::before { left: calc(-1 * var(--gutter)); right: calc(-1 * var(--gutter)); width: auto; bottom: auto; height: 1px; }
+}
+/* The strips need their width sooner: below the wide layout the returns go under them. */
+@media (max-width: 1180px) {
+  main .mixer-panel.side { grid-template-columns: minmax(0, 1fr); }
+  main .mixer-panel.side > .section { grid-column: auto; padding: 18px 0 22px; }
+  main .mixer-panel.side > .section + .section::before { left: calc(-1 * var(--gutter)); right: calc(-1 * var(--gutter)); width: auto; bottom: auto; height: 1px; }
+  .mixer-panel.side .mixer { grid-auto-columns: 220px; }
+  .mixer-panel.side .returns { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
 }
 
 .audio-banner {
@@ -397,6 +409,15 @@ main .panels > .section + .section::before { content: ""; position: absolute; le
 .pads-track { font-weight: 700; color: var(--text); border-left: 3px solid var(--trk-line); padding-left: 8px; white-space: nowrap; }
 .pads-detail { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .pads-tools { display: flex; gap: 6px; margin-left: auto; flex: none; }
+.kit-picker { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.kit-picker .tool-label { margin-right: 4px; }
+.kit-picker select { min-width: 0; }
+.kit-picker .menu { margin-left: 4px; }
+.kit-picker .menu-panel { left: 0; right: auto; }
+.menu-panel .row input { flex: 1; min-width: 0; }
+.menu-panel .sub-head { margin: 0 0 -6px; }
+/* On a phone the kit picker gets its own line under the track and Repeat. */
+@media (max-width: 600px) { .pads-bar { flex-wrap: wrap; row-gap: 8px; } .kit-picker { order: 1; flex-basis: 100%; } }
 .pad {
   aspect-ratio: 1.6; position: relative; border-radius: var(--r-tile); text-align: left; padding: 7px 8px;
   --pad-line: color-mix(in oklab, var(--pad) var(--edge-keep), var(--text));
@@ -425,10 +446,8 @@ main .panels > .section + .section::before { content: ""; position: absolute; le
 /* ---------- page tabs (like encoder page tags) ---------- */
 /* Tabs: a strip across the shell, underlined in the page colour, heading the content band below. */
 .tabs { display: flex; gap: 2px; margin: 0; padding: 0 var(--gutter); border-bottom: 1px solid var(--line); }
-/* Switching tabs keeps the page where it is: the tab area is at least a screen tall, so a short tab (an empty Chop)
-   doesn't shorten the page under you, and the browser's scroll anchoring doesn't nudge it to follow the old tab's
-   content. */
-main { min-height: 100vh; }
+/* Switching tabs keeps the page where it is (App holds the tab area's height while it's needed); the browser's scroll
+   anchoring mustn't nudge it to follow the old tab's content. */
 html { overflow-anchor: none; }
 .tabs button {
   border: none; border-bottom: 3px solid transparent; border-radius: 0; margin-bottom: -1px; background: none; color: var(--muted);
@@ -465,6 +484,10 @@ html { overflow-anchor: none; }
 
 .tab-state.on { color: var(--ok); }
 .duck-meter { margin-top: 6px; }
+/* The duck's sliders in two columns, like LFO's beside it on a keys track (and to keep Sidechain short on a drum track). */
+.duck-sliders { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 28px; }
+/* One column where the panel is half of a narrower window, or the bars get too short. */
+@media (min-width: 901px) and (max-width: 1180px), (max-width: 600px) { .duck-sliders { grid-template-columns: minmax(0, 1fr); } }
 .duck-meter div { background: var(--amber); transition: none; }
 .inputs { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .inputs li { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -586,13 +609,12 @@ html { overflow-anchor: none; }
 .seq-ruler .seq-cells > span.now { border-bottom-color: var(--page); background: color-mix(in srgb, var(--page) 25%, transparent); color: var(--text); }
 
 /* ---------- keys ---------- */
-/* Keys: the sound source and volume as a toolbar over the source's panels. */
+/* Keys: the sound source and volume as a toolbar over the source's panels, grouped like the Sequencer's tools. */
 .keys-source {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  display: flex; align-items: center; gap: 10px 0; flex-wrap: wrap;
   margin: 0 calc(-1 * var(--gutter)); padding: 14px var(--gutter); border-bottom: 1px solid var(--line);
 }
-.keys-source .bar-label { width: auto; align-self: center; }
-.keys-source .slider { width: 300px; margin-left: auto; padding: 0; }
+.keys-source .slider { width: 280px; padding: 0; }
 /* Buttons that are one choice, joined into a single control. */
 .segmented { display: flex; }
 .segmented button + button { margin-left: -1px; }
@@ -608,8 +630,14 @@ html { overflow-anchor: none; }
 .mini-kb .black { width: 0; flex: 0; padding: 0; z-index: 1; position: relative; border: none; background: none; }
 .mini-kb .black::before { content: ""; position: absolute; left: -10px; top: 0; width: 20px; height: 62px; background: var(--bg); border: 1px solid var(--line-hi); border-top: none; }
 .mini-kb .black:active::before { background: color-mix(in srgb, var(--violet) 45%, var(--bg)); }
-.preset-folders { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0 6px; }
-.preset-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 4px; margin-bottom: 6px; }
+.preset-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 10px; }
+.preset-folders { display: flex; flex-wrap: wrap; gap: 4px; }
+.preset-save { margin: 0 0 0 auto; }
+.preset-save input { width: 220px; }
+/* The presets sit on the pad columns. */
+.preset-list { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px 8px; margin-bottom: 6px; }
+@media (max-width: 900px) { .preset-list { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 600px) { .preset-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } .preset-save { margin-left: 0; } }
 .preset-list button { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 12px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chip { background: transparent; border: 1px solid var(--page); color: var(--page); padding: 2px 8px; font-size: 11px; }
 

@@ -245,7 +245,7 @@ export function Guide() {
             <li>Everything autosaves in this browser. Song tab → Export project to keep a copy with all samples, New project to start over.</li>
             <li>Samples come from connected folders (Connect folder, Chrome / Edge): browsed in place from Sample ▾ or Browse on the Launchkey, and a sample is copied into the browser only when you use it. Folder → pads in Sample ▾ makes the open folder the kit. After a browser restart, click Reconnect next to the folder in Sample ▾.</li>
             <li>Dropping an audio file on an on-screen pad loads just that file.</li>
-            <li>New drum tracks start with the Factory kit. Built-in genre kits (Lo-Fi, Boom Bap, Hip Hop, Trap, Drill, House, Techno, DnB, Electro) are synthesized like it. The Kit panel (Track tab), the Kit encoder page or Browse → Kits loads a kit; the Kits panel saves, renames, exports, imports (several at once) and deletes them.</li>
+            <li>New drum tracks start with the Factory kit. Built-in genre kits (Lo-Fi, Boom Bap, Hip Hop, Trap, Drill, House, Techno, DnB, Electro) are synthesized like it. The Kit picker over the pads, the Kit encoder page or Browse → Kits loads a kit; Kits… next to the picker saves, renames, exports, imports (several at once) and deletes them.</li>
             <li>Keys tracks: Synth, Sample (one sound with a root note), Pad sample or Multisample, plus a vibrato and a filter LFO (encoder page LFO).</li>
             <li>Record → chop → drum rack: Shift + Record, play, Shift + Record, then Func. The take opens in Chop with its hits marked; adjust with pads, encoders and ›.</li>
           </ul>

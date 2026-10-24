@@ -1,17 +1,11 @@
-import { useEffect, useRef, useState } from "react";
-import {
-  chopSelected, confirmDeleteSample, deleteSavedKit, folderToPads, kitNames, stepKit, renameSavedKit, loadNamedKit, openInChop, saveCurrentKit, samplingLevel, shareTab,
-  toggleSampling, unshareTab,
-} from "../actions";
+import { useEffect, useState } from "react";
+import { chopSelected, confirmDeleteSample, folderToPads, openInChop, samplingLevel, shareTab, toggleSampling, unshareTab } from "../actions";
 import { DECAY_MAX } from "../audio/dsp";
 import { hz } from "../params";
 import { engine } from "../audio/engine";
 import { TAB_WORDS } from "../audio/recorder";
-import { KIT_ACCEPT, KIT_EXT } from "../state/fileFormat";
-import { exportKit, importKit } from "../state/projectFile";
-import { download } from "../seq/render";
 import { drumPads, drumTrack, set, updatePad, useApp } from "../state/store";
-import { STOCK_KITS, type SampleSource, type SampleTarget } from "../state/types";
+import type { SampleSource, SampleTarget } from "../state/types";
 import { Field, Section, Slider } from "./controls";
 import { paletteCss } from "./palette";
 import { ColorPicker } from "./ColorPicker";
@@ -105,7 +99,6 @@ export function PadEditor() {
         </div>
       </Section>
       <div className="panels">
-        <KitPanel />
         <SampleChopPanel />
         <SidechainPanel />
       </div>
@@ -172,78 +165,6 @@ function SampleChopPanel() {
         <button onClick={() => chopSelected("transient", Math.min(count, 16 - pad))}>Transients</button>
         <button onClick={openInChop} title="Place, move and audition slices by hand">Editor…</button>
       </div>
-    </Section>
-  );
-}
-
-/** This drum track's kit: pick or step through kits (like the Keys presets; Launchkey: encoder page Kit, encoder 1),
- *  and save, rename, import, export and delete your own. */
-function KitPanel() {
-  const kit = useApp((s) => drumTrack(s).kit);
-  const kits = useApp((s) => s.kits); // re-render when kits are saved or deleted
-  const list = kitNames();
-  const saved = list.slice(STOCK_KITS.length);
-  const at = list.indexOf(kit);
-  const [name, setName] = useState("");
-  // The saved kit last picked here: the one Rename renames.
-  const [picked, setPicked] = useState<string | null>(null);
-  const canRename = !!picked && kits.includes(picked) && !!name.trim() && name.trim() !== picked;
-  const kitInput = useRef<HTMLInputElement>(null);
-  return (
-    <Section title="Kit" actions={
-      <>
-        <button onClick={() => stepKit(-1)} disabled={at === 0} aria-label="Previous kit">◀</button>
-        <select value={at >= 0 ? kit : ""} title="Load a kit onto this drum track (Undo brings the pads back)" onChange={(e) => e.target.value && void loadNamedKit(e.target.value)}>
-          {at < 0 && <option value="">{kit || "—"}</option>}
-          <optgroup label="Built-in">{STOCK_KITS.map((k) => <option key={k} value={k}>{k}</option>)}</optgroup>
-          {saved.length > 0 && <optgroup label="Saved">{saved.map((k) => <option key={k} value={k}>{k}</option>)}</optgroup>}
-        </select>
-        <button onClick={() => stepKit(1)} disabled={at >= list.length - 1} aria-label="Next kit">▶</button>
-      </>
-    }>
-      <p className="hint tip">Built-in kits are synthesized; your saved kits follow them in the list. ◀ ▶ load the previous / next kit. Launchkey: encoder page <b>Kit</b>, encoder 1 scrolls the kits.</p>
-      <input ref={kitInput} type="file" accept={KIT_ACCEPT} multiple hidden onChange={async (e) => {
-        const files = [...(e.target.files ?? [])];
-        e.target.value = "";
-        const failed: string[] = [];
-        let last = "";
-        for (const f of files) {
-          try {
-            last = await importKit(f, engine);
-          } catch (err) {
-            failed.push(`${f.name}: ${(err as Error).message}`);
-          }
-        }
-        const ok = files.length - failed.length;
-        if (files.length > 1 || failed.length) {
-          set({ status: `Imported ${ok} kit${ok === 1 ? "" : "s"}${ok ? ` (${last} is on the pads)` : ""}${failed.length ? ` · failed: ${failed.join("; ")}` : ""}` });
-        }
-      }} />
-      <div className="row">
-        <input placeholder="Save the pads as…" value={name} onChange={(e) => setName(e.target.value)} aria-label="Kit name" />
-        {/* Save and Rename show once they can do something: a name typed, and for Rename a saved kit picked below. */}
-        {name.trim() && <button onClick={() => void saveCurrentKit(name)}>Save</button>}
-        {canRename && <button title={`Rename “${picked}” to the name typed here`} onClick={async () => {
-          if (picked && (await renameSavedKit(picked, name))) setPicked(name.trim());
-        }}>Rename</button>}
-      </div>
-      <div className="row">
-        <button onClick={() => kitInput.current?.click()} title="Import one or more .morsel-kit files">Import…</button>
-        <button title="Save the pads as a kit file with their samples, to share or keep (named as typed above, or after the kit)" onClick={() => {
-          const file = name.trim() || kit || "Kit";
-          void exportKit(file, drumPads()).then((blob) => download(blob, `${file}${KIT_EXT}`));
-        }}>Export…</button>
-      </div>
-      {kits.length > 0 && <h4 className="sub-head">Saved kits</h4>}
-      <div className="row wrap">
-        {kits.map((k) => (
-          <span key={k} className="kit-chip">
-            <button className={k === picked ? "on" : ""} onClick={() => { setName(k); setPicked(k); void loadNamedKit(k); }}>{k}</button>
-            <button onClick={() => void deleteSavedKit(k)} aria-label={`Delete kit ${k}`} title="Delete this kit">✕</button>
-          </span>
-        ))}
-      </div>
-      <p className="hint tip">Launchkey: Shift + Encoder ⌃ → Kits. On a sample folder, Shift + Function puts it on the pads.</p>
     </Section>
   );
 }

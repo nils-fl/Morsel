@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { togglePlay, toggleRecord } from "./actions";
 import { currentFrame, setHwMode } from "./modes/controller";
@@ -51,6 +51,27 @@ export default function App() {
   const theme = useApp((s) => s.theme);
   const accent = accentFor(paletteCss(track.color), theme);
   useEffect(() => { document.documentElement.style.setProperty("--page", accent); }, [accent]);
+  // Switching tabs keeps the page where it is: the tab area holds the height that fills the window at the current
+  // scroll, so a short tab (an empty Chop) doesn't shorten the page under you. Scrolling back up lets it go, so a
+  // short tab ends where its content does rather than a screen further down.
+  const mainRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const hold = () => {
+      const main = mainRef.current;
+      if (!main) return;
+      const r = main.getBoundingClientRect();
+      const below = document.documentElement.scrollHeight - (r.bottom + window.scrollY);
+      const need = window.scrollY > 0 ? Math.floor(window.innerHeight - r.top - below) : 0;
+      main.style.minHeight = `${Math.max(0, need)}px`;
+    };
+    hold();
+    window.addEventListener("scroll", hold, { passive: true });
+    window.addEventListener("resize", hold);
+    return () => {
+      window.removeEventListener("scroll", hold);
+      window.removeEventListener("resize", hold);
+    };
+  }, []);
   const closePrefs = useCallback(() => setPrefs(false), []);
   const openLab = useCallback(() => { setPrefs(false); setLab(true); }, []);
   const closeLab = useCallback(() => setLab(false), []);
@@ -119,7 +140,7 @@ export default function App() {
           </button>
         ))}
       </nav>
-      <main>
+      <main ref={mainRef}>
         {tab === "Track" && (track.kind === "drum" ? <PadEditor /> : <KeysPanel />)}
         {tab === "Chop" && <ChopEditor />}
         {tab === "Sequencer" && <SeqGrid />}

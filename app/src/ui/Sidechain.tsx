@@ -60,9 +60,21 @@ function InputsBody() {
 /** Keys track: how it ducks. */
 export function DuckPanel() {
   return (
-    <Section title="Duck" actions={<DuckSwitch />}>
+    <Section title="Duck" actions={<><DuckInput /><DuckSwitch /></>}>
       <DuckBody />
     </Section>
+  );
+}
+
+/** The input the selected track ducks from. */
+function DuckInput() {
+  const track = useApp(selectedTrack);
+  const inputs = useApp((s) => s.project.sidechain);
+  return (
+    <select value={track.duck.input ?? ""} onChange={(e) => setTrackDuck(track.id, { input: e.target.value || null })} aria-label="Input" title={`The input ${track.name} ducks from`}>
+      <option value="">No input</option>
+      {inputs.map((x) => <option key={x} value={x}>{inputLabel(x)}</option>)}
+    </select>
   );
 }
 
@@ -103,17 +115,15 @@ function DuckBody({ inputsAbove = false }: { inputsAbove?: boolean }) {
           ? <>Hits on the input dip the pads ticked below (never the input itself). Launchkey: <b>Duck</b> page{onPage ? " (open)" : ""}, hit a pad, encoder 7.</>
           : <>Hits on the input dip this track. Inputs are drum pads, made on a drum track's Track tab. Launchkey: <b>Duck</b> page{onPage ? " (open)" : ""}.</>}
       </p>
-      <Field label="Input">
-        <select value={duck.input ?? ""} onChange={(e) => set({ input: e.target.value || null })}>
-          <option value="">None</option>
-          {inputs.map((x) => <option key={x} value={x}>{inputLabel(x)}</option>)}
-        </select>
-      </Field>
+      {/* A keys track picks its input in the panel's header. */}
+      {drum && <Field label="Input"><DuckInput /></Field>}
       {!inputs.length && !inputsAbove && <p className="hint">No inputs yet: make a drum pad an input first.</p>}
-      <Slider label="Depth" value={duck.depth} min={0} max={1} format={pct} onChange={(v) => set({ depth: v })} />
-      <Slider label="Attack" value={duck.attack} min={0} max={0.05} step={0.001} format={ms} onChange={(v) => set({ attack: v })} />
-      <Slider label="Hold" value={duck.hold} min={0} max={0.5} step={0.01} format={ms} onChange={(v) => set({ hold: v })} />
-      <Slider label="Release" value={duck.release} min={0.02} max={1} step={0.01} format={ms} onChange={(v) => set({ release: v })} />
+      <div className="duck-sliders">
+        <Slider label="Depth" value={duck.depth} min={0} max={1} format={pct} onChange={(v) => set({ depth: v })} />
+        <Slider label="Attack" value={duck.attack} min={0} max={0.05} step={0.001} format={ms} onChange={(v) => set({ attack: v })} />
+        <Slider label="Hold" value={duck.hold} min={0} max={0.5} step={0.01} format={ms} onChange={(v) => set({ hold: v })} />
+        <Slider label="Release" value={duck.release} min={0.02} max={1} step={0.01} format={ms} onChange={(v) => set({ release: v })} />
+      </div>
       {drum && (
         <div className="duck-pads" role="group" aria-label="Pads that duck">
           {track.pads.map((_, i) => {

@@ -16,8 +16,11 @@ const delayName = (n: number) => ({ 1: "1/16", 2: "1/8", 3: "1/8 dot", 4: "1/4",
 
 export function Mixer() {
   const tracks = useApp((s) => s.project.tracks);
+  // Up to four strips (with Master), the returns sit beside them on the pad columns; more, and they go underneath.
+  const strips = tracks.length + 1;
+  const span = strips <= 3 ? 5 : strips === 4 ? 6 : 0;
   return (
-    <div className="mixer-panel">
+    <div className={`mixer-panel ${span ? "panels side" : ""}`} style={{ "--mix-span": span, "--ret-span": 8 - span } as React.CSSProperties}>
       <Section title="Mixer">
         <p className="hint tip">Each track runs through its own filter, EQ, drive and compressor, then the fader. Sends A and B feed the shared reverb and delay below.</p>
         <div className="mixer">

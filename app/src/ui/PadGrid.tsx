@@ -5,6 +5,7 @@ import { REPEAT_OPTIONS } from "../seq/timing";
 import { drumPads, drumTrack, selectedTrack, set, useApp } from "../state/store";
 import type { Track } from "../state/types";
 import { droppedEntry } from "./drawer";
+import { KitPicker } from "./KitMenu";
 import { noteName } from "./notes";
 import { inkOn, paletteCss } from "./palette";
 
@@ -25,12 +26,13 @@ export function PadGrid() {
   return track.kind === "drum" ? <DrumPads /> : <NotePads track={track} />;
 }
 
-/** The bar over the pads: whose pads they are, and the pads' own controls on the right. */
-function PadsBar({ track, detail, children }: { track: Track; detail: string; children?: React.ReactNode }) {
+/** The bar over the pads: whose pads they are and what's on them (a drum track's kit picker), and the pads' own
+ *  controls on the right. */
+function PadsBar({ track, detail, children }: { track: Track; detail: React.ReactNode; children?: React.ReactNode }) {
   return (
     <div className="pads-bar" style={{ "--trk": paletteCss(track.color) } as React.CSSProperties}>
       <span className="pads-track">{track.kind === "drum" ? "▦" : "♪"} {track.name}</span>
-      <span className="pads-detail">{detail}</span>
+      {typeof detail === "string" ? <span className="pads-detail">{detail}</span> : detail}
       {children && <div className="pads-tools">{children}</div>}
     </div>
   );
@@ -53,7 +55,7 @@ function DrumPads() {
 
   return (
     <div className="pad-grid">
-      <PadsBar track={track} detail={`Kit · ${track.kit || "—"}`}>
+      <PadsBar track={track} detail={<KitPicker />}>
         <button
           className={latch ? "on" : ""}
           onClick={() => setRepeatLatch(!latch)}

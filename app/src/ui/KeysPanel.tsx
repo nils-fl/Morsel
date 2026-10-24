@@ -55,15 +55,19 @@ export function KeysPanel() {
     <div className="keys-panel">
       {/* What makes the sound, and how loud: a toolbar over the source's own panels. */}
       <div className="keys-source" role="group" aria-label={`${trackName} sound source`}>
-        <span className="bar-label">Source</span>
-        <div className="segmented">
-          {(["synth", "sample", "chromatic", "multi"] as const).map((t) => (
-            <button key={t} className={keys.type === t ? "on" : ""} onClick={() => updateKeys({ type: t })}>
-              {t === "synth" ? "Synth" : t === "sample" ? "Sample" : t === "chromatic" ? "Pad sample" : "Multisample"}
-            </button>
-          ))}
+        <div className="tool-group">
+          <span className="tool-label">Source</span>
+          <div className="segmented">
+            {(["synth", "sample", "chromatic", "multi"] as const).map((t) => (
+              <button key={t} className={keys.type === t ? "on" : ""} onClick={() => updateKeys({ type: t })}>
+                {t === "synth" ? "Synth" : t === "sample" ? "Sample" : t === "chromatic" ? "Pad sample" : "Multisample"}
+              </button>
+            ))}
+          </div>
         </div>
-        <Slider label="Volume" value={keys.volume} min={0} max={1} format={pct} onChange={(v) => updateKeys({ volume: v })} />
+        <div className="tool-group">
+          <Slider label="Volume" value={keys.volume} min={0} max={1} format={pct} onChange={(v) => updateKeys({ volume: v })} />
+        </div>
       </div>
 
       {keys.type === "synth" && <PresetBar />}
@@ -229,10 +233,18 @@ function PresetBar() {
         <button onClick={() => step(1)} disabled={i >= list.length - 1} aria-label="Next preset">▶</button>
       </>
     }>
-      <div className="preset-folders" role="tablist" aria-label="Preset folders">
-        {folders.map((f) => (
-          <button key={f} role="tab" aria-selected={f === folder} className={f === folder ? "on" : ""} onClick={() => setOpen({ folder: f, preset: current })}>{f}</button>
-        ))}
+      {/* The folders, and saving the sound on the same line; the folder's presets under them, on the pad columns. */}
+      <div className="preset-head">
+        <div className="preset-folders" role="tablist" aria-label="Preset folders">
+          {folders.map((f) => (
+            <button key={f} role="tab" aria-selected={f === folder} className={f === folder ? "on" : ""} onClick={() => setOpen({ folder: f, preset: current })}>{f}</button>
+          ))}
+        </div>
+        <div className="row preset-save">
+          <input placeholder="Save the sound as…" value={name} maxLength={24} onChange={(e) => setName(e.target.value)} aria-label="Preset name" />
+          {name.trim() && <button onClick={async () => { await saveUserPreset(name); setName(""); }}>Save</button>}
+          {isUser && <button onClick={() => deleteUserPreset(current)} title="Delete this saved preset (the current sound stays)">Delete “{current}”</button>}
+        </div>
       </div>
       <div className="preset-list">
         {list.filter((p) => p.folder === folder).map((p) => (
@@ -240,11 +252,6 @@ function PresetBar() {
         ))}
       </div>
       <p className="hint tip">A * means the sound was edited since the preset was loaded. Launchkey: encoder page <b>Keys</b>, encoder 1 scrolls presets, Shift + encoder 1 jumps to the next folder.</p>
-      <div className="row">
-        <input placeholder="Save the sound as…" value={name} maxLength={24} onChange={(e) => setName(e.target.value)} aria-label="Preset name" />
-        {name.trim() && <button onClick={async () => { await saveUserPreset(name); setName(""); }}>Save</button>}
-        {isUser && <button onClick={() => deleteUserPreset(current)} title="Delete this saved preset (the current sound stays)">Delete “{current}”</button>}
-      </div>
     </Section>
   );
 }

@@ -32,48 +32,50 @@ export function SongPanel() {
   return (
     <div className="song-panel">
       <Matrix />
-      <Section
-        title="Song"
-        actions={
-          <>
-            <label className="field inline">
-              <input type="checkbox" checked={songMode} onChange={(e) => set({ songMode: e.target.checked })} />
-              <span>Play as song</span>
-            </label>
-            <button onClick={() => setSong((s) => [...s, { pattern: get().currentPattern, repeats: 1 }])}>+ Add current sequence</button>
-          </>
-        }
-      >
-        <p className="hint tip">Each step plays a sequence (a row of the matrix) with every track's clip. Hardware: Function → Pattern mode, then hold Scene and tap a pad to add that sequence to the song.</p>
-        <ol className="song-list">
-          {song.map((step, i) => (
-            <li key={i}>
-              <select value={step.pattern} onChange={(e) => setSong((s) => s.map((x, j) => (j === i ? { ...x, pattern: Number(e.target.value) } : x)))}>
-                {patterns.map((p, j) => <option key={j} value={j}>Sequence {j + 1}{patternHasNotes(p) ? "" : " (empty)"}</option>)}
-              </select>
-              <span>×</span>
-              <input type="number" min={1} max={64} value={step.repeats} onChange={(e) => setSong((s) => s.map((x, j) => (j === i ? { ...x, repeats: Math.max(1, Number(e.target.value)) } : x)))} />
-              <button disabled={i === 0} onClick={() => setSong((s) => { const n = [...s]; [n[i - 1], n[i]] = [n[i], n[i - 1]]; return n; })}>↑</button>
-              <button onClick={() => setSong((s) => s.filter((_, j) => j !== i))}>✕</button>
-            </li>
-          ))}
-        </ol>
-      </Section>
+      <div className="panels">
+        <Section
+          title="Song"
+          actions={
+            <>
+              <label className="field inline">
+                <input type="checkbox" checked={songMode} onChange={(e) => set({ songMode: e.target.checked })} />
+                <span>Play as song</span>
+              </label>
+              <button onClick={() => setSong((s) => [...s, { pattern: get().currentPattern, repeats: 1 }])}>+ Add current sequence</button>
+            </>
+          }
+        >
+          <p className="hint tip">Each step plays a sequence (a row of the matrix) with every track's clip. Hardware: Function → Pattern mode, then hold Scene and tap a pad to add that sequence to the song.</p>
+          <ol className="song-list">
+            {song.map((step, i) => (
+              <li key={i}>
+                <select value={step.pattern} onChange={(e) => setSong((s) => s.map((x, j) => (j === i ? { ...x, pattern: Number(e.target.value) } : x)))}>
+                  {patterns.map((p, j) => <option key={j} value={j}>Sequence {j + 1}{patternHasNotes(p) ? "" : " (empty)"}</option>)}
+                </select>
+                <span>×</span>
+                <input type="number" min={1} max={64} value={step.repeats} onChange={(e) => setSong((s) => s.map((x, j) => (j === i ? { ...x, repeats: Math.max(1, Number(e.target.value)) } : x)))} />
+                <button disabled={i === 0} onClick={() => setSong((s) => { const n = [...s]; [n[i - 1], n[i]] = [n[i], n[i - 1]]; return n; })}>↑</button>
+                <button onClick={() => setSong((s) => s.filter((_, j) => j !== i))}>✕</button>
+              </li>
+            ))}
+          </ol>
+        </Section>
 
-      <Section title="Export audio">
-        <div className="row">
-          <button disabled={busy} onClick={() => bounce(true)}>Bounce song to WAV</button>
-          <span className="hint">or</span>
-          <button disabled={busy} onClick={() => bounce(false)}>Bounce current pattern</button>
-          <span>×</span>
-          <input type="number" min={1} max={64} value={loops} onChange={(e) => setLoops(Math.max(1, Math.min(64, Math.round(Number(e.target.value) || 1))))} />
-          <span className="hint">loops</span>
-          <select value={bits} onChange={(e) => set({ bounceBits: Number(e.target.value) as 16 | 24 })} aria-label="Bit depth">
-            <option value={24}>24-bit</option>
-            <option value={16}>16-bit</option>
-          </select>
-        </div>
-      </Section>
+        <Section title="Export audio">
+          <div className="row">
+            <button disabled={busy} onClick={() => bounce(true)}>Bounce song to WAV</button>
+            <span className="hint">or</span>
+            <button disabled={busy} onClick={() => bounce(false)}>Bounce current pattern</button>
+            <span>×</span>
+            <input type="number" min={1} max={64} value={loops} onChange={(e) => setLoops(Math.max(1, Math.min(64, Math.round(Number(e.target.value) || 1))))} />
+            <span className="hint">loops</span>
+            <select value={bits} onChange={(e) => set({ bounceBits: Number(e.target.value) as 16 | 24 })} aria-label="Bit depth">
+              <option value={24}>24-bit</option>
+              <option value={16}>16-bit</option>
+            </select>
+          </div>
+        </Section>
+      </div>
     </div>
   );
 }
