@@ -4,6 +4,7 @@ import { togglePlay, toggleRecord } from "./actions";
 import { currentFrame, setHwMode } from "./modes/controller";
 import { ScreenPreview } from "./ui/ScreenPreview";
 import { toggleTheme } from "./ui/theme";
+import { accentFor, paletteCss } from "./ui/palette";
 import { toggleTips } from "./ui/tips";
 import { toggleLibrary } from "./ui/drawer";
 import { sequencer } from "./seq/sequencer";
@@ -46,7 +47,10 @@ export default function App() {
   const [guide, setGuide] = useState(false);
   const [prefs, setPrefs] = useState(false);
   const [lab, setLab] = useState(false);
-  useEffect(() => { document.documentElement.style.setProperty("--page", color(tab)); });
+  // The tabs keep their own colours; everything they open (and the Launchkey row) takes the selected track's colour.
+  const theme = useApp((s) => s.theme);
+  const accent = accentFor(paletteCss(track.color), theme);
+  useEffect(() => { document.documentElement.style.setProperty("--page", accent); }, [accent]);
   const closePrefs = useCallback(() => setPrefs(false), []);
   const openLab = useCallback(() => { setPrefs(false); setLab(true); }, []);
   const closeLab = useCallback(() => setLab(false), []);

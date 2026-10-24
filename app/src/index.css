@@ -249,7 +249,6 @@ p.hint { margin: 0 0 8px; }
 .wide { min-width: 420px; }
 .panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; align-content: start; }
 .panels > .section { margin-bottom: 0; min-width: 0; }
-.panels:not(:last-child) { margin-bottom: 20px; }
 
 /* The shell: the whole app is one framed unit on the page. Its bands (top bar, pads, tabs, content) share its surface
    and are divided by hairlines, not floated as separate cards. */
@@ -257,7 +256,34 @@ p.hint { margin: 0 0 8px; }
   max-width: 1400px; margin: 24px auto 64px; padding: 0;
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-shell);
 }
-.app > main { padding: var(--gutter); }
+.app > main { padding: 0 var(--gutter); }
+
+/* ---------- content band: flat regions of the shell, laid out on the pads' 8 columns ----------
+   No cards here: each panel is a band across the shell (hairline below), and panels side by side share a row, their
+   edges on the pad columns (same gutter, same 8 columns and gap as the pads above), a hairline in each gap. */
+main .section {
+  background: none; border: none; border-radius: 0; min-width: 0;
+  margin: 0 calc(-1 * var(--gutter)); padding: 18px var(--gutter) 22px; border-bottom: 1px solid var(--line);
+}
+main .section > header { margin: 0 0 14px; padding: 0; border-bottom: none; min-height: var(--ctl-h); }
+main .section .actions { padding: 0; }
+main .panels {
+  grid-template-columns: repeat(8, minmax(0, 1fr)); column-gap: 8px; row-gap: 0;
+  margin: 0 calc(-1 * var(--gutter)); padding: 0 var(--gutter); border-bottom: 1px solid var(--line);
+}
+main .panels > .section { grid-column: span var(--span, 4); margin: 0; padding: 18px 14px 22px; border-bottom: none; position: relative; }
+main .panels > .section:first-child { padding-left: 0; }
+main .panels > .section:last-child { padding-right: 0; }
+main .panels > .section + .section::before { content: ""; position: absolute; left: -4.5px; top: 0; bottom: 0; width: 1px; background: var(--line); }
+/* Track tab: Kit and Sample & chop over three pads each, Sidechain over two. */
+.pad-editor .panels > :nth-child(-n+2) { --span: 3; }
+.pad-editor .panels > :nth-child(3) { --span: 2; }
+/* Narrower windows stack the regions, a hairline across the shell between them. */
+@media (max-width: 900px) {
+  main .panels { grid-template-columns: minmax(0, 1fr); }
+  main .panels > .section { grid-column: auto; padding: 18px 0 22px; }
+  main .panels > .section + .section::before { left: calc(-1 * var(--gutter)); right: calc(-1 * var(--gutter)); width: auto; bottom: auto; height: 1px; }
+}
 
 .audio-banner {
   display: block; width: 100%; margin: 0; padding: 10px var(--gutter); text-align: left; border-radius: var(--r-shell) var(--r-shell) 0 0;
@@ -319,16 +345,15 @@ p.hint { margin: 0 0 8px; }
 .pat.used:not(.on) { border-color: color-mix(in srgb, var(--cyan) 60%, transparent); color: var(--cyan); }
 .pat.queued { animation: blink .5s steps(2) infinite; }
 @keyframes blink { 50% { background: color-mix(in srgb, var(--cyan) 30%, var(--panel)); color: var(--cyan); } }
-.hw { --page: var(--magenta); }
 .hw-modes { gap: 4px; flex: 1; min-width: 0; }
 .hw-modes button { text-transform: capitalize; }
 /* The encoders sit under the rows' controls, past the label column. */
-.bar-enc { grid-area: enc; flex: 1; display: flex; align-items: stretch; min-width: 0; padding-left: calc(var(--bar-label) + var(--bar-gap)); --page: var(--magenta); }
+.bar-enc { grid-area: enc; flex: 1; display: flex; align-items: stretch; min-width: 0; padding-left: calc(var(--bar-label) + var(--bar-gap)); }
 /* Encoder page + its 8 knobs, in one strip. */
 .enc-strip { display: flex; align-items: stretch; flex: 1; min-width: 0; border: 1px solid var(--line-hi); border-radius: var(--r-tile); overflow: hidden; background: var(--wave-bg); }
 .enc-tag { display: flex; align-items: stretch; padding: 0; border: none; border-right: 1px solid var(--line-hi); border-radius: 0; font-size: 11px; flex: none; }
 .enc-tag:hover:not(:disabled) { color: inherit; }
-.enc-tag b { background: color-mix(in srgb, var(--magenta) var(--tint), var(--panel)); color: color-mix(in srgb, var(--magenta) 55%, var(--text)); padding: 0 7px; letter-spacing: .06em; display: flex; align-items: center; }
+.enc-tag b { background: color-mix(in srgb, var(--page) var(--tint), var(--panel)); color: color-mix(in srgb, var(--page) 55%, var(--text)); padding: 0 7px; letter-spacing: .06em; display: flex; align-items: center; }
 .enc-tag span { padding: 0 10px; color: var(--text); font-weight: 700; display: flex; align-items: center; min-width: 62px; }
 .enc-knobs { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); }
 .enc-knob { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 4px 2px 3px; min-width: 0; border-left: 1px solid var(--line); }
@@ -341,7 +366,7 @@ p.hint { margin: 0 0 8px; }
   .enc-val { font-size: 12px; }
 }
 .knob-track { fill: none; stroke: var(--line-hi); stroke-width: 2.5; stroke-linecap: round; }
-.knob-fill { fill: none; stroke: var(--magenta); stroke-width: 3; stroke-linecap: round; }
+.knob-fill { fill: none; stroke: var(--page); stroke-width: 3; stroke-linecap: round; }
 .knob-pointer { stroke: var(--white); stroke-width: 1.5; stroke-linecap: round; }
 .enc-text { display: flex; flex-direction: column; align-items: center; min-width: 0; max-width: 100%; line-height: 1.2; }
 .enc-name { font-size: 9px; max-width: 100%; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -467,7 +492,14 @@ html { overflow-anchor: none; }
 
 /* Parameter sliders drawn as the screen's meter widget: outlined box, filled to value. */
 /* Sliders in labelled columns (pad editor: Sample, Envelope, Filter, Output). */
-.slider-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px 28px; margin-top: 18px; align-items: start; }
+/* Four groups of two pad columns across a band (the gap is the pads' gap, the groups pad themselves apart),
+   two in a half-width region. */
+.slider-groups { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px 8px; margin-top: 18px; align-items: start; }
+.slider-group { padding-right: 20px; }
+.slider-group:last-child { padding-right: 0; }
+.panels .slider-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 900px) { .slider-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); } .slider-group:nth-child(2n) { padding-right: 0; } }
+@media (max-width: 600px) { .slider-groups, .panels .slider-groups { grid-template-columns: minmax(0, 1fr); } .slider-group { padding-right: 0; } }
 .slider-groups.first { margin-top: 0; }
 .slider-group { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .slider-group .sub-head { margin: 0 0 2px; padding-bottom: 4px; border-bottom: 1px solid var(--line); }
@@ -511,7 +543,6 @@ html { overflow-anchor: none; }
 .meter div { height: 100%; background: linear-gradient(90deg, var(--ok) 70%, var(--amber) 88%, var(--rec)); background-size: 100vw 100%; transition: width .05s; }
 
 /* ---------- sequencer ---------- */
-.seq { --page: var(--cyan); }
 /* Sequencer tools over the grid: small labelled groups divided by hairlines. */
 .seq-toolbar { display: flex; flex-wrap: wrap; align-items: center; row-gap: 10px; margin-bottom: 16px; }
 .tool-group { display: flex; align-items: center; gap: 6px; padding: 0 14px; border-left: 1px solid var(--line); }
@@ -554,9 +585,11 @@ html { overflow-anchor: none; }
 .seq-ruler .seq-cells > span.now { border-bottom-color: var(--page); background: color-mix(in srgb, var(--page) 25%, transparent); color: var(--text); }
 
 /* ---------- keys ---------- */
-.keys-panel { --page: var(--violet); }
 /* Keys: the sound source and volume as a toolbar over the source's panels. */
-.keys-source { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.keys-source {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin: 0 calc(-1 * var(--gutter)); padding: 14px var(--gutter); border-bottom: 1px solid var(--line);
+}
 .keys-source .bar-label { width: auto; align-self: center; }
 .keys-source .slider { width: 300px; margin-left: auto; padding: 0; }
 /* Buttons that are one choice, joined into a single control. */
@@ -580,7 +613,6 @@ html { overflow-anchor: none; }
 .chip { background: transparent; border: 1px solid var(--page); color: var(--page); padding: 2px 8px; font-size: 11px; }
 
 /* ---------- song ---------- */
-.song-panel { --page: var(--lime); }
 .song-list { padding-left: 0; list-style: none; counter-reset: song; margin: 0; }
 .song-list li { margin: 4px 0; display: flex; align-items: center; gap: 6px; counter-increment: song; }
 .song-list li::before {
@@ -818,7 +850,6 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
 }
 
 /* ---------- mixer ---------- */
-.mixer-panel { --page: var(--blue); }
 /* Fixed-width strips like a hardware mixer, whatever the track count; more than fit scroll sideways. */
 .mixer { display: grid; grid-auto-flow: column; grid-auto-columns: 220px; justify-content: start; gap: 8px; overflow-x: auto; padding-bottom: 2px; }
 .channel { border: 1px solid var(--line); border-top: 3px solid var(--trk-line); padding: 6px; background: var(--panel); display: flex; flex-direction: column; gap: 2px; min-width: 0; }

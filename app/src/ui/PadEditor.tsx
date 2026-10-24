@@ -39,7 +39,6 @@ export function PadEditor() {
     <div className="pad-editor">
       <Section
         title={`${trackName} · Pad ${i + 1} · ${pad.name}`}
-        color={paletteCss(pad.color)}
         actions={
           <>
             {!diskSupported() && <span className="hint" title="Samples come from connected folders (File System Access)">Connect folder needs Chrome or Edge</span>}

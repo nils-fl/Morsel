@@ -32,4 +32,31 @@ export function inkOn(color: string) {
 }
 const INK_DARK = "#0e1012";
 
+const hexRgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+const luminance = (rgb: number[]) => {
+  const [r, g, b] = rgb.map((v) => (v /= 255) <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const contrast = (a: number[], b: number[]) => {
+  const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p);
+  return (x + 0.05) / (y + 0.05);
+};
+/** The panel and text colours of each theme (index.css --panel / --text). */
+const THEME = { dark: { panel: "#181c30", text: "#e8eaf6" }, light: { panel: "#f7f8fd", text: "#161a2e" } };
+
+/**
+ * A track colour as the page accent: moved toward the theme's text colour just far enough to read at 4.5:1 on the
+ * panels (pale colours darken on light, deep blues and violets lighten on dark), so it works as text and as a fill.
+ */
+export function accentFor(color: string, theme: "dark" | "light") {
+  if (!/^#[0-9a-f]{6}$/i.test(color)) return color;
+  const { panel, text } = THEME[theme];
+  const [c, t, p] = [hexRgb(color), hexRgb(text), hexRgb(panel)];
+  for (let k = 0; k <= 20; k++) {
+    const mix = c.map((v, i) => Math.round(v + ((t[i] - v) * k) / 20));
+    if (contrast(mix, p) >= 4.5) return `#${mix.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+  }
+  return text;
+}
+
 export const PALETTE_CHOICES = [5, 9, 13, 17, 21, 29, 37, 41, 45, 49, 53, 57];
