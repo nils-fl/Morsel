@@ -2,7 +2,7 @@
 import { DECAY_MAX, cutoffHz, padQDb, synthQDb } from "./audio/dsp";
 import type { Visual } from "./modes/notify";
 import { BAR_TICKS, GRID_OPTIONS, MAX_BARS, PPQN, QUANTIZE_OPTIONS, REPEAT_OPTIONS, STEP_TICKS, gridLabel, pageSteps } from "./seq/timing";
-import { clipStep, defaultDuck, drumPads, get, setClipGrid, stepPages, inputOf, keysTrack, padDucks, parseInput, setDuckPad, setTrackBars, setTrackDuck, toggleSidechainInput, trackBars, selectedTrack, set, trackById, updateKeys, updatePad, updateProject, updateTrack } from "./state/store";
+import { clipStep, defaultDuck, doubleClip, drumPads, get, setClipGrid, stepPages, inputOf, keysTrack, padDucks, parseInput, setDuckPad, setTrackBars, setTrackDuck, toggleSidechainInput, trackBars, selectedTrack, set, trackById, updateKeys, updatePad, updateProject, updateTrack } from "./state/store";
 import { MAX_TRACKS, type KeysLfo, type Pad, type SampleInfo, type SidechainInput, type SynthParams, type TrackDuck, type TrackFx, type TrackKind, type Wave } from "./state/types";
 import { allPresets, applyPreset, currentKit, kitNames, stepKit } from "./actions";
 import { jumpFolder, presetEdited } from "./audio/synthPresets";
@@ -335,6 +335,7 @@ const curPages = () => stepPages(curPattern(), get().selectedTrack);
 const curGrid = () => clipStep(curPattern(), get().selectedTrack);
 const barsText = (n: number) => `${n} bar${n === 1 ? "" : "s"}`;
 let lastBarsTurn = -Infinity;
+let lastShiftBarsTurn = -Infinity;
 
 /** Where a page of step pads starts: "3" (bar 3), or "3.3" (bar 3, beat 3) when a page is half a bar. */
 export function stepPageLabel(page = get().stepPage) {
@@ -366,7 +367,17 @@ const STEP_PAGE_DEF: Page = {
       name: "Bars",
       value: () => curBars(),
       range: [1, MAX_BARS],
-      nudge: (d) => {
+      nudge: (d, fine) => {
+        if (fine) {
+          // Shift: double the loop (its notes repeat) or halve it. A turn's detents arrive together, so one turn is one step.
+          const now = performance.now();
+          const first = now - lastShiftBarsTurn > 400;
+          lastShiftBarsTurn = now;
+          if (!first) return;
+          if (d > 0) doubleClip(get().currentPattern, get().selectedTrack);
+          else if (curBars() > 1) setTrackBars(get().currentPattern, get().selectedTrack, Math.ceil(curBars() / 2));
+          return;
+        }
         const bars = clamp(curBars() + Math.sign(d), 1, MAX_BARS);
         if (bars === curBars()) return;
         // Shrinking drops the notes past the end; turns in quick succession share one undo step.
