@@ -388,6 +388,8 @@ main .panels > .section + .section::before { content: ""; position: absolute; le
 .field { display: flex; flex-direction: column; gap: 4px; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
 .field.inline { flex-direction: row; align-items: center; gap: 6px; }
 .field > input, .field > select { text-transform: none; letter-spacing: 0; }
+/* A checkbox in a field takes a control's height, so its label lines up with the fields beside it. */
+.field > input[type="checkbox"] { margin-block: calc((var(--ctl-h) - 14px) / 2); }
 
 .screen-slot { grid-area: screen; display: flex; }
 /* In the top bar the screen sits bare (no bezel): top on the Pattern row, bottom on the encoders, right edge on the header's. */
@@ -483,12 +485,11 @@ html { overflow-anchor: none; }
 .waveform { width: 100%; height: 170px; display: block; cursor: ew-resize; background: var(--wave-bg); border: 1px solid var(--line); border-radius: var(--r-tile); }
 
 .tab-state.on { color: var(--ok); }
-.duck-meter { margin-top: 6px; }
 /* The duck's sliders in two columns, like LFO's beside it on a keys track (and to keep Sidechain short on a drum track). */
 .duck-sliders { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 28px; }
 /* One column where the panel is half of a narrower window, or the bars get too short. */
 @media (min-width: 901px) and (max-width: 1180px), (max-width: 600px) { .duck-sliders { grid-template-columns: minmax(0, 1fr); } }
-.duck-meter div { background: var(--amber); transition: none; }
+.duck-meter .meter > div { background: var(--amber); transition: none; }
 .inputs { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .inputs li { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .duck-pads { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 3px; margin-top: 6px; }
@@ -521,7 +522,10 @@ html { overflow-anchor: none; }
 .slider-group { padding-right: 20px; }
 .slider-group:last-child { padding-right: 0; }
 .panels .slider-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-@media (max-width: 900px) { .slider-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); } .slider-group:nth-child(2n) { padding-right: 0; } }
+/* Below the wide layout four groups across leave the bars a few pixels long: two across, and one in a half-width
+   region (as the duck's sliders). */
+@media (max-width: 1180px) { .slider-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); } .slider-group:nth-child(2n) { padding-right: 0; } }
+@media (min-width: 901px) and (max-width: 1180px) { .panels .slider-groups { grid-template-columns: minmax(0, 1fr); } .panels .slider-group { padding-right: 0; } }
 @media (max-width: 600px) { .slider-groups, .panels .slider-groups { grid-template-columns: minmax(0, 1fr); } .slider-group { padding-right: 0; } }
 .slider-groups.first { margin-top: 0; }
 .slider-group { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
@@ -529,13 +533,13 @@ html { overflow-anchor: none; }
 .sliders { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px 28px; margin-top: 14px; }
 .slider { display: grid; grid-template-columns: 78px 1fr 64px; align-items: center; gap: 10px; font-size: 11px; padding: 3px 0; }
 .slider-label { color: var(--muted); text-transform: uppercase; letter-spacing: .08em; font-size: 10px; }
-.slider:hover .slider-label { color: var(--page); }
+.slider:not(.meter-row):hover .slider-label { color: var(--page); }
 .slider-value { text-align: right; font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; }
-.slider input {
+.slider input[type="range"] {
   appearance: none; -webkit-appearance: none; width: 100%; height: 12px; padding: 0; margin: 0; cursor: ew-resize;
   border: 1px solid var(--line-hi); border-radius: 0;
   background:
-    linear-gradient(90deg, var(--page) 0 var(--fill, 0%), transparent var(--fill, 0%)) content-box,
+    linear-gradient(90deg, transparent var(--from, 0%), var(--page) var(--from, 0%) var(--fill, 0%), transparent var(--fill, 0%)) content-box,
     repeating-linear-gradient(90deg, transparent 0 calc(12.5% - 1px), var(--line) calc(12.5% - 1px) 12.5%),
     var(--wave-bg);
   background-clip: content-box, border-box, border-box;
@@ -543,10 +547,10 @@ html { overflow-anchor: none; }
 }
 .slider input::-webkit-slider-thumb { -webkit-appearance: none; width: 3px; height: 14px; background: var(--white); border: none; }
 .slider input::-moz-range-thumb { width: 3px; height: 14px; background: var(--white); border: none; border-radius: 0; }
-.slider input:focus { outline: none; border-color: var(--page); }
+.slider input[type="range"]:focus { outline: none; border-color: var(--page); }
 /* A finger needs a bigger thumb to grab (iOS only drags a range from its thumb). */
 @media (pointer: coarse) {
-  .slider input { height: 20px; }
+  .slider input[type="range"] { height: 20px; }
   .slider input::-webkit-slider-thumb { width: 12px; height: 22px; }
 }
 
@@ -618,8 +622,14 @@ html { overflow-anchor: none; }
 /* Buttons that are one choice, joined into a single control. */
 .segmented { display: flex; }
 .segmented button + button { margin-left: -1px; }
-/* A select laid out as a slider row (label, then the control across the bar and value columns). */
+/* A select or a switch laid out as a slider row (label, then the control across the bar and value columns). */
 .select-row select { grid-column: 2 / 4; justify-self: start; min-width: 120px; }
+.toggle-row input { grid-column: 2 / 4; justify-self: start; }
+.channel .select-row select { min-width: 0; width: 100%; }
+/* A meter as a slider row: the bar the height of a slider's, under its label. */
+.meter-row .meter { height: 12px; }
+.duck-pads + .meter-row { margin-top: 6px; }
+.meter-row .slider-value { font-weight: 500; color: var(--muted); }
 .mini-kb { display: flex; height: 110px; position: relative; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; padding: 6px; background: var(--wave-bg); border: 1px solid var(--line); }
 .mini-kb .white {
   flex: 1; background: var(--panel-2); color: var(--muted); border: 1px solid var(--line-hi); border-radius: 0;
@@ -891,10 +901,9 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
 .channel .row .ms { width: var(--ctl-h); }
 .channel h4 { margin: 6px 0 0; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
 .channel .slider { grid-template-columns: 54px 1fr 48px; gap: 6px; }
-.channel.master { border-top-color: var(--text); }
-.master-meter { display: grid; grid-template-columns: 34px 1fr 34px; align-items: center; gap: 4px; margin-top: 6px; font-size: 10px; color: var(--muted); }
-.master-meter b { font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
-.gr-meter div { background: var(--amber); }
+/* Master is the sum of every track: neutral, not in any track's colour. */
+.channel.master { border-top-color: var(--text); --page: var(--muted); }
+.gr-meter .meter > div { background: var(--amber); }
 .returns { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
 .returns h4 { margin: 0 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: color-mix(in srgb, var(--page) 55%, var(--text)); }
 /* A sub-heading inside a panel (Keys: Shape). */

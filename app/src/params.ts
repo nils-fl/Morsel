@@ -69,6 +69,8 @@ export const hz = (c: number) => {
   const f = cutoffHz(c);
   return f >= 1000 ? `${(f / 1000).toFixed(f >= 10000 ? 1 : 2)} kHz` : `${Math.round(f)} Hz`;
 };
+/** A ducker's gain (0..1) as its reduction in dB. */
+export const duckText = (gain: number) => (gain > 0.995 ? "0.0 dB" : `${(20 * Math.log10(Math.max(gain, 1e-3))).toFixed(1)} dB`);
 const padFilterVisual = (): Visual => {
   const pad = padNow();
   return {

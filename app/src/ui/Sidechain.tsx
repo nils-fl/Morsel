@@ -1,9 +1,9 @@
 // Sidechain: drum pads are the inputs (Input 1, 2, …); each track ducks from one of them with its own envelope.
 import { useEffect, useState } from "react";
 import { engine } from "../audio/engine";
-import { DUCK_PAGE, SIDECHAIN_PAGE, inputLabel, padLabel } from "../params";
+import { DUCK_PAGE, SIDECHAIN_PAGE, duckText, inputLabel, padLabel } from "../params";
 import { drumTrack, inputOf, padDucks, parseInput, selectedTrack, setDuckPad, setTrackDuck, toggleSidechainInput, useApp } from "../state/store";
-import { Field, Section, Slider } from "./controls";
+import { MeterRow, Section, Slider } from "./controls";
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 const ms = (v: number) => (v >= 1 ? `${v.toFixed(2)} s` : `${Math.round(v * 1000)} ms`);
@@ -116,7 +116,7 @@ function DuckBody({ inputsAbove = false }: { inputsAbove?: boolean }) {
           : <>Hits on the input dip this track. Inputs are drum pads, made on a drum track's Track tab. Launchkey: <b>Duck</b> page{onPage ? " (open)" : ""}.</>}
       </p>
       {/* A keys track picks its input in the panel's header. */}
-      {drum && <Field label="Input"><DuckInput /></Field>}
+      {drum && <label className="slider select-row"><span className="slider-label">Input</span><DuckInput /></label>}
       {!inputs.length && !inputsAbove && <p className="hint">No inputs yet: make a drum pad an input first.</p>}
       <div className="duck-sliders">
         <Slider label="Depth" value={duck.depth} min={0} max={1} format={pct} onChange={(v) => set({ depth: v })} />
@@ -139,7 +139,7 @@ function DuckBody({ inputsAbove = false }: { inputsAbove?: boolean }) {
           })}
         </div>
       )}
-      <div className="meter duck-meter" title="Gain reduction"><div style={{ width: `${Math.round((1 - (active ? level : 1)) * 100)}%` }} /></div>
+      <MeterRow className="duck-meter" label="Reduction" level={active ? 1 - level : 0} value={active ? duckText(level) : "—"} title="Gain reduction" />
     </>
   );
 }

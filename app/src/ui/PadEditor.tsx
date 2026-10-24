@@ -6,7 +6,7 @@ import { engine } from "../audio/engine";
 import { TAB_WORDS } from "../audio/recorder";
 import { drumPads, drumTrack, set, updatePad, useApp } from "../state/store";
 import type { SampleSource, SampleTarget } from "../state/types";
-import { Field, Section, Slider } from "./controls";
+import { Field, MeterRow, Section, Slider } from "./controls";
 import { paletteCss } from "./palette";
 import { ColorPicker } from "./ColorPicker";
 import { Waveform } from "./Waveform";
@@ -154,7 +154,7 @@ function SampleChopPanel() {
           <span className={`hint tab-state ${tabShared ? "on" : ""}`}>{tabShared ? "● Shared" : "Not shared"}</span>
         </div>
       )}
-      <div className="meter"><div style={{ width: `${Math.min(100, level * 100)}%` }} /></div>
+      <MeterRow label="Level" level={level} value={sampling === "idle" ? "—" : `${Math.round(level * 100)}%`} title="Input level" />
       <h4 className="sub-head">Chop pad {pad + 1}</h4>
       <p className="hint">Slices the pad's region across pads {pad + 1}–{Math.min(16, pad + count)}.</p>
       <div className="row">

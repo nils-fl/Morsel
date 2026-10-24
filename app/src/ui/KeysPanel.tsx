@@ -7,7 +7,7 @@ import { get, keysTrack, set, updateKeys, useApp } from "../state/store";
 import { entrySample, folderLabel, folderSamples } from "../browse/source";
 import type { Entry } from "../browse/tree";
 import type { KeysLfo, KeysSample, SynthParams, Wave, Zone } from "../state/types";
-import { Field, Section, Slider } from "./controls";
+import { Field, Section, SelectRow, Slider } from "./controls";
 import { droppedEntry } from "./drawer";
 import { SamplePicker } from "./SamplePicker";
 import { DuckPanel } from "./Sidechain";
@@ -253,20 +253,6 @@ function PresetBar() {
       </div>
       <p className="hint tip">A * means the sound was edited since the preset was loaded. Launchkey: encoder page <b>Keys</b>, encoder 1 scrolls presets, Shift + encoder 1 jumps to the next folder.</p>
     </Section>
-  );
-}
-
-/** A choice laid out like a slider row (label, then the control), so it lines up in a slider group. */
-function SelectRow<T extends string | number>({ label, value, options, format = String, onPick }: {
-  label: string; value: T; options: readonly T[]; format?: (v: T) => string; onPick: (v: T) => void;
-}) {
-  return (
-    <label className="slider select-row">
-      <span className="slider-label">{label}</span>
-      <select value={value} onChange={(e) => onPick(options.find((o) => String(o) === e.target.value) ?? value)}>
-        {options.map((o) => <option key={o} value={o}>{format(o)}</option>)}
-      </select>
-    </label>
   );
 }
 

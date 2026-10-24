@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { engine } from "../audio/engine";
 import { MAX_PREDELAY, reverbSeconds } from "../audio/reverb";
-import { FX_FILTER_NAMES, hz, setFx } from "../params";
+import { FX_FILTER_NAMES, duckText, hz, setFx } from "../params";
 import { selectTrack, toggleTrackFlag, updateProject, updateTrack, useApp } from "../state/store";
 import { type Returns, type Track, type TrackFx } from "../state/types";
-import { Field, Section, Slider } from "./controls";
-import { paletteCss } from "./palette";
+import { MeterRow, Section, SelectRow, Slider, ToggleRow } from "./controls";
+import { accentFor, paletteCss } from "./palette";
 import { ColorPicker } from "./ColorPicker";
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
@@ -55,8 +55,11 @@ function Channel({ track: t, index }: { track: Track; index: number }) {
   const up = (patch: Partial<Track>) => updateTrack(t.id, patch);
   const fx = (patch: Partial<TrackFx>) => setFx(patch, t.id);
   const gr = useDuckGr(t);
+  // Each strip in its own track's colour, whichever track is selected.
+  const theme = useApp((s) => s.theme);
+  const color = paletteCss(t.color);
   return (
-    <div className={`channel ${selected ? "on" : ""}`} style={{ "--trk": paletteCss(t.color) } as React.CSSProperties}>
+    <div className={`channel ${selected ? "on" : ""}`} style={{ "--trk": color, "--page": accentFor(color, theme) } as React.CSSProperties}>
       <header onClick={() => selectTrack(t.id)}>
         <i>{index + 1}</i>
         <input value={t.name} maxLength={16} onChange={(e) => up({ name: e.target.value })} onClick={(e) => e.stopPropagation()} aria-label="Track name" />
@@ -67,11 +70,7 @@ function Channel({ track: t, index }: { track: Track; index: number }) {
         <button className={`ms solo ${t.solo ? "on" : ""}`} onClick={() => toggleTrackFlag(t.id, "solo")}>S</button>
       </div>
       <h4>Insert FX</h4>
-      <Field label="Filter">
-        <select value={t.fx.filter} onChange={(e) => fx({ filter: e.target.value as TrackFx["filter"] })}>
-          {(Object.keys(FX_FILTER_NAMES) as TrackFx["filter"][]).map((f) => <option key={f} value={f}>{FX_FILTER_NAMES[f]}</option>)}
-        </select>
-      </Field>
+      <SelectRow label="Filter" value={t.fx.filter} options={Object.keys(FX_FILTER_NAMES) as TrackFx["filter"][]} format={(f) => FX_FILTER_NAMES[f]} onPick={(f) => fx({ filter: f })} />
       {t.fx.filter !== "off" && <>
         <Slider label="Cutoff" value={t.fx.cutoff} min={0} max={1} format={hz} onChange={(v) => fx({ cutoff: v })} />
         <Slider label="Reso" value={t.fx.resonance} min={0} max={1} format={pct} onChange={(v) => fx({ resonance: v })} />
@@ -87,15 +86,16 @@ function Channel({ track: t, index }: { track: Track; index: number }) {
       <h4>Out</h4>
       <Slider label="Pan" value={t.pan} min={-1} max={1} step={0.02} format={panText} onChange={(v) => up({ pan: v })} />
       <Slider label="Level" value={t.level} min={0} max={1} format={pct} onChange={(v) => up({ level: v })} />
-      {gr !== null && <div className="meter duck-meter" title="Ducker gain reduction"><div style={{ width: `${Math.round(gr * 100)}%` }} /></div>}
+      {gr !== null && <MeterRow className="duck-meter" label="Duck" level={gr} value={duckText(1 - gr)} title="Ducker gain reduction" />}
     </div>
   );
 }
 
 /** dBFS of a level, for the meters (floored at −60). */
 const dbfs = (v: number) => Math.max(-60, 20 * Math.log10(Math.max(v, 1e-6)));
-/** Meter width for a dBFS value: −48 dB empty, 0 dB full. */
-const meterWidth = (db: number) => `${Math.round(Math.max(0, Math.min(1, (db + 48) / 48)) * 100)}%`;
+/** Meter fill for a dBFS value: −48 dB empty, 0 dB full. */
+const meterLevel = (db: number) => (db + 48) / 48;
+
 
 /** The master output's peak (held briefly, then falling) and the limiter's gain reduction, both in dB. */
 function useMasterMeter() {
@@ -128,14 +128,8 @@ function MasterChannel() {
       <p className="hint tip">A gentle glue compressor and a limiter keep the mix from clipping, live and in bounces.</p>
       <h4>Out</h4>
       <Slider label="Level" value={level} min={0} max={1} format={pct} onChange={(v) => updateProject((p) => ({ ...p, masterLevel: v }), false)} />
-      <div className="master-meter">
-        <span>Peak</span>
-        <div className="meter" title="Output peak"><div style={{ width: meterWidth(peak) }} /></div>
-        <b>{peak <= -60 ? "−∞" : peak.toFixed(1)}</b>
-        <span>Limit</span>
-        <div className="meter gr-meter" title="Limiter gain reduction"><div style={{ width: `${Math.min(100, Math.round((gr / 12) * 100))}%` }} /></div>
-        <b>{gr < 0.05 ? "0.0" : `−${gr.toFixed(1)}`}</b>
-      </div>
+      <MeterRow label="Peak" level={meterLevel(peak)} value={peak <= -60 ? "−∞" : peak.toFixed(1)} title="Output peak, dBFS" />
+      <MeterRow className="gr-meter" label="Limit" level={gr / 12} value={gr < 0.05 ? "0.0" : `−${gr.toFixed(1)}`} title="Limiter gain reduction, dB" />
     </div>
   );
 }
@@ -157,16 +151,10 @@ function ReturnsPanel() {
         </div>
         <div>
           <h4>B · Delay</h4>
-          <Field label="Time">
-            <select value={r.delay.time} onChange={(e) => setR("delay", { time: Number(e.target.value) })}>
-              {DELAY_TIMES.map((n) => <option key={n} value={n}>{delayName(n)}</option>)}
-            </select>
-          </Field>
+          <SelectRow label="Time" value={r.delay.time} options={DELAY_TIMES} format={delayName} onPick={(time) => setR("delay", { time })} />
           <Slider label="Feedback" value={r.delay.feedback} min={0} max={0.95} format={pct} onChange={(v) => setR("delay", { feedback: v })} />
           <Slider label="Tone" value={r.delay.tone} min={0} max={1} format={pct} onChange={(v) => setR("delay", { tone: v })} />
-          <Field label="Ping-pong">
-            <input type="checkbox" checked={r.delay.pingpong} onChange={(e) => setR("delay", { pingpong: e.target.checked })} />
-          </Field>
+          <ToggleRow label="Ping-pong" checked={r.delay.pingpong} onChange={(pingpong) => setR("delay", { pingpong })} />
           <Slider label="Level" value={r.delay.level} min={0} max={1} format={pct} onChange={(v) => setR("delay", { level: v })} />
         </div>
       </div>
