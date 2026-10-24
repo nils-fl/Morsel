@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { sequencer } from "../seq/sequencer";
-import { clearTrack, clipOf, copyClip, selectTrack, set, trackBars, trackLength, useApp } from "../state/store";
+import { clearTrack, clipOf, copyClip, patternHasNotes, selectTrack, set, trackBars, trackLength, useApp } from "../state/store";
 import { Section } from "./controls";
 import { paletteCss } from "./palette";
 
@@ -15,6 +15,14 @@ export function Matrix() {
   const playing = useApp((s) => s.playing);
   const [copied, setCopied] = useState<{ pattern: number; track: string } | null>(null);
   const track = p.tracks.find((t) => t.id === selected);
+  const song = useApp((s) => s.project.song);
+  const [all, setAll] = useState(false);
+  // Rows down to the last one in use (notes, selected, queued or in the song), then one empty row to start the next.
+  const last = Math.max(
+    p.patterns.reduce((n, pat, i) => (patternHasNotes(pat) ? i : n), -1),
+    current, queued ?? -1, ...song.map((st) => st.pattern),
+  );
+  const shown = all ? p.patterns.length : Math.min(p.patterns.length, last + 2);
 
   return (
     <Section title="Matrix" actions={<>
@@ -29,6 +37,11 @@ export function Matrix() {
         }}
       >Paste clip</button>
       <button onClick={() => clearTrack(current, selected)}>Clear clip</button>
+      {(all || shown < p.patterns.length) && (
+        <button className={all ? "on" : ""} onClick={() => setAll(!all)} title="Show every sequence, or only those in use and the next empty one">
+          {all ? "Show used" : `Show all ${p.patterns.length}`}
+        </button>
+      )}
     </>}>
       <p className="hint tip">
         Click a row number to {playing ? "queue" : "play"} that sequence, a cell to edit that track's clip. The selected cell is {track?.name ?? "—"} in sequence {current + 1}.
@@ -40,7 +53,7 @@ export function Matrix() {
             {t.name}
           </button>
         ))}
-        {p.patterns.map((pat, i) => (
+        {p.patterns.slice(0, shown).map((pat, i) => (
           <div key={i} className={`mx-row ${i === current ? "now" : ""} ${i === queued ? "queued" : ""}`}>
             <button className="mx-num" onClick={() => sequencer.selectPattern(i)}>{i + 1}</button>
             {p.tracks.map((t) => {
