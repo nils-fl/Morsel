@@ -389,7 +389,7 @@ function onPad(pad: number, vel: number) {
       // A lit step goes on release, so it can be held and edited first.
       const lit = stepEvents(clipOf(pat, t.id).events, t.kind === "drum", tick, g.span, note).length > 0;
       if (!lit) {
-        toggleStep(s.currentPattern, t.id, tick, g.span, note, Math.max(vel, 40));
+        toggleStep(s.currentPattern, t.id, tick, g.span, note);
         heldStepsUndo = true;
       }
       heldSteps.set(pad, { pattern: s.currentPattern, track: t.id, tick, span: g.span, note, remove: lit });
