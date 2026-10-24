@@ -35,6 +35,12 @@
   --on-pad: #0e1012; /* text on a filled track / pad colour; set per colour from ui/palette.ts inkOn (white on blues and violets) */
   --tint: 22%; /* strength of active / header tints */
   --ctl-h: 26px; /* buttons, selects and text inputs share one height */
+  /* One corner scale: controls, tiles (pads, strips, waveforms), cards (panels, popovers), the app's shell. */
+  --r-ctl: 4px;
+  --r-tile: 6px;
+  --r-card: 10px;
+  --r-shell: 14px;
+  --gutter: 24px; /* the shell's inner margin: every band (top bar, pads, tabs, content) starts on this line */
 
   --wave-bg: #0c0f1b;
   --wave-fg: var(--page);
@@ -88,14 +94,13 @@
 }
 :root[data-theme="light"] .g-overlay { background: rgba(40, 46, 80, .4); }
 :root[data-theme="light"] .pad-num { color: color-mix(in srgb, var(--pad) 40%, var(--text)); } /* yellow and lime pads are pale on paper */
-:root[data-theme="light"] .topbar { box-shadow: inset 0 1px 0 #fff, 0 4px 12px rgba(22, 26, 46, .08); }
 
 * { box-sizing: border-box; }
 /* A track / row colour as a line or small number: the colour itself on dark, darkened toward the text on light. */
 .trk, .channel, .mx-head, .mx-cell, .pads-bar { --trk-line: color-mix(in oklab, var(--trk) var(--edge-keep), var(--text)); }
 .seq-row { --row-line: color-mix(in oklab, var(--row) var(--edge-keep), var(--text)); }
 body {
-  margin: 0;
+  margin: 0; padding: 0 24px; /* room round the shell */
   background: var(--bg);
   min-height: 100vh;
 }
@@ -104,7 +109,7 @@ body {
 /* ---------- controls ---------- */
 button, input, select {
   font: inherit; font-size: 12px; color: var(--text); background: var(--panel);
-  border: 1px solid var(--line-hi); border-radius: 2px; padding: 4px 9px;
+  border: 1px solid var(--line-hi); border-radius: var(--r-ctl); padding: 4px 9px;
 }
 /* 4px padding + 16px line + 1px borders = --ctl-h. Selects get the height directly: browsers pad them extra. */
 select, input:not([type="checkbox"]):not([type="range"]):not([type="file"]) { height: var(--ctl-h); }
@@ -126,6 +131,8 @@ button.primary:not(:disabled) { color: var(--page); border-color: var(--page); }
 button.rec { --page: var(--rec); }
 .kit-chip { display: inline-flex; }
 .kit-chip button + button { margin-left: -1px; padding-inline: 6px; }
+.kit-chip button:not(:last-child), .segmented button:not(:last-child) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.kit-chip button + button, .segmented button + button { border-top-left-radius: 0; border-bottom-left-radius: 0; }
 
 /* ---------- sample picker (ui/SamplePicker.tsx) ---------- */
 /* Fixed width, so a long name never makes the row jump. */
@@ -138,7 +145,7 @@ button.sample-pick {
 .picker {
   position: fixed; z-index: 50; width: 320px; max-width: calc(100vw - 16px); height: 380px;
   display: flex; flex-direction: column; gap: 6px; padding: 8px;
-  background: var(--panel); border: 1px solid var(--line-hi); border-radius: 3px; box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+  background: var(--panel); border: 1px solid var(--line-hi); border-radius: var(--r-card); box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
   font-size: 12px; color: var(--text);
 }
 .picker-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
@@ -163,7 +170,7 @@ button.sample-pick {
 /* ---------- library drawer (ui/Library.tsx) ---------- */
 /* Docked on the right; wide windows make room for it, narrow ones (an iPad upright) get it over the app. */
 @media (min-width: 901px) {
-  :root[data-library] body { padding-right: var(--drawer-w, 360px); }
+  :root[data-library] body { padding-right: calc(var(--drawer-w, 360px) + 24px); }
 }
 .library {
   position: fixed; top: 0; right: 0; bottom: 0; z-index: 40; width: var(--drawer-w, 360px); max-width: 100vw;
@@ -199,7 +206,7 @@ button.sample-pick {
 .lib-edit { flex: 1; min-width: 0; height: 20px !important; padding: 0 4px; }
 .lib-menu {
   position: fixed; z-index: 45; min-width: 180px; display: flex; flex-direction: column; padding: 4px;
-  background: var(--panel-2); border: 1px solid var(--line-hi); border-radius: 3px; box-shadow: 0 8px 24px rgba(0, 0, 0, .3);
+  background: var(--panel-2); border: 1px solid var(--line-hi); border-radius: var(--r-card); box-shadow: 0 8px 24px rgba(0, 0, 0, .3);
 }
 .lib-menu button { border-color: transparent; background: none; text-align: left; height: 26px; }
 .lib-menu button.danger { color: var(--rec); }
@@ -244,10 +251,16 @@ p.hint { margin: 0 0 8px; }
 .panels > .section { margin-bottom: 0; min-width: 0; }
 .panels:not(:last-child) { margin-bottom: 20px; }
 
-.app { max-width: 1400px; margin: 0 auto; padding: 18px 22px 64px; }
+/* The shell: the whole app is one framed unit on the page. Its bands (top bar, pads, tabs, content) share its surface
+   and are divided by hairlines, not floated as separate cards. */
+.app {
+  max-width: 1400px; margin: 24px auto 64px; padding: 0;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-shell);
+}
+.app > main { padding: var(--gutter); }
 
 .audio-banner {
-  display: block; width: 100%; margin-bottom: 10px; padding: 8px 12px; text-align: left;
+  display: block; width: 100%; margin: 0; padding: 10px var(--gutter); text-align: left; border-radius: var(--r-shell) var(--r-shell) 0 0;
   --page: var(--amber); background: color-mix(in srgb, var(--page) var(--tint), var(--panel)); color: var(--amber); border: 1px solid var(--amber); font-weight: 600; letter-spacing: .04em;
 }
 
@@ -259,9 +272,7 @@ p.hint { margin: 0 0 8px; }
   --bar-gap: 10px; /* between a label and its controls */
   display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "head head" "deck screen";
   gap: 12px 24px; align-items: start;
-  background: linear-gradient(180deg, var(--panel-2), var(--panel));
-  border: 1px solid var(--line); padding: 16px 18px;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.03), 0 6px 18px rgba(0,0,0,.25);
+  padding: 20px var(--gutter); border-bottom: 1px solid var(--line);
 }
 /* Header line: as much space under its controls as over them, then the hairline, then the same again to the deck. */
 .bar-head {
@@ -288,7 +299,7 @@ p.hint { margin: 0 0 8px; }
 .menu-panel {
   position: absolute; z-index: 40; top: calc(100% + 8px); right: 0; width: 340px; max-width: calc(100vw - 32px);
   display: flex; flex-direction: column; gap: 12px; padding: 14px;
-  background: var(--panel); border: 1px solid var(--line-hi); box-shadow: 0 12px 32px rgba(0, 0, 0, .25); --page: var(--white);
+  background: var(--panel); border: 1px solid var(--line-hi); border-radius: var(--r-card); box-shadow: 0 12px 32px rgba(0, 0, 0, .25); --page: var(--white);
 }
 .menu-panel .field input { width: 100%; }
 .menu-actions { display: flex; gap: 6px; }
@@ -314,7 +325,7 @@ p.hint { margin: 0 0 8px; }
 /* The encoders sit under the rows' controls, past the label column. */
 .bar-enc { grid-area: enc; flex: 1; display: flex; align-items: stretch; min-width: 0; padding-left: calc(var(--bar-label) + var(--bar-gap)); --page: var(--magenta); }
 /* Encoder page + its 8 knobs, in one strip. */
-.enc-strip { display: flex; align-items: stretch; flex: 1; min-width: 0; border: 1px solid var(--line-hi); background: var(--wave-bg); }
+.enc-strip { display: flex; align-items: stretch; flex: 1; min-width: 0; border: 1px solid var(--line-hi); border-radius: var(--r-tile); overflow: hidden; background: var(--wave-bg); }
 .enc-tag { display: flex; align-items: stretch; padding: 0; border: none; border-right: 1px solid var(--line-hi); border-radius: 0; font-size: 11px; flex: none; }
 .enc-tag:hover:not(:disabled) { color: inherit; }
 .enc-tag b { background: color-mix(in srgb, var(--magenta) var(--tint), var(--panel)); color: color-mix(in srgb, var(--magenta) 55%, var(--text)); padding: 0 7px; letter-spacing: .06em; display: flex; align-items: center; }
@@ -353,7 +364,8 @@ p.hint { margin: 0 0 8px; }
 }
 
 /* ---------- pads ---------- */
-.pad-grid { margin: 22px 0; display: grid; gap: 8px; padding: 10px; background: var(--wave-bg); border: 1px solid var(--line); }
+/* The pads band: the playing surface, a shade deeper than the shell, edge to edge. */
+.pad-grid { margin: 0; display: grid; gap: 8px; padding: 16px var(--gutter) 20px; background: color-mix(in srgb, var(--bg) 55%, var(--panel)); border-bottom: 1px solid var(--line); }
 .pad-row { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; }
 /* Over the pads: the track they play (in its colour) and its kit or note range, the pad controls on the right. */
 .pads-bar { display: flex; align-items: center; gap: 12px; min-height: var(--ctl-h); padding: 0 2px 2px; }
@@ -361,7 +373,7 @@ p.hint { margin: 0 0 8px; }
 .pads-detail { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .pads-tools { display: flex; gap: 6px; margin-left: auto; flex: none; }
 .pad {
-  aspect-ratio: 1.6; position: relative; border-radius: 3px; text-align: left; padding: 7px 8px;
+  aspect-ratio: 1.6; position: relative; border-radius: var(--r-tile); text-align: left; padding: 7px 8px;
   --pad-line: color-mix(in oklab, var(--pad) var(--edge-keep), var(--text));
   border: 1px solid color-mix(in srgb, var(--pad-line) 55%, transparent);
   background:
@@ -379,51 +391,52 @@ p.hint { margin: 0 0 8px; }
 .pad.hit, .pad.hit:hover { background: color-mix(in srgb, var(--pad) 40%, var(--panel)); color: var(--white); }
 .pad.drop { outline: 1px dashed var(--white); outline-offset: 2px; }
 /* Pad colour mixed toward the text colour: lighter in dark, darker in light, so the number stays readable. */
-.pad-num { font-size: 10px; color: color-mix(in srgb, var(--pad) 65%, var(--text)); align-self: flex-start; padding: 0 4px; border: 1px solid color-mix(in srgb, var(--pad-line) 50%, transparent); font-variant-numeric: tabular-nums; }
+.pad-num { border-radius: 3px; font-size: 10px; color: color-mix(in srgb, var(--pad) 65%, var(--text)); align-self: flex-start; padding: 0 4px; border: 1px solid color-mix(in srgb, var(--pad-line) 50%, transparent); font-variant-numeric: tabular-nums; }
 .pad.empty .pad-num { color: var(--dim); border-color: var(--line); }
 .pad.hit .pad-num { color: var(--white); border-color: var(--white); background: transparent; }
 .pad-name { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pad.empty .pad-name { color: var(--dim); }
 
 /* ---------- page tabs (like encoder page tags) ---------- */
-.tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 2px solid var(--page); padding-bottom: 0; }
+/* Tabs: a strip across the shell, underlined in the page colour, heading the content band below. */
+.tabs { display: flex; gap: 2px; margin: 0; padding: 0 var(--gutter); border-bottom: 1px solid var(--line); }
 /* Switching tabs keeps the page where it is: the tab area is at least a screen tall, so a short tab (an empty Chop)
    doesn't shorten the page under you, and the browser's scroll anchoring doesn't nudge it to follow the old tab's
    content. */
 main { min-height: 100vh; }
 html { overflow-anchor: none; }
 .tabs button {
-  border: 1px solid var(--line); border-bottom: none; background: var(--panel); color: var(--muted); padding: 7px 14px 6px; position: relative;
-  text-transform: uppercase; letter-spacing: .06em; font-weight: 600; font-size: 11px;
+  border: none; border-bottom: 3px solid transparent; border-radius: 0; margin-bottom: -1px; background: none; color: var(--muted);
+  padding: 13px 14px 11px 26px; position: relative;
+  text-transform: uppercase; letter-spacing: .08em; font-weight: 600; font-size: 11px;
 }
-.tabs button::before { content: ""; position: absolute; left: 6px; top: 50%; width: 4px; height: 4px; margin-top: -2px; background: var(--tab); opacity: .45; }
-.tabs button { padding-left: 16px; }
-.tabs button:hover:not(:disabled) { color: var(--tab); border-color: var(--tab); }
-.tabs button.on, .tabs button.on:hover { background: var(--tab); color: var(--ink); border-color: var(--tab); }
-.tabs button.on::before { opacity: 1; background: var(--ink); }
+.tabs button::before { content: ""; position: absolute; left: 12px; top: 50%; width: 6px; height: 6px; margin-top: -4px; border-radius: 50%; background: var(--tab); opacity: .5; }
+.tabs button:hover:not(:disabled) { color: var(--text); background: none; }
+.tabs button.on, .tabs button.on:hover { background: none; color: var(--text); border-bottom-color: var(--tab); font-weight: 700; }
+.tabs button.on::before { opacity: 1; }
 
-/* ---------- sections: tinted header tag, like the screen's header bar ---------- */
+/* ---------- sections: one card style inside the shell, with a quiet header (a dot in the page colour, then the title) ---------- */
 .section {
-  background: var(--panel); border: 1px solid var(--line); margin-bottom: 20px; flex: 1; min-width: 280px;
-  padding: 0 16px 16px; position: relative;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-card); margin-bottom: 20px; flex: 1; min-width: 280px;
+  padding: 0 18px 18px; position: relative;
 }
 .section > header {
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
-  margin: 0 -16px 14px; padding: 0 0 0 0; border-bottom: 1px solid var(--line); min-height: 32px;
+  margin: 0 -18px 16px; padding: 0 10px 0 18px; border-bottom: 1px solid var(--line); min-height: 40px;
 }
 .section h2 {
-  font-size: 11px; margin: 0; font-weight: 700; text-transform: uppercase; letter-spacing: .1em;
-  background: color-mix(in srgb, var(--page) var(--tint), var(--panel)); color: color-mix(in srgb, var(--page) 55%, var(--text)); border-right: 1px solid var(--line); padding: 0 10px; align-self: stretch; display: flex; align-items: center;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%;
+  font-size: 11px; margin: 0; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--text);
+  display: flex; align-items: center; gap: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%;
 }
-.section .actions { display: flex; gap: 6px; align-items: center; padding: 3px 8px; flex-wrap: wrap; justify-content: flex-end; }
+.section h2::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--page); }
+.section .actions { display: flex; gap: 6px; align-items: center; padding: 6px 0; flex-wrap: wrap; justify-content: flex-end; }
 /* Header controls are a size smaller, so every header bar is the same height with or without them. */
 .section .actions { --ctl-h: 22px; }
 .section .actions button { line-height: 12px; }
 .section .actions :is(select, input) { padding-top: 1px; padding-bottom: 1px; font-size: 11px; }
 .section p { margin: 0 0 8px; }
 
-.waveform { width: 100%; height: 170px; display: block; cursor: ew-resize; background: var(--wave-bg); border: 1px solid var(--line); }
+.waveform { width: 100%; height: 170px; display: block; cursor: ew-resize; background: var(--wave-bg); border: 1px solid var(--line); border-radius: var(--r-tile); }
 
 .tab-state.on { color: var(--ok); }
 .duck-meter { margin-top: 6px; }
@@ -488,7 +501,7 @@ html { overflow-anchor: none; }
 .swatch-btn::before { content: ""; display: block; width: 100%; height: 100%; background: var(--sw); }
 .color-pop {
   position: absolute; z-index: 40; top: calc(100% + 6px); left: 0; display: grid; grid-template-columns: repeat(6, 22px); gap: 6px; padding: 10px;
-  background: var(--panel); border: 1px solid var(--line-hi); box-shadow: 0 12px 32px rgba(0, 0, 0, .25);
+  background: var(--panel); border: 1px solid var(--line-hi); border-radius: var(--r-card); box-shadow: 0 12px 32px rgba(0, 0, 0, .25);
 }
 .color-pop .swatch { width: 22px; height: 22px; }
 .swatch { width: 18px; height: 18px; padding: 0; border-radius: 0; border: 1px solid var(--bg); box-shadow: none; }
@@ -597,7 +610,7 @@ html { overflow-anchor: none; }
 
 /* ---------- confirmation dialog (ui/ConfirmDialog.tsx) ---------- */
 .confirm {
-  width: min(440px, 100%); padding: 18px 20px 16px; background: var(--panel); border: 1px solid var(--line-hi);
+  width: min(440px, 100%); padding: 18px 20px 16px; background: var(--panel); border: 1px solid var(--line-hi); border-radius: var(--r-card);
   box-shadow: 0 24px 60px rgba(0, 0, 0, .4); animation: g-rise .18s ease-out;
 }
 .confirm h2 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .14em; color: var(--text); }
@@ -626,7 +639,7 @@ button.danger { --page: var(--rec); }
 }
 @keyframes g-fade { from { opacity: 0; } }
 .g-panel {
-  width: min(1180px, 100%); max-height: calc(100vh - 64px); display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--line-hi);
+  width: min(1180px, 100%); max-height: calc(100vh - 64px); display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--line-hi); border-radius: var(--r-card); overflow: hidden;
   box-shadow: 0 24px 60px rgba(0,0,0,.4); animation: g-rise .18s ease-out;
 }
 @keyframes g-rise { from { transform: translateY(8px); opacity: 0; } }
@@ -848,10 +861,13 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
 /* ---------- phone (e.g. Pixel 6a, 412 px wide). Only below 600 px, so iPad (820+) and desktop layouts are untouched.
    Last in the file so it wins over the narrow rules above. ---------- */
 @media (max-width: 600px) {
-  .app { padding: 8px 10px 32px; }
+  /* The shell goes edge to edge with a narrower gutter. */
+  body { padding: 0; }
+  .app { margin: 0 0 32px; border-left: none; border-right: none; border-radius: 0; --gutter: 12px; }
+  .audio-banner { border-radius: 0; }
 
   /* Top bar: one column, the screen centred, every row full width. */
-  .topbar { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "rows" "enc"; padding: 8px; gap: 8px; }
+  .topbar { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "rows" "enc"; padding: 12px var(--gutter); gap: 8px; }
   .bar-head { margin: 0; padding-bottom: 8px; }
   .bar-label { display: none; }
   .transport { flex: 1 1 100%; flex-wrap: wrap; margin-left: 0; }
@@ -872,7 +888,7 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
   .enc-knobs { flex-basis: 100%; }
 
   /* Pads 4 x 4 like an MPC: 13-16 on top, 1-4 at the bottom (each 8-pad row becomes two lines, upper half first). */
-  .pad-grid { padding: 6px; gap: 6px; margin: 8px 0; }
+  .pad-grid { padding: 10px var(--gutter) 12px; gap: 6px; }
   .pad-row { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
   .pad-row > :nth-child(-n+4) { grid-row: 2; }
   .pad-row > :nth-child(n+5) { grid-row: 1; }
@@ -883,8 +899,8 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
   .tabs::-webkit-scrollbar { display: none; }
   .tabs button { flex: none; }
 
-  .section { padding: 0 8px 8px; }
-  .section > header { margin: 0 -8px 8px; flex-wrap: wrap; }
+  .section { padding: 0 12px 12px; }
+  .section > header { margin: 0 -12px 10px; padding: 0 8px 0 12px; flex-wrap: wrap; }
   .slider { grid-template-columns: 70px 1fr 56px; gap: 8px; }
   /* Sequencer tools: one group per line, no dividers. */
   .seq-toolbar { flex-direction: column; align-items: flex-start; row-gap: 8px; }
