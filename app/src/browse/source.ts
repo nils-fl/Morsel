@@ -1,6 +1,8 @@
 // What Browse (Launchkey) and the on-screen sample picker list: the library tree, saved kits and connected folders.
 import { engine } from "../audio/engine";
-import { get } from "../state/store";
+import { get, updateKeys } from "../state/store";
+import type { Zone } from "../state/types";
+import { rootFromName } from "../ui/notes";
 import { DISK, fileSample, isDiskPath, listDisk, listDiskNow, previewFile, rootPath, stopFilePreview } from "./disk";
 import { FAVORITES, KITS, ROOT, SAMPLES, favoriteEntries, listDir, type Entry } from "./tree";
 
@@ -19,6 +21,7 @@ export function listAt(path: string, kits: string[] | null): Listing {
     return { entries, note: entries.length ? undefined : "Nothing starred" };
   }
   if (isDiskPath(path)) return listDisk(path);
+  if (!kits && path === KITS) return { entries: [], note: "Drum tracks only" };
   return { entries: listDir(path, Object.values(samples), kits ?? []) };
 }
 
@@ -45,6 +48,16 @@ export async function folderSamples(path: string, limit = Infinity, keep = (_nam
   const items = list.filter((x) => (x.kind === "sample" || x.kind === "file") && keep(x.name)).slice(0, limit);
   const loaded = await Promise.all(items.map((x) => entrySample(x).then((id) => ({ id, name: x.name }), () => null)));
   return loaded.filter((x) => x !== null);
+}
+
+/** A folder's note-named samples ("Piano_C4") as a keys track's multisample; only those are copied into the library.
+ *  Returns how many zones it made (0: none, the track is left as it was). */
+export async function folderToMulti(path: string, trackId?: string): Promise<number> {
+  const named = await folderSamples(path, Infinity, (name) => rootFromName(name) !== null);
+  if (!named.length) return 0;
+  const zones: Zone[] = named.map((s) => ({ sampleId: s.id, root: rootFromName(s.name)! })).sort((a, b) => a.root - b.root);
+  updateKeys({ type: "multi", zones, multiName: folderLabel(path) }, trackId);
+  return zones.length;
 }
 
 export function previewEntry(e: Entry | undefined) {

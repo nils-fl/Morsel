@@ -9,13 +9,14 @@ export interface BrowserView {
   folder: string;
   index: number;
   items: ListItem[];
-  targetPad: number;
+  /** Where Func loads the item: "P3" (pad 3) or "Keys". */
+  target: string;
 }
 
 export function browserScreen(v: BrowserView): Frame {
   const f = new Frame();
   const pos = v.items.length ? `${v.index + 1}/${v.items.length}` : "0/0";
-  header(f, `${v.folder || "Browse"}`, `P${v.targetPad + 1} ${pos}`);
+  header(f, `${v.folder || "Browse"}`, `${v.target} ${pos}`);
   list(f, HEADER_H + 1, Math.floor((H - HEADER_H - 1) / ROW_H), v.items, v.index);
   return f;
 }
@@ -268,7 +269,7 @@ export function shiftRows(mode: HwMode, kind: TrackKind, sampling: boolean): Shi
   const play: ShiftRow = ["Play", mode === "chop" ? "Play/stop seq" : "Metronome"];
   const track: ShiftRow = ["Pad ^v", "Track -/+"];
   // Browse keeps Scene as "up a folder" with Shift held too.
-  if (mode === "browse") return [play, rec, ["Func", "Folder>pads"], ["Scene", "Up folder"], track, ["Enc ^", "Exit browse"]];
+  if (mode === "browse") return [play, rec, ["Func", kind === "drum" ? "Folder>pads" : "Folder>multi"], ["Scene", "Up folder"], track, ["Enc ^", "Exit browse"]];
   if (mode === "chop") return [play, rec, ["Func", "Undo"], ["Scene", "Remove marker"], track, ["Enc v", "Exit chop"]];
   return [
     play,
@@ -276,13 +277,13 @@ export function shiftRows(mode: HwMode, kind: TrackKind, sampling: boolean): Shi
     ["Func", "Undo"],
     ["Scene", mode === "step" && kind === "drum" ? "Clear pad" : "Clear track"],
     track,
-    ["Enc ^v", kind === "drum" ? "Browse/Chop" : "Drum only"],
+    kind === "drum" ? ["Enc ^v", "Browse/Chop"] : ["Enc ^", "Browse"],
   ];
 }
 
 /** Two 16-character lines for the device's own text popup while Shift is held (when the bitmap can't show). */
-export function shiftCoverText(mode: HwMode): [string, string] {
-  if (mode === "browse") return ["Fn=Folder>pads", "Enc^=Exit browse"];
+export function shiftCoverText(mode: HwMode, kind: TrackKind): [string, string] {
+  if (mode === "browse") return [kind === "drum" ? "Fn=Folder>pads" : "Fn=Folder>multi", "Enc^=Exit browse"];
   if (mode === "chop") return ["Scn=Del marker", "Encv=Exit chop"];
   return ["Play=Met Rec=Smp", "Fn=Undo Scn=Clr"];
 }

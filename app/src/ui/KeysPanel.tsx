@@ -4,9 +4,9 @@ import { presetFolders } from "../audio/synthPresets";
 import { hz, presetLabel } from "../params";
 import { engine } from "../audio/engine";
 import { get, keysTrack, set, updateKeys, useApp } from "../state/store";
-import { entrySample, folderLabel, folderSamples } from "../browse/source";
+import { entrySample, folderToMulti } from "../browse/source";
 import type { Entry } from "../browse/tree";
-import type { KeysLfo, KeysSample, SynthParams, Wave, Zone } from "../state/types";
+import type { KeysLfo, KeysSample, SynthParams, Wave } from "../state/types";
 import { Field, Section, SelectRow, Slider } from "./controls";
 import { droppedEntry } from "./drawer";
 import { SamplePicker } from "./SamplePicker";
@@ -45,10 +45,7 @@ export function KeysPanel() {
 
   /** A folder of note-named samples as the multisample; only those files are copied into the library. */
   async function loadMulti(path: string) {
-    const named = await folderSamples(path, Infinity, (name) => rootFromName(name) !== null);
-    if (!named.length) return set({ status: "No samples named with a note in that folder" });
-    const zones: Zone[] = named.map((s) => ({ sampleId: s.id, root: rootFromName(s.name)! })).sort((a, b) => a.root - b.root);
-    updateKeys({ type: "multi", zones, multiName: folderLabel(path) });
+    if (!(await folderToMulti(path))) set({ status: "No samples named with a note in that folder" });
   }
 
   return (

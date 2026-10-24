@@ -15,7 +15,7 @@ import { noteForKeysPad, stepForPad } from "./stepMap";
 import { noteName } from "../ui/notes";
 import { activeOverlay, releaseHold, showTemp, type Overlay } from "./notify";
 import { chopAddMarker, chopEncoder, chopMarkerArrows, chopPad, chopPadLeds, chopRemoveMarker, chopStepMarker, chopStop, chopTogglePlay, chopView } from "./chop";
-import { browseCan, browseDisplay, browseEncoder, browseEnter, browseFolderToPads, browseLeds, browsePad, browseUp, browseView, enterBrowse, exitBrowse } from "./browse";
+import { browseCan, browseDisplay, browseEncoder, browseEnter, browseLoadFolder, browseLeds, browsePad, browseUp, browseView, enterBrowse, exitBrowse } from "./browse";
 import { H, W, type Frame } from "../display/frame";
 import { browserScreen, chopScreen, duckScreen, encoderScreen, gridScreen, keysScreen, padScreen, shiftCoverText, shiftEncHint, shiftRows, shiftScreen, stepScreen } from "../display/screens";
 import { HEADER_H, computePeaks, duckPanel, filterPanel, overlayBar, type Peaks } from "../display/widgets";
@@ -350,7 +350,7 @@ function onPad(pad: number, vel: number) {
   const sel = selectedTrack(s);
   switch (s.hwMode) {
     case "browse":
-      set({ selectedPad: pad });
+      if (sel.kind === "drum") set({ selectedPad: pad });
       browsePad();
       break;
     case "chop":
@@ -459,10 +459,10 @@ function onPad(pad: number, vel: number) {
 function onButton(button: string, down: boolean) {
   const s = get();
   if (button === "shift") return set({ shift: down });
-  // Shift + the encoder page arrows: Browse and Chop on / off (drum tracks). Checked before Browse takes the arrows.
+  // Shift + the encoder page arrows: Browse (any track) and Chop (drum tracks) on / off. Checked before Browse takes the arrows.
   if (down && s.shift && (button === "encPageUp" || button === "encPageDown")) {
     if (button === "encPageUp" ? s.hwMode === "browse" : s.hwMode === "chop") return button === "encPageUp" ? setHwMode(s.prevHwMode) : exitChopHw();
-    if (selectedTrack(s).kind !== "drum") return showTemp(button === "encPageUp" ? "Browse" : "Chop", "Drum track only");
+    if (button === "encPageDown" && selectedTrack(s).kind !== "drum") return showTemp("Chop", "Drum track only");
     return button === "encPageUp" ? setHwMode("browse") : hwOpenChop();
   }
   if (s.hwMode === "browse" && down) {
@@ -472,7 +472,7 @@ function onButton(button: string, down: boolean) {
     if (button === "scene" || (button === "padUp" && !s.shift)) return browseUp();
     if (button === "encPageUp" || button === "encPageDown") return browseEncoder(0, button === "encPageUp" ? -1 : 1, false);
   }
-  if (s.hwMode === "browse" && down && button === "func" && s.shift) return void browseFolderToPads();
+  if (s.hwMode === "browse" && down && button === "func" && s.shift) return void browseLoadFolder();
   // Scene let go: note repeat (and the held popup) end, in every mode.
   if (button === "scene" && !down) {
     sceneHeld = false;
@@ -501,8 +501,7 @@ function onButton(button: string, down: boolean) {
     if (!down) return;
     const t = stepTrack(trackDir);
     const n = get().project.tracks.indexOf(t) + 1;
-    // Browse and Chop work on drum tracks; on a keys track go back to playing.
-    if (t.kind !== "drum" && s.hwMode === "browse") setHwMode(s.prevHwMode);
+    // Chop works on drum tracks; on a keys track go back to playing. Browse follows the track (pads or keys).
     if (t.kind !== "drum" && s.hwMode === "chop") exitChopHw();
     showTemp(`Track ${n}/${get().project.tracks.length}`, `${t.name} (${t.kind === "drum" ? "drums" : "keys"})`);
     return;
@@ -717,7 +716,7 @@ function screenFor(s: AppState, overlay: Overlay | null): Frame | null {
   switch (s.hwMode) {
     case "browse": {
       const v = browseView();
-      return browserScreen({ folder: v.folder, index: v.index, items: v.items, targetPad: s.selectedPad });
+      return browserScreen(v);
     }
     case "play": {
       const t = selectedTrack(s);
@@ -856,7 +855,7 @@ function renderLoop() {
   const next = boot ?? (shiftMap ? shiftScreen({ rows: shiftRows(s.hwMode, selectedTrack(s).kind, s.sampling !== "idle"), enc: shiftEncHint(s.hwMode) }) : screenFor(s, msg));
   // Nothing to draw yet (Chop waiting for its buffer): keep the last frame rather than flashing device text.
   frame = next ?? frame;
-  launchkey.shiftCover = shiftCoverText(s.hwMode);
+  launchkey.shiftCover = shiftCoverText(s.hwMode, selectedTrack(s).kind);
   // On the 8-encoder screen the turned cell is highlighted instead; a popup would cover the bottom row.
   const suppress = msg?.encoder !== undefined && onEncoderScreen(s) && !shiftMap;
   if (frame && msg && !suppress) {
@@ -908,12 +907,9 @@ function funcSceneLeds(s: AppState) {
   return { func: LED_FULL, scene: sequencer.repeatOn ? LED_FULL : LED_DIM };
 }
 
-/** Encoder page arrows: lit when the selected track has a page that way. Browse: they step through the list. Shift: Browse / Chop (drum tracks). Chop: unused. */
+/** Encoder page arrows: lit when the selected track has a page that way. Browse: they step through the list. Shift: Browse / Chop (Chop: drum tracks). Chop: unused. */
 function encPageLeds(s: AppState) {
-  if (s.shift) {
-    const on = selectedTrack(s).kind === "drum" || s.hwMode === "browse" || s.hwMode === "chop" ? LED_FULL : 0;
-    return { up: on, down: on };
-  }
+  if (s.shift) return { up: LED_FULL, down: selectedTrack(s).kind === "drum" || s.hwMode === "chop" ? LED_FULL : 0 };
   if (s.hwMode === "chop") return { up: 0, down: 0 };
   if (s.hwMode === "browse") {
     const on = browseCan().enter ? LED_FULL : 0;

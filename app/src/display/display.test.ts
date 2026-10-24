@@ -46,7 +46,7 @@ describe("list scrolling", () => {
     expect(scrollTop(-1, 6)).toBe(0); // no cursor: from the top
   });
   it("renders the cursor row inverted on the middle row, empty rows above the first item", () => {
-    const f = browserScreen({ folder: "Kicks", index: 0, items: [{ label: "Kick" }, { label: "Snare" }], targetPad: 0 });
+    const f = browserScreen({ folder: "Kicks", index: 0, items: [{ label: "Kick" }, { label: "Snare" }], target: "P1" });
     const mid = HEADER_H + 1 + 3 * ROW_H; // 6 rows: the 4th is the middle one
     expect(f.get(0, mid)).toBe(1); // selected row background
     expect(f.get(0, mid + ROW_H)).toBe(0); // next row background
@@ -282,7 +282,7 @@ describe("shift map", () => {
         expect(action.length).toBeLessThanOrEqual(13);
         expect(ascii(key) && ascii(action)).toBe(true);
       }
-      for (const line of shiftCoverText(mode)) {
+      for (const line of shiftCoverText(mode, kind)) {
         expect(line.length).toBeLessThanOrEqual(16);
         expect(ascii(line)).toBe(true);
       }
@@ -293,7 +293,9 @@ describe("shift map", () => {
     expect(shiftEncHint("browse")).toBe("enc2=by 8");
     expect(shiftEncHint("mute")).toBe("enc=fine");
     expect(shiftRows("chop", "drum", false).map((r) => r[1])).toContain("Exit chop");
-    expect(shiftRows("play", "keys", false).map((r) => r[1])).toContain("Drum only");
+    // Browse works on keys tracks too (a sample on the keys, a folder as the multisample); Chop doesn't.
+    expect(shiftRows("play", "keys", false)).toContainEqual(["Enc ^", "Browse"]);
+    expect(shiftRows("browse", "keys", false)).toContainEqual(["Func", "Folder>multi"]);
     expect(shiftRows("play", "drum", true).map((r) => r[1])).toContain("Stop sampling");
   });
   it("draws different maps per mode and leaves the bottom rows free", () => {
