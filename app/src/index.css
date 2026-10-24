@@ -347,7 +347,6 @@ p.hint { margin: 0 0 8px; }
 .pads-track { font-weight: 700; color: var(--text); border-left: 3px solid var(--trk); padding-left: 8px; white-space: nowrap; }
 .pads-detail { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .pads-tools { display: flex; gap: 6px; margin-left: auto; flex: none; }
-.seq-tool { display: inline-flex; gap: 2px; }
 .pad {
   aspect-ratio: 1.6; position: relative; border-radius: 3px; text-align: left; padding: 7px 8px;
   border: 1px solid color-mix(in srgb, var(--pad) 55%, transparent);
@@ -485,6 +484,11 @@ html { overflow-anchor: none; }
 
 /* ---------- sequencer ---------- */
 .seq { --page: var(--cyan); }
+/* Sequencer tools over the grid: small labelled groups divided by hairlines. */
+.seq-toolbar { display: flex; flex-wrap: wrap; align-items: center; row-gap: 10px; margin-bottom: 16px; }
+.tool-group { display: flex; align-items: center; gap: 6px; padding: 0 14px; border-left: 1px solid var(--line); }
+.tool-group:first-child { padding-left: 0; border-left: none; }
+.tool-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; margin-right: 2px; }
 /* The grid sits inside the Pattern panel, which already draws the box. */
 .seq-grid { display: grid; gap: 3px; overflow-x: auto; }
 .seq-row { display: grid; grid-template-columns: 110px 26px 26px 1fr; gap: 4px; align-items: center; }
@@ -866,6 +870,11 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
   .section { padding: 0 8px 8px; }
   .section > header { margin: 0 -8px 8px; flex-wrap: wrap; }
   .slider { grid-template-columns: 70px 1fr 56px; gap: 8px; }
+  /* Sequencer tools: one group per line, no dividers. */
+  .seq-toolbar { flex-direction: column; align-items: flex-start; row-gap: 8px; }
+  .tool-group { padding: 0; border-left: none; }
+  .tool-label { width: 56px; }
+  .tool-group button { white-space: nowrap; }
   .seq-row { grid-template-columns: 64px 22px 22px 1fr; }
   .seq-cells { grid-template-columns: repeat(var(--steps), minmax(14px, 1fr)); }
   .cell { height: 28px; }

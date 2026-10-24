@@ -48,37 +48,51 @@ export function SeqGrid() {
 
   return (
     <div className="seq">
-      <Section title={`Pattern ${patIndex + 1} · ${track.name}`} actions={<>
+      <Section title={`Pattern ${patIndex + 1} · ${track.name}`}>
+      {/* The clip's tools in labelled groups. Timing is last and only there once the clip has notes, so nothing moves when it appears. */}
+      <div className="seq-toolbar">
+        <div className="tool-group">
+          <span className="tool-label">Length</span>
           <select value={bars} title={`${track.name}'s loop length; each track loops on its own, the pattern runs as long as its longest (${pat.bars} bar${pat.bars > 1 ? "s" : ""}). Launchkey: Step mode, encoder 1`} onChange={(e) => setTrackBars(patIndex, track.id, Number(e.target.value))}>
             {[1, 2, 3, 4].map((b) => <option key={b} value={b}>{b} bar{b > 1 ? "s" : ""}</option>)}
           </select>
-        <button onClick={() => updatePattern(patIndex, (p) => ({ ...p, clips: {} }))} title="Clear every track in this pattern">Clear pattern</button>
-        <button onClick={() => clearTrack(patIndex, track.id)} title={`Clear ${track.name}'s clip in this pattern`}>Clear clip</button>
-        <span className="seq-tool">
-          <button disabled={empty} onClick={() => updateClip(patIndex, track.id, (evs) => quantizeEvents(evs, grid, strength, bars * BAR_TICKS))} title={`Move ${track.name}'s notes towards the ${gridName} grid (the Quantize setting above)`}>Quantize</button>
-          <select value={strength} onChange={(e) => setStrength(Number(e.target.value))} aria-label="Quantize strength" title="How far notes move towards the grid">
-            {[1, 0.75, 0.5].map((v) => <option key={v} value={v}>{v * 100}%</option>)}
+        </div>
+        <div className="tool-group">
+          <span className="tool-label">Edit</span>
+          <button disabled={bars > 2} onClick={() => doubleClip(patIndex, track.id)} title={`Repeat ${track.name}'s notes after its end, doubling its length (up to 4 bars)`}>Double</button>
+          <button onClick={() => clearTrack(patIndex, track.id)} title={`Clear ${track.name}'s clip in this pattern`}>Clear clip</button>
+          <button onClick={() => updatePattern(patIndex, (p) => ({ ...p, clips: {} }))} title="Clear every track in this pattern">Clear pattern</button>
+        </div>
+        <div className="tool-group">
+          <span className="tool-label">Copy</span>
+          <select value="" title={`Copy only ${track.name}'s clip into another pattern`} onChange={(e) => {
+            const to = Number(e.target.value);
+            copyClip(patIndex, to, track.id);
+            set({ status: `Copied ${track.name} clip ${patIndex + 1} → ${to + 1}` });
+          }}>
+            <option value="" disabled>Clip to…</option>
+            {patterns.map((p, i) => i !== patIndex && <option key={i} value={i}>Pattern {i + 1}{clipOf(p, track.id).events.length ? " (overwrite)" : ""}</option>)}
           </select>
-        </span>
-        <button disabled={empty} onClick={() => updateClip(patIndex, track.id, (evs) => humanizeEvents(evs, 1))} title={`Loosen ${track.name}'s notes a little: small changes to velocity and timing`}>Humanize</button>
-        <button disabled={bars > 2} onClick={() => doubleClip(patIndex, track.id)} title={`Repeat ${track.name}'s notes after its end, doubling its length (up to 4 bars)`}>Double</button>
-        <select value="" title="Copy this pattern over another one (Undo reverts it)" onChange={(e) => {
-          const to = Number(e.target.value);
-          copyPattern(patIndex, to);
-          set({ status: `Copied pattern ${patIndex + 1} → ${to + 1}` });
-        }}>
-          <option value="" disabled>Copy to…</option>
-          {patterns.map((p, i) => i !== patIndex && <option key={i} value={i}>Pattern {i + 1}{patternHasNotes(p) ? " (overwrite)" : ""}</option>)}
-        </select>
-        <select value="" title={`Copy only ${track.name}'s clip into another pattern`} onChange={(e) => {
-          const to = Number(e.target.value);
-          copyClip(patIndex, to, track.id);
-          set({ status: `Copied ${track.name} clip ${patIndex + 1} → ${to + 1}` });
-        }}>
-          <option value="" disabled>Copy clip to…</option>
-          {patterns.map((p, i) => i !== patIndex && <option key={i} value={i}>Pattern {i + 1}{clipOf(p, track.id).events.length ? " (overwrite)" : ""}</option>)}
-        </select>
-      </>}>
+          <select value="" title="Copy this pattern over another one (Undo reverts it)" onChange={(e) => {
+            const to = Number(e.target.value);
+            copyPattern(patIndex, to);
+            set({ status: `Copied pattern ${patIndex + 1} → ${to + 1}` });
+          }}>
+            <option value="" disabled>Pattern to…</option>
+            {patterns.map((p, i) => i !== patIndex && <option key={i} value={i}>Pattern {i + 1}{patternHasNotes(p) ? " (overwrite)" : ""}</option>)}
+          </select>
+        </div>
+        {!empty && (
+          <div className="tool-group">
+            <span className="tool-label">Timing</span>
+            <button onClick={() => updateClip(patIndex, track.id, (evs) => quantizeEvents(evs, grid, strength, bars * BAR_TICKS))} title={`Move ${track.name}'s notes towards the ${gridName} grid (the Quantize setting above)`}>Quantize</button>
+            <select value={strength} onChange={(e) => setStrength(Number(e.target.value))} aria-label="Quantize strength" title="How far notes move towards the grid">
+              {[1, 0.75, 0.5].map((v) => <option key={v} value={v}>{v * 100}%</option>)}
+            </select>
+            <button onClick={() => updateClip(patIndex, track.id, (evs) => humanizeEvents(evs, 1))} title={`Loosen ${track.name}'s notes a little: small changes to velocity and timing`}>Humanize</button>
+          </div>
+        )}
+      </div>
       <p className="hint tip">{drum ? "Click a cell to toggle a step." : "Click a cell to add a note; record on the keyboard for melodies."} Pick another track above to edit it.</p>
       <div className="seq-grid" style={{ "--steps": steps } as React.CSSProperties}>
         {/* Bar.beat over every beat; the step playing is lit. */}
