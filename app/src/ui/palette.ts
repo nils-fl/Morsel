@@ -18,4 +18,18 @@ const LED: Record<number, string> = {
 };
 const PALETTE: Record<number, string> = Object.fromEntries(Object.entries(LED).map(([k, v]) => [k, mute(v)]));
 export const paletteCss = (i: number) => PALETTE[i] ?? `hsl(${(i * 37) % 360} 45% 60%)`;
+/** Text on a filled `color` (#rrggbb): near-black or white, whichever contrasts more. Blues and violets take white. */
+export function inkOn(color: string) {
+  const m = /^#([0-9a-f]{6})$/i.exec(color);
+  if (!m) return INK_DARK;
+  const lin = (i: number) => {
+    const v = parseInt(m[1].slice(i, i + 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  };
+  const l = 0.2126 * lin(0) + 0.7152 * lin(2) + 0.0722 * lin(4);
+  // Contrast against INK_DARK (luminance ~0.005) and white.
+  return (l + 0.05) / 0.055 >= 1.05 / (l + 0.05) ? INK_DARK : "#ffffff";
+}
+const INK_DARK = "#0e1012";
+
 export const PALETTE_CHOICES = [5, 9, 13, 17, 21, 29, 37, 41, 45, 49, 53, 57];

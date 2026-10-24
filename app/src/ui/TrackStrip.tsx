@@ -1,7 +1,7 @@
 import { addDrumTrack } from "../actions";
 import { addTrack, canAddTrack, canRemoveTrack, moveTrack, removeTrack, selectTrack, set, useApp } from "../state/store";
 import { MAX_TRACKS, type TrackKind } from "../state/types";
-import { paletteCss } from "./palette";
+import { inkOn, paletteCss } from "./palette";
 
 const KIND_ICON: Record<TrackKind, string> = { drum: "▦", keys: "♪" };
 
@@ -23,7 +23,7 @@ export function TrackStrip() {
         <button
           key={t.id}
           className={`trk ${t.id === selected ? "on" : ""} ${t.mute ? "muted" : ""}`}
-          style={{ "--trk": paletteCss(t.color) } as React.CSSProperties}
+          style={{ "--trk": paletteCss(t.color), "--on-pad": inkOn(paletteCss(t.color)) } as React.CSSProperties}
           onClick={() => selectTrack(t.id)}
           title={`${t.name}: ${t.kind === "drum" ? "drum rack" : "keys"}${t.id === drum ? " · on the pads" : ""}${t.id === keys ? " · on the keybed" : ""}`}
         >

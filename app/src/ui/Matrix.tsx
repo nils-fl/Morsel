@@ -2,7 +2,7 @@ import { useState } from "react";
 import { sequencer } from "../seq/sequencer";
 import { clearTrack, clipOf, copyClip, patternHasNotes, selectTrack, set, trackBars, trackLength, useApp } from "../state/store";
 import { Section } from "./controls";
-import { paletteCss } from "./palette";
+import { inkOn, paletteCss } from "./palette";
 
 /** Sequences (rows) by tracks (columns). A cell is that track's clip in that sequence. */
 export function Matrix() {
@@ -49,7 +49,7 @@ export function Matrix() {
       <div className="matrix" style={{ "--cols": p.tracks.length } as React.CSSProperties}>
         <span />
         {p.tracks.map((t) => (
-          <button key={t.id} className={`mx-head ${t.id === selected ? "on" : ""}`} style={{ "--trk": paletteCss(t.color) } as React.CSSProperties} onClick={() => selectTrack(t.id)}>
+          <button key={t.id} className={`mx-head ${t.id === selected ? "on" : ""}`} style={{ "--trk": paletteCss(t.color), "--on-pad": inkOn(paletteCss(t.color)) } as React.CSSProperties} onClick={() => selectTrack(t.id)}>
             {t.name}
           </button>
         ))}

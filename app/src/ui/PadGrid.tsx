@@ -6,7 +6,7 @@ import { drumPads, drumTrack, selectedTrack, set, useApp } from "../state/store"
 import type { Track } from "../state/types";
 import { droppedEntry } from "./drawer";
 import { noteName } from "./notes";
-import { paletteCss } from "./palette";
+import { inkOn, paletteCss } from "./palette";
 
 const ROWS = [
   [8, 9, 10, 11, 12, 13, 14, 15],
@@ -71,7 +71,7 @@ function DrumPads() {
               <button
                 key={i}
                 className={`pad ${i === selected ? "selected" : ""} ${hit === i ? "hit" : ""} ${dropOn === i ? "drop" : ""} ${pad.sampleId ? "" : "empty"}`}
-                style={{ "--pad": paletteCss(pad.color) } as React.CSSProperties}
+                style={{ "--pad": paletteCss(pad.color), "--on-pad": inkOn(paletteCss(pad.color)) } as React.CSSProperties}
                 onPointerDown={(e) => {
                   setHit(i);
                   down(i, velocityAt(e));
@@ -117,7 +117,7 @@ function NotePads({ track }: { track: Track }) {
               <button
                 key={i}
                 className={`pad ${hit === i ? "hit" : ""} ${note % 12 === 0 ? "selected" : ""}`}
-                style={{ "--pad": paletteCss(track.color) } as React.CSSProperties}
+                style={{ "--pad": paletteCss(track.color), "--on-pad": inkOn(paletteCss(track.color)) } as React.CSSProperties}
                 onPointerDown={(e) => {
                   setHit(i);
                   keyOn(note, velocityAt(e), track.id);

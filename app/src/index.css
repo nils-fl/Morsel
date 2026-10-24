@@ -24,7 +24,7 @@
   --page: var(--amber);
   --accent: var(--page);
   --ink: #1c1f23; /* text on filled colour (meters, sliders) */
-  --on-pad: #1c1f23; /* text on a filled track / pad colour: those are light in both themes */
+  --on-pad: #0e1012; /* text on a filled track / pad colour; set per colour from ui/palette.ts inkOn (white on blues and violets) */
   --tint: 22%; /* strength of active / header tints */
   --ctl-h: 26px; /* buttons, selects and text inputs share one height */
 
@@ -75,9 +75,8 @@
 
   color-scheme: light;
 }
-:root[data-theme="light"] .pad-num { color: color-mix(in srgb, var(--pad) 65%, var(--text)); }
-:root[data-theme="light"] .pad.selected .pad-num { color: var(--on-pad); }
 :root[data-theme="light"] .g-overlay { background: rgba(60, 64, 70, .45); }
+:root[data-theme="light"] .pad-num { color: color-mix(in srgb, var(--pad) 40%, var(--text)); } /* yellow and lime pads are pale on paper */
 :root[data-theme="light"] .topbar { box-shadow: inset 0 1px 0 #fff, 0 4px 12px rgba(30, 35, 40, .08); }
 
 * { box-sizing: border-box; }
@@ -304,7 +303,7 @@ p.hint { margin: 0 0 8px; }
 .enc-strip { display: flex; align-items: stretch; flex: 1; min-width: 0; border: 1px solid var(--line-hi); background: var(--wave-bg); }
 .enc-tag { display: flex; align-items: stretch; padding: 0; border: none; border-right: 1px solid var(--line-hi); border-radius: 0; font-size: 11px; flex: none; }
 .enc-tag:hover:not(:disabled) { color: inherit; }
-.enc-tag b { background: color-mix(in srgb, var(--magenta) var(--tint), var(--panel)); color: var(--magenta); padding: 0 7px; letter-spacing: .06em; display: flex; align-items: center; }
+.enc-tag b { background: color-mix(in srgb, var(--magenta) var(--tint), var(--panel)); color: color-mix(in srgb, var(--magenta) 55%, var(--text)); padding: 0 7px; letter-spacing: .06em; display: flex; align-items: center; }
 .enc-tag span { padding: 0 10px; color: var(--text); font-weight: 700; display: flex; align-items: center; min-width: 62px; }
 .enc-knobs { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); }
 .enc-knob { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 4px 2px 3px; min-width: 0; border-left: 1px solid var(--line); }
@@ -364,7 +363,8 @@ p.hint { margin: 0 0 8px; }
 .pad.selected .pad-num { background: var(--pad); color: var(--on-pad); border-color: var(--pad); font-weight: 700; }
 .pad.hit, .pad.hit:hover { background: color-mix(in srgb, var(--pad) 40%, var(--panel)); color: var(--white); }
 .pad.drop { outline: 1px dashed var(--white); outline-offset: 2px; }
-.pad-num { font-size: 10px; color: var(--pad); align-self: flex-start; padding: 0 4px; border: 1px solid color-mix(in srgb, var(--pad) 50%, transparent); font-variant-numeric: tabular-nums; }
+/* Pad colour mixed toward the text colour: lighter in dark, darker in light, so the number stays readable. */
+.pad-num { font-size: 10px; color: color-mix(in srgb, var(--pad) 65%, var(--text)); align-self: flex-start; padding: 0 4px; border: 1px solid color-mix(in srgb, var(--pad) 50%, transparent); font-variant-numeric: tabular-nums; }
 .pad.empty .pad-num { color: var(--dim); border-color: var(--line); }
 .pad.hit .pad-num { color: var(--white); border-color: var(--white); background: transparent; }
 .pad-name { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -398,7 +398,7 @@ html { overflow-anchor: none; }
 }
 .section h2 {
   font-size: 11px; margin: 0; font-weight: 700; text-transform: uppercase; letter-spacing: .1em;
-  background: color-mix(in srgb, var(--page) var(--tint), var(--panel)); color: var(--page); border-right: 1px solid var(--line); padding: 0 10px; align-self: stretch; display: flex; align-items: center;
+  background: color-mix(in srgb, var(--page) var(--tint), var(--panel)); color: color-mix(in srgb, var(--page) 55%, var(--text)); border-right: 1px solid var(--line); padding: 0 10px; align-self: stretch; display: flex; align-items: center;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%;
 }
 .section .actions { display: flex; gap: 6px; align-items: center; padding: 3px 8px; flex-wrap: wrap; justify-content: flex-end; }
@@ -808,9 +808,10 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
 .master-meter b { font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
 .gr-meter div { background: var(--amber); }
 .returns { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
-.returns h4 { margin: 0 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--page); }
+.returns h4 { margin: 0 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: color-mix(in srgb, var(--page) 55%, var(--text)); }
 /* A sub-heading inside a panel (Keys: Shape). */
-.sub-head { margin: 18px 0 0; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--page); }
+/* Coloured labels (panel titles, group headings) mix the page colour toward the text colour, so they read in both themes. */
+.sub-head { margin: 18px 0 0; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: color-mix(in srgb, var(--page) 55%, var(--text)); }
 .sub-head.first { margin-top: 0; }
 
 /* ---------- matrix ---------- */

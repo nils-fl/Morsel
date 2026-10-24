@@ -5,7 +5,7 @@ import { clearTrack, clipOf, copyClip, copyPattern, doubleClip, patternHasNotes,
 import { PAD_COUNT } from "../state/types";
 import { noteName } from "./notes";
 import { Section } from "./controls";
-import { mute, paletteCss } from "./palette";
+import { inkOn, mute, paletteCss } from "./palette";
 
 /** The step a track's own loop is on (it loops at its own length). */
 function usePlayheadStep(trackId: string) {
@@ -109,7 +109,7 @@ export function SeqGrid() {
           </div>
         </div>
         {rows.map((row) => (
-          <div key={row.key} className={`seq-row ${drum && selectedPad === row.note ? "selected" : ""}`} style={{ "--row": row.color } as React.CSSProperties}>
+          <div key={row.key} className={`seq-row ${drum && selectedPad === row.note ? "selected" : ""}`} style={{ "--row": row.color, "--on-pad": inkOn(row.color) } as React.CSSProperties}>
             <button className="seq-name" onClick={() => drum && set({ selectedPad: row.note })}>{row.name}</button>
             {drum ? <>
               <button className={`ms ${track.padMutes[row.note] ? "on" : ""}`} onClick={() => togglePadFlag(track.id, row.note, "padMutes")}>M</button>
