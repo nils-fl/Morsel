@@ -30,7 +30,7 @@ import { TrackStrip } from "./ui/TrackStrip";
 
 // Each page has its own colour, like the page LEDs on an Elektron box.
 const TAB_COLOR: Record<Tab, string> = {
-  Track: "var(--amber)", Chop: "var(--orange)", Sequencer: "var(--cyan)", Mixer: "var(--yellow)", Song: "var(--lime)",
+  Track: "var(--amber)", Chop: "var(--orange)", Sequencer: "var(--cyan)", Mixer: "var(--blue)", Song: "var(--lime)",
 };
 const KEYS_COLOR = "var(--violet)";
 

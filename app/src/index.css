@@ -10,16 +10,24 @@
   --muted: #959ca4;
   --dim: #646c75;
 
-  --amber: #d9a55a;
-  --cyan: #6fb8c8;
-  --magenta: #c77a9e;
-  --lime: #a8c46a;
-  --violet: #9a8cc9;
-  --orange: #d08a5c;
-  --yellow: #d8c25e;
+  /* Accents: one lightness and chroma across hues (OKLCH ~0.80 / 0.11 here, ~0.52 / 0.12 in light), so none shouts
+     or fades. Each reads at 4.5:1 or more as text on the panels and under --ink when filled. */
+  --amber: #ebb16c;
+  --orange: #faa685;
+  --yellow: #eed27d;
+  --lime: #9bcf89;
+  --cyan: #58d1e5;
+  --blue: #93c1fe;
+  --violet: #c4affd;
+  --magenta: #f1a1ce;
   --white: #e6e9ec;
-  --rec: #d0605a;
-  --ok: #7cc49a;
+  --rec: #f28881;
+  --ok: #7dd3a3;
+  /* Solo is a bright yellow fill with dark text in both themes, like a highlighter. */
+  --solo: #e8c840;
+  --solo-ink: #1c1f23;
+  /* How much of a track / pad colour its lines and small numbers keep (the rest is the text colour). */
+  --edge-keep: 100%;
 
   --page: var(--amber);
   --accent: var(--page);
@@ -56,16 +64,20 @@
   --muted: #5d656e;
   --dim: #8f969e;
 
-  --amber: #9a6416;
-  --cyan: #23788a;
-  --magenta: #a03f6e;
-  --lime: #557315;
-  --violet: #5f4fa3;
-  --orange: #a8551f;
-  --yellow: #85700f;
+  --amber: #9c5906;
+  --orange: #9e441d;
+  --yellow: #8f6b09; /* gold: only for small marks (favourite stars, the guide's Track mode) */
+  --lime: #3b7e2b;
+  --cyan: #037687;
+  --blue: #2a63ab;
+  --violet: #6b50a4;
+  --magenta: #954074;
   --white: #2b3036; /* the "strong" contrast colour: markers, playhead, outlines */
-  --rec: #b93a33;
-  --ok: #2e8350;
+  --rec: #a03f3c;
+  --ok: #0e8050;
+  --solo: #f2c230;
+  /* Track and pad colours are made for dark panels; on paper their lines and numbers take some of the text colour. */
+  --edge-keep: 70%;
   --ink: #ffffff;
 
   --wave-bg: #eceef1;
@@ -80,6 +92,9 @@
 :root[data-theme="light"] .topbar { box-shadow: inset 0 1px 0 #fff, 0 4px 12px rgba(30, 35, 40, .08); }
 
 * { box-sizing: border-box; }
+/* A track / row colour as a line or small number: the colour itself on dark, darkened toward the text on light. */
+.trk, .channel, .mx-head, .mx-cell, .pads-bar { --trk-line: color-mix(in oklab, var(--trk) var(--edge-keep), var(--text)); }
+.seq-row { --row-line: color-mix(in oklab, var(--row) var(--edge-keep), var(--text)); }
 body {
   margin: 0;
   background: var(--bg);
@@ -343,12 +358,13 @@ p.hint { margin: 0 0 8px; }
 .pad-row { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; }
 /* Over the pads: the track they play (in its colour) and its kit or note range, the pad controls on the right. */
 .pads-bar { display: flex; align-items: center; gap: 12px; min-height: var(--ctl-h); padding: 0 2px 2px; }
-.pads-track { font-weight: 700; color: var(--text); border-left: 3px solid var(--trk); padding-left: 8px; white-space: nowrap; }
+.pads-track { font-weight: 700; color: var(--text); border-left: 3px solid var(--trk-line); padding-left: 8px; white-space: nowrap; }
 .pads-detail { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .pads-tools { display: flex; gap: 6px; margin-left: auto; flex: none; }
 .pad {
   aspect-ratio: 1.6; position: relative; border-radius: 3px; text-align: left; padding: 7px 8px;
-  border: 1px solid color-mix(in srgb, var(--pad) 55%, transparent);
+  --pad-line: color-mix(in oklab, var(--pad) var(--edge-keep), var(--text));
+  border: 1px solid color-mix(in srgb, var(--pad-line) 55%, transparent);
   background:
     radial-gradient(ellipse at 50% 120%, color-mix(in srgb, var(--pad) 14%, transparent), transparent 70%),
     var(--panel);
@@ -357,14 +373,14 @@ p.hint { margin: 0 0 8px; }
   text-transform: none; letter-spacing: 0; font-weight: 400;
   transition: background .05s;
 }
-.pad:hover:not(:disabled) { border-color: var(--pad); color: var(--text); }
+.pad:hover:not(:disabled) { border-color: var(--pad-line); color: var(--text); }
 .pad.empty { background: var(--bg); border-color: var(--line); }
-.pad.selected { border-color: var(--pad); box-shadow: 0 0 0 2px var(--pad); background: color-mix(in srgb, var(--pad) 20%, var(--panel)); }
+.pad.selected { border-color: var(--pad-line); box-shadow: 0 0 0 2px var(--pad-line); background: color-mix(in srgb, var(--pad) 20%, var(--panel)); }
 .pad.selected .pad-num { background: var(--pad); color: var(--on-pad); border-color: var(--pad); font-weight: 700; }
 .pad.hit, .pad.hit:hover { background: color-mix(in srgb, var(--pad) 40%, var(--panel)); color: var(--white); }
 .pad.drop { outline: 1px dashed var(--white); outline-offset: 2px; }
 /* Pad colour mixed toward the text colour: lighter in dark, darker in light, so the number stays readable. */
-.pad-num { font-size: 10px; color: color-mix(in srgb, var(--pad) 65%, var(--text)); align-self: flex-start; padding: 0 4px; border: 1px solid color-mix(in srgb, var(--pad) 50%, transparent); font-variant-numeric: tabular-nums; }
+.pad-num { font-size: 10px; color: color-mix(in srgb, var(--pad) 65%, var(--text)); align-self: flex-start; padding: 0 4px; border: 1px solid color-mix(in srgb, var(--pad-line) 50%, transparent); font-variant-numeric: tabular-nums; }
 .pad.empty .pad-num { color: var(--dim); border-color: var(--line); }
 .pad.hit .pad-num { color: var(--white); border-color: var(--white); background: transparent; }
 .pad-name { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -497,17 +513,17 @@ html { overflow-anchor: none; }
 .seq-row.selected .cell:not(.lit) { background: color-mix(in srgb, var(--row) 14%, transparent); }
 .seq-name {
   text-align: left; padding: 3px 8px; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  border-left: 3px solid var(--row);
+  border-left: 3px solid var(--row-line);
 }
-.seq-name:hover:not(:disabled) { color: var(--row); border-color: var(--row); }
+.seq-name:hover:not(:disabled) { color: var(--row-line); border-color: var(--row-line); }
 .ms { padding: 3px 0; font-size: 10px; }
 .seq-name, .ms { line-height: 13px; }
 .ms.on, .ms.on:hover { --page: var(--rec); }
-.ms.solo.on, .ms.solo.on:hover { --page: var(--yellow); }
+.ms.solo.on, .ms.solo.on:hover { background: var(--solo); border-color: var(--solo); color: var(--solo-ink); }
 .seq-cells { display: grid; grid-template-columns: repeat(var(--steps), minmax(18px, 1fr)); gap: 2px; }
 .cell { height: 22px; padding: 0; border-radius: 0; border: 1px solid var(--line); background: transparent; font-size: 8px; color: var(--ink); overflow: hidden; letter-spacing: 0; }
 .cell.beat { border-color: var(--line-hi); background: rgba(255,255,255,.02); }
-.cell:hover:not(:disabled) { border-color: var(--row); }
+.cell:hover:not(:disabled) { border-color: var(--row-line); }
 .cell.lit { border-color: transparent; }
 /* A nudged note: a mark off the cell's centre, left = early, right = late. */
 .cell.nudged { position: relative; }
@@ -714,7 +730,7 @@ button.danger { --page: var(--rec); }
 .g-modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
 .g-mode { border: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; }
 .g-mode:hover { border-color: var(--mode); }
-.g-mode header { display: flex; justify-content: space-between; align-items: center; background: color-mix(in srgb, var(--mode) var(--tint), var(--panel)); color: var(--mode); padding: 5px 10px; }
+.g-mode header { display: flex; justify-content: space-between; align-items: center; background: color-mix(in srgb, var(--mode) var(--tint), var(--panel)); color: color-mix(in srgb, var(--mode) 55%, var(--text)); padding: 5px 10px; }
 .g-mode header span { font-weight: 700; text-transform: uppercase; letter-spacing: .12em; font-size: 12px; }
 .g-mode header small { font-size: 10px; opacity: .75; }
 .g-minipads { display: grid; gap: 3px; padding: 10px; background: var(--wave-bg); margin: 10px 10px 0; }
@@ -755,9 +771,9 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
 .boot-error p { margin: 0; color: var(--text); line-height: 1.5; }
 
 /* ---------- tracks (top bar) ---------- */
-.tracks { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; --page: var(--yellow); }
-.trk { display: flex; align-items: center; gap: 6px; max-width: 160px; height: var(--ctl-h); border-left: 3px solid var(--trk); text-transform: none; letter-spacing: 0; }
-.trk i { font-style: normal; color: var(--trk); font-variant-numeric: tabular-nums; }
+.tracks { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; --page: var(--blue); }
+.trk { display: flex; align-items: center; gap: 6px; max-width: 160px; height: var(--ctl-h); border-left: 3px solid var(--trk-line); text-transform: none; letter-spacing: 0; }
+.trk i { font-style: normal; color: color-mix(in oklab, var(--trk) 55%, var(--text)); font-variant-numeric: tabular-nums; }
 .trk span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .trk em { font-style: normal; font-size: 8px; line-height: 12px; letter-spacing: .08em; color: var(--muted); border: 1px solid var(--line-hi); padding: 0 3px; }
 .trk.on, .trk.on:hover { background: var(--trk); border-color: var(--trk); color: var(--on-pad); font-weight: 700; }
@@ -790,13 +806,13 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
 }
 
 /* ---------- mixer ---------- */
-.mixer-panel { --page: var(--yellow); }
+.mixer-panel { --page: var(--blue); }
 /* Fixed-width strips like a hardware mixer, whatever the track count; more than fit scroll sideways. */
 .mixer { display: grid; grid-auto-flow: column; grid-auto-columns: 220px; justify-content: start; gap: 8px; overflow-x: auto; padding-bottom: 2px; }
-.channel { border: 1px solid var(--line); border-top: 3px solid var(--trk); padding: 6px; background: var(--panel); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.channel.on { border-color: var(--trk); box-shadow: 0 0 0 1px var(--trk); background: color-mix(in srgb, var(--trk) 10%, var(--panel)); }
+.channel { border: 1px solid var(--line); border-top: 3px solid var(--trk-line); padding: 6px; background: var(--panel); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.channel.on { border-color: var(--trk-line); box-shadow: 0 0 0 1px var(--trk-line); background: color-mix(in srgb, var(--trk) 10%, var(--panel)); }
 .channel header { display: flex; align-items: center; gap: 6px; cursor: pointer; }
-.channel header i { font-style: normal; color: var(--trk); }
+.channel header i { font-style: normal; color: color-mix(in oklab, var(--trk) 55%, var(--text)); }
 .channel header input { flex: 1; min-width: 0; }
 .channel .row { margin: 4px 0; gap: 4px; }
 .channel .row select { flex: 1; min-width: 0; }
@@ -817,7 +833,7 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
 /* ---------- matrix ---------- */
 .matrix { display: grid; grid-template-columns: 34px repeat(var(--cols), minmax(70px, 1fr)); gap: 2px; overflow-x: auto; }
 .mx-row { display: contents; }
-.mx-head { border-bottom: 2px solid var(--trk); text-transform: none; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mx-head { border-bottom: 2px solid var(--trk-line); text-transform: none; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mx-head.on, .mx-head.on:hover { background: var(--trk); border-color: var(--trk); color: var(--on-pad); }
 .mx-num { padding: 0; font-variant-numeric: tabular-nums; }
 .mx-row.now .mx-num { background: var(--page); color: var(--ink); border-color: var(--page); font-weight: 700; }
@@ -825,7 +841,7 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
 .mx-cell { height: 20px; padding: 2px 3px; border-radius: 0; }
 .mx-row.now .mx-cell { border-color: var(--line-hi); background-color: color-mix(in srgb, var(--page) 10%, var(--panel)); }
 .mx-cell.used { background: color-mix(in srgb, var(--trk) 14%, var(--panel)); }
-.mx-cell.sel { outline: 2px solid var(--trk); outline-offset: -2px; }
+.mx-cell.sel { outline: 2px solid var(--trk-line); outline-offset: -2px; }
 .mx-dens { display: grid; grid-template-columns: repeat(var(--steps), 1fr); gap: 1px; height: 100%; align-items: end; }
 .mx-dens i { height: 30%; background: color-mix(in srgb, var(--trk) 25%, transparent); }
 .mx-dens i.on { height: 100%; background: var(--trk); }
