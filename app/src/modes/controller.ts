@@ -200,6 +200,8 @@ export function initController() {
     else if (!s.chop && prev.chop) exitChopHw();
     // Switching between a drum and a keys track: stay on an encoder page that track has.
     if (s.selectedTrack !== prev.selectedTrack || s.project.tracks !== prev.project.tracks) fixPage();
+    // The device's own pad mode (chords) is for keys tracks: a drum track takes the pads back.
+    if (s.selectedTrack !== prev.selectedTrack && launchkey.nativePads !== null && selectedTrack(s).kind === "drum") launchkey.setLayout(layoutFor(s.hwMode));
     // The page on the step pads must exist in the selected track's clip (a shorter one may have been picked).
     const pages = stepPages(s.project.patterns[s.currentPattern], s.selectedTrack);
     if (s.stepPage >= pages) set({ stepPage: pages - 1 });
@@ -222,7 +224,9 @@ export function initController() {
       case "layout": {
         // The device reports its layout after connecting (often "daw" right after the handshake) and when
         // switched from the hardware. Put back the one the current mode needs, at most once a second so a
-        // device that keeps refusing can't cause a loop.
+        // device that keeps refusing can't cause a loop. Not while Shift is held: that is the device's pad-mode
+        // picker (measured: it reports "daw"), and fixing it then knocked out the mode picked (Shift up decides).
+        if (s.shift) break;
         const want = layoutFor(s.hwMode);
         if (e.layout !== want && performance.now() - lastLayoutFix > 1000) {
           lastLayoutFix = performance.now();
@@ -230,6 +234,11 @@ export function initController() {
         }
         break;
       }
+      case "nativePads":
+        // The device's own pad mode (its chords, measured as 15): leave it the pads. Their notes come in on the
+        // keys port and play the keys track. Func, a mode change or a drum track takes them back.
+        showTemp("Pads", "Launchkey mode");
+        break;
       case "pad":
         if (e.on) {
           heldPads.add(e.pad);
@@ -462,7 +471,11 @@ function onPad(pad: number, vel: number) {
 
 function onButton(button: string, down: boolean) {
   const s = get();
-  if (button === "shift") return set({ shift: down });
+  if (button === "shift") {
+    // Shift let go without picking one of the device's own pad modes: put back the layout the mode needs.
+    if (!down && launchkey.nativePads === null && launchkey.layout !== layoutFor(s.hwMode)) launchkey.setLayout(layoutFor(s.hwMode));
+    return set({ shift: down });
+  }
   // Shift + the encoder page arrows: Browse (any track) and Chop (drum tracks) on / off. Checked before Browse takes the arrows.
   // In Browse, Shift + ⌄ chops the highlighted sample (any track): leaving Chop goes back to the mode before Browse.
   if (down && s.shift && (button === "encPageUp" || button === "encPageDown")) {

@@ -14,6 +14,8 @@ export type LaunchkeyEvent =
   | { type: "encoder"; index: number; delta: number }
   | { type: "button"; button: Button; down: boolean }
   | { type: "layout"; layout: PadLayout }
+  /** The device switched the pads to one of its own modes (chords, arp, custom: CC 29 value `value`, measured 15 for a chord mode). */
+  | { type: "nativePads"; value: number }
   | { type: "connection"; connected: boolean }
   | { type: "raw"; port: string; data: number[] };
 
@@ -52,6 +54,8 @@ export class Launchkey {
   private sentColors = new Map<string, number>();
   private sentButtonLeds = new Map<number, number>();
   layout: PadLayout = "drum";
+  /** The device's own pad mode (CC 29 value) while it has the pads, else null: no pad LEDs are sent meanwhile. */
+  nativePads: number | null = null;
   /** null until known: true after the first bitmap ack, false if none arrives in time. */
   bitmapSupported: boolean | null = null;
   bitmapFrames = 0;
@@ -161,6 +165,7 @@ export class Launchkey {
     this.send(cc7(CC.encoderRelative, 127));
     this.send(cc7(CC.padLayout, PAD_LAYOUT.drum));
     this.layout = "drum";
+    this.nativePads = null;
     // Stationary display: two lines (name + value). Temporary: same arrangement.
     this.send(displayConfigSysex(DISPLAY.stationary, ARRANGEMENT.nameValue));
     this.send(displayConfigSysex(DISPLAY.temporary, ARRANGEMENT.nameValue));
@@ -197,9 +202,11 @@ export class Launchkey {
     }
   }
 
+  /** Put the pads in one of Morsel's layouts; also takes them back from the device's own pad mode. */
   setLayout(layout: PadLayout) {
-    if (layout === this.layout) return;
+    if (layout === this.layout && this.nativePads === null) return;
     this.layout = layout;
+    this.nativePads = null;
     this.send(cc7(CC.padLayout, PAD_LAYOUT[layout]));
     this.sentColors.clear();
     this.refreshLeds();
@@ -230,6 +237,8 @@ export class Launchkey {
   }
 
   private flushPad(pad: number) {
+    // The device's own pad mode draws its own pads.
+    if (this.nativePads !== null) return;
     const { color, mode } = this.padColors[pad];
     const key = `${this.layout}:${pad}`;
     const sig = color * 4 + (mode === "static" ? 0 : mode === "flash" ? 1 : 2);
@@ -392,9 +401,13 @@ export class Launchkey {
           const layout = d2 === PAD_LAYOUT.daw ? "daw" : d2 === PAD_LAYOUT.drum ? "drum" : null;
           if (layout) {
             this.layout = layout;
+            this.nativePads = null;
             this.sentColors.clear();
             this.refreshLeds();
             this.emit({ type: "layout", layout });
+          } else {
+            this.nativePads = d2;
+            this.emit({ type: "nativePads", value: d2 });
           }
         } else if (d1 === CC.shift) {
           this.coverShiftOverlay(d2 > 0);
