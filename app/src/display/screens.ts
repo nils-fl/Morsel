@@ -6,18 +6,22 @@ import { HEADER_H, ROW_H, duckPanel, footer, header, list, stepRow, waveform, ty
 import type { HwMode, TrackKind } from "../state/types";
 
 export interface BrowserView {
+  /** The track Func loads onto, e.g. "T1 Drums". */
+  track: string;
+  /** The pad on a drum track ("P3"); empty on a keys track (the keys). */
+  target: string;
   folder: string;
   index: number;
   items: ListItem[];
-  /** Where Func loads the item: "P3" (pad 3) or "Keys". */
-  target: string;
 }
 
+/** Header: the track (and pad) Func loads onto, and the position in the folder. Footer: the folder. */
 export function browserScreen(v: BrowserView): Frame {
   const f = new Frame();
   const pos = v.items.length ? `${v.index + 1}/${v.items.length}` : "0/0";
-  header(f, `${v.folder || "Browse"}`, `${v.target} ${pos}`);
-  list(f, HEADER_H + 1, Math.floor((H - HEADER_H - 1) / ROW_H), v.items, v.index);
+  header(f, v.track, v.target ? `${v.target} ${pos}` : pos);
+  list(f, HEADER_H + 1, Math.floor((H - HEADER_H - 1 - 9) / ROW_H), v.items, v.index);
+  footer(f, "BROWSE", v.folder || "Top");
   return f;
 }
 

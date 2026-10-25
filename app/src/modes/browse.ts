@@ -155,7 +155,7 @@ export function browseView() {
   const { entries: list, note } = listing();
   return {
     folder: folderLabel(cursor.path),
-    target: forKeys() ? "Keys" : `P${get().selectedPad + 1}`,
+    target: forKeys() ? "" : `P${get().selectedPad + 1}`,
     index: cursor.index,
     items: list.length || !note ? list.map((e) => ({ label: e.name, folder: e.kind === "folder" })) : [{ label: note, folder: false }],
   };

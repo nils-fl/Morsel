@@ -46,8 +46,8 @@ describe("list scrolling", () => {
     expect(scrollTop(-1, 6)).toBe(0); // no cursor: from the top
   });
   it("renders the cursor row inverted on the middle row, empty rows above the first item", () => {
-    const f = browserScreen({ folder: "Kicks", index: 0, items: [{ label: "Kick" }, { label: "Snare" }], target: "P1" });
-    const mid = HEADER_H + 1 + 3 * ROW_H; // 6 rows: the 4th is the middle one
+    const f = browserScreen({ track: "T1 Drums", target: "P1", folder: "Kicks", index: 0, items: [{ label: "Kick" }, { label: "Snare" }] });
+    const mid = HEADER_H + 1 + 2 * ROW_H; // 5 rows above the folder footer: the 3rd is the middle one
     expect(f.get(0, mid)).toBe(1); // selected row background
     expect(f.get(0, mid + ROW_H)).toBe(0); // next row background
     expect(f.get(0, HEADER_H + 1)).toBe(0); // nothing above the first item

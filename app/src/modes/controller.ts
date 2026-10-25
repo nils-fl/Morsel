@@ -716,7 +716,7 @@ function screenFor(s: AppState, overlay: Overlay | null): Frame | null {
   switch (s.hwMode) {
     case "browse": {
       const v = browseView();
-      return browserScreen(v);
+      return browserScreen({ ...v, track: trackLabel(s) });
     }
     case "play": {
       const t = selectedTrack(s);
