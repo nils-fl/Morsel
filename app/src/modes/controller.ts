@@ -165,6 +165,10 @@ export function releaseAll() {
     selectKeys.delete(note);
     releasePad(pad);
   }
+  for (const [note, { track, pad }] of drumKeys) {
+    drumKeys.delete(note);
+    engine.voices.releasePad(track, pad, liveWhen());
+  }
   for (const key of [...erasingKeys.keys()]) stopErase(erasingKeys, key);
   chopKeysReleased();
   funcHeld = false;
@@ -295,6 +299,8 @@ export function initController() {
 const instrumentKeys = new Map<number, string>();
 // Keys used to pick a sound in Step mode (pad index per note).
 const selectKeys = new Map<number, number>();
+/** Keys playing a drum track's pads (selected drum track, any mode but Step and Chop): the track and pad per note. */
+const drumKeys = new Map<number, { track: string; pad: number }>();
 /** Step mode on a keys track: the note the step pads write (the last key pressed). */
 let stepNote: number | null = null;
 
@@ -311,7 +317,10 @@ function onKey(note: number, vel: number, on: boolean) {
   if (!on) chopKeyUp(note);
   // Chop: the keys play the chops (and, held, put one on the next pad tapped).
   if (on && get().hwMode === "chop") return chopKeyDown(note, vel);
-  if (on && funcHeld && get().hwMode === "play") return startErase(erasingKeys, note, keysTrack(), note);
+  if (on && funcHeld && get().hwMode === "play") {
+    const sel = selectedTrack();
+    return sel.kind === "drum" ? startErase(erasingKeys, note, sel, padForKey(note)) : startErase(erasingKeys, note, keysTrack(), note);
+  }
   if (!on) {
     const track = instrumentKeys.get(note);
     if (track !== undefined) {
@@ -322,6 +331,12 @@ function onKey(note: number, vel: number, on: boolean) {
     if (pad !== undefined) {
       selectKeys.delete(note);
       releasePad(pad);
+    }
+    const drum = drumKeys.get(note);
+    if (drum) {
+      drumKeys.delete(note);
+      engine.voices.releasePad(drum.track, drum.pad, liveWhen());
+      sequencer.repeatPads.delete(`${drum.track}:${drum.pad}`);
     }
     return;
   }
@@ -340,6 +355,18 @@ function onKey(note: number, vel: number, on: boolean) {
     // Keys track: the key you play is the note the step pads write.
     stepNote = note;
     instrumentKeys.set(note, keyOn(note, vel, sel.id));
+    return;
+  }
+  if (sel.kind === "drum") {
+    // A drum track: the keys play its pads (C3 = pad 1 … D#4 = pad 16, then round again), recorded like the pads.
+    // Held with Scene in Play, they repeat like held pads.
+    const pad = padForKey(note);
+    drumKeys.set(note, { track: sel.id, pad });
+    if (s.hwMode === "play" && sequencer.repeatOn) {
+      sequencer.repeatPads.set(`${sel.id}:${pad}`, { track: sel.id, pad, vel });
+      set({ selectedPad: pad });
+      sequencer.ensureRepeatClock();
+    } else playPad(pad, vel);
     return;
   }
   instrumentKeys.set(note, keyOn(note, vel));

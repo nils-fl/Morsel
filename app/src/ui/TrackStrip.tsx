@@ -5,12 +5,13 @@ import { inkOn, paletteCss } from "./palette";
 
 const KIND_ICON: Record<TrackKind, string> = { drum: "▦", keys: "♪" };
 
-/** Tracks 1-8: click to select. The pads play the last drum track picked, the keybed the last keys track. */
+/** Tracks 1-8: click to select. The pads play the last drum track picked; the keybed plays the selected drum track, or else the last keys track. */
 export function TrackStrip() {
   const tracks = useApp((s) => s.project.tracks);
   const selected = useApp((s) => s.selectedTrack);
   const drum = useApp((s) => s.drumTrack);
-  const keys = useApp((s) => s.keysTrack);
+  // On a drum track the keybed plays its pads; otherwise the last keys track picked.
+  const keys = useApp((s) => (s.project.tracks.find((t) => t.id === s.selectedTrack)?.kind === "drum" ? s.selectedTrack : s.keysTrack));
   const canAdd = useApp((s) => canAddTrack(s.project));
   const canRemove = useApp((s) => canRemoveTrack(s.project, s.selectedTrack));
   const add = (kind: TrackKind) => {
@@ -29,7 +30,9 @@ export function TrackStrip() {
         >
           <i>{i + 1}</i>
           <span>{KIND_ICON[t.kind]} {t.name}</span>
-          {(t.id === drum || t.id === keys) && <em title={t.id === drum ? "Pads play this track" : "Keybed plays this track"}>{t.id === drum ? "PADS" : "KEYS"}</em>}
+          {(t.id === drum || t.id === keys) && (
+            <em title={t.id === drum ? `Pads${t.id === keys ? " and keybed" : ""} play this track` : "Keybed plays this track"}>{t.id === drum ? "PADS" : "KEYS"}</em>
+          )}
         </button>
       ))}
       <span className="trk-actions">
