@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { LIVE_BUDGETS, engine, type VoiceEngine } from "../audio/engine";
 import { BEND_RANGES, bendRangePref } from "../actions";
 import { SHIFT_COVERS, launchkey, type ShiftCover } from "../midi/launchkey";
+import { VELOCITY_CURVES, VELOCITY_LABEL, currentVelocityCurves, setKeyVelocity, setPadVelocity } from "../midi/velocity";
 import { isNative } from "../platform/native";
 import { isBoolean, pref } from "../state/prefs";
 import { useApp } from "../state/store";
@@ -43,6 +44,7 @@ export function Preferences({ onClose, onLab }: { onClose: () => void; onLab: ()
   const [device, setDevice] = useState(launchkey.device);
   const [shiftCover, setShiftCover] = useState(launchkey.shiftCoverMode);
   const [bendRange, setBendRange] = useState(bendRangePref.get);
+  const [velocity, setVelocity] = useState(currentVelocityCurves);
   const [fullScreen, setFullScreen] = useState(fullScreenPref.get);
   const devices = launchkey.devices();
 
@@ -101,6 +103,12 @@ export function Preferences({ onClose, onLab }: { onClose: () => void; onLab: ()
             {devices.map((d) => <option key={d} value={d}>{d}</option>)}
             {device && !devices.includes(device) && <option value={device}>{device} (not connected)</option>}
           </select>
+        </Row>
+        <Row label="Pad velocity" hint="How much of how hard you play reaches the sound and the recording. Full: all of it. Medium and Light lift soft hits, so the level varies less. Fixed: every hit at full level.">
+          <Choice value={velocity.pads} options={VELOCITY_CURVES} label={(c) => VELOCITY_LABEL[c]} onPick={(c) => { setPadVelocity(c); setVelocity(currentVelocityCurves()); }} />
+        </Row>
+        <Row label="Key velocity" hint="The same for the keybed (and the Launchkey's own chord pads).">
+          <Choice value={velocity.keys} options={VELOCITY_CURVES} label={(c) => VELOCITY_LABEL[c]} onPick={(c) => { setKeyVelocity(c); setVelocity(currentVelocityCurves()); }} />
         </Row>
         <Row label="Bend range" hint="How far the Pitch strip bends the Keys notes at either end.">
           <Choice value={bendRange} options={BEND_RANGES} label={(n) => `±${n} st`} onPick={(n) => { bendRangePref.set(n); setBendRange(n); }} />

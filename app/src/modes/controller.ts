@@ -2,6 +2,7 @@
 import { allPresets, bendKeys, currentKit, finishChop, keyOff, keyOn, modKeys, kitNames, liveWhen, openInChop, playPad, releasePad, setRepeatLatch, stretchChop, toggleSampling, togglePlay, toggleRecord } from "../actions";
 import { engine } from "../audio/engine";
 import { launchkey } from "../midi/launchkey";
+import { keyVelocity, padVelocity } from "../midi/velocity";
 import { CC, COLOR, type LedMode, type PadLayout } from "../midi/protocol";
 import { DUCK_PAGE, PAGES, STEP_PAGE, fixPage, inputLabel, keysSampleList, padLabel, pagesFor, presetLabel, stepPage, stepPageLabel, turnEncoder } from "../params";
 import { makeTicker, sequencer } from "../seq/sequencer";
@@ -242,7 +243,7 @@ export function initController() {
       case "pad":
         if (e.on) {
           heldPads.add(e.pad);
-          onPad(e.pad, e.velocity);
+          onPad(e.pad, padVelocity(e.velocity));
         } else padReleased(e.pad);
         break;
       case "padPressure": {
@@ -253,7 +254,7 @@ export function initController() {
         break;
       }
       case "key":
-        onKey(e.note, e.velocity, e.on);
+        onKey(e.note, keyVelocity(e.velocity), e.on);
         break;
       case "pitchbend":
         bendKeys(e.value);

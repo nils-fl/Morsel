@@ -92,7 +92,7 @@ Open the URL Vite prints and allow MIDI (with SysEx) access when the browser ask
 
 Load samples by dropping audio files onto an on-screen pad, or use **Import folder** to add a whole folder to the browser.
 
-**Preferences** (⚙ in the top bar): theme, tips, audio output device, live-note budget, voice engine, which Launchkey to use and how its Shift popup is covered. In a browser they're kept per browser.
+**Preferences** (⚙ in the top bar): theme, tips, audio output device, live-note budget, voice engine, which Launchkey to use, the **velocity response** of the pads and of the keys (Full, Medium, Light or Fixed: Medium, the default, lifts soft hits so the level varies less; it applies as you play, so recordings keep what you heard) and how its Shift popup is covered. In a browser they're kept per browser.
 
 ## Desktop app (macOS)
 
