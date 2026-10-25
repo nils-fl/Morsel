@@ -1,19 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <!-- Four lit pads with a bite taken out of the corner. Colours from ui/palette.ts. -->
-  <defs>
-    <mask id="bite">
-      <rect width="32" height="32" fill="#fff"/>
-      <circle cx="32" cy="0" r="8" fill="#000"/>
-      <circle cx="23.5" cy="0.5" r="3.6" fill="#000"/>
-      <circle cx="26" cy="6" r="3.6" fill="#000"/>
-      <circle cx="31.5" cy="8.5" r="3.6" fill="#000"/>
-    </mask>
-  </defs>
-  <g mask="url(#bite)">
-    <rect x=".5" y=".5" width="31" height="31" rx="6.5" fill="#1c1f23" stroke="#4a525a"/>
-    <rect x="4" y="4" width="11" height="11" rx="2.5" fill="#ff3b3b"/>
-    <rect x="17" y="4" width="11" height="11" rx="2.5" fill="#ffe83b"/>
-    <rect x="4" y="17" width="11" height="11" rx="2.5" fill="#3be7ff"/>
-    <rect x="17" y="17" width="11" height="11" rx="2.5" fill="#8a3bff"/>
-  </g>
+  <!-- A dim waveform trace on a dark body, a crumb at its end. -->
+  <rect x=".5" y=".5" width="31" height="31" rx="7" fill="#1a1c1f" stroke="#33373c"/>
+  <path d="M6 16h3l1.6-4 2.4 9 2.4-12 2.4 10 1.6-5 1 2h1.5" fill="none" stroke="#b8b2a6" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="25.4" cy="16" r="1.1" fill="#b8b2a6" opacity=".55"/>
 </svg>

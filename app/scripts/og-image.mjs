@@ -93,20 +93,21 @@ try {
   rsvg(og, resolve(publicDir, "og-image.png"), OG_W, OG_H);
 
   // iOS fills transparency with black and rounds the corners itself, so the icon goes on a solid square
-  // (a shade lighter than the icon, so the bite still shows) and loses the outline it has for dark tab bars.
+  // (a shade lighter than the icon, so its edge still shows) and loses the outline it has for dark tab bars (the body
+  // comes first, so only its stroke goes; the waveform is a stroke too).
   const favicon = readFileSync(resolve(publicDir, "favicon.svg"), "utf8")
     .replace(/^<svg[^>]*>|<\/svg>\s*$/g, "")
-    .replace(/ stroke="[^"]*"/g, "");
+    .replace(/ stroke="[^"]*"/, "");
   const touch = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" fill="${PANEL_2}"/><g transform="translate(3 3) scale(.8125)">${favicon}</g></svg>`;
   rsvg(touch, resolve(publicDir, "apple-touch-icon.png"), 180, 180);
   // The installed app's icons (manifest.webmanifest): the same square.
   for (const size of [192, 512]) rsvg(touch, resolve(publicDir, `icon-${size}.png`), size, size);
 
   // The desktop app's (Dock, Finder): on Apple's macOS icon grid, the body 824 of 1024 px with a soft shadow below and
-  // the bite see-through. A hairline of the outline keeps the dark body apart from a dark Dock.
+  // a hairline of the outline keeping the dark body apart from a dark Dock.
   const mac = readFileSync(resolve(publicDir, "favicon.svg"), "utf8")
     .replace(/^<svg[^>]*>|<\/svg>\s*$/g, "")
-    .replace(/ stroke="([^"]*)"/g, ' stroke="$1" stroke-width=".3"');
+    .replace(/ stroke="([^"]*)"/, ' stroke="$1" stroke-width=".3"');
   const macIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <defs><filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000" flood-opacity=".35"/></filter></defs>
   <g filter="url(#shadow)"><g transform="translate(100 100) scale(25.75)">${mac}</g></g>
