@@ -4,7 +4,7 @@ import { TAB_WORDS, connectTab, disconnectTab, normalize, startRecording, tabCon
 import { slicesFromMarkers } from "./audio/chop";
 import { STOCK_REV, renderStockKit, stockLengths, stockSounds } from "./audio/kit";
 import { DECAY_MAX } from "./audio/dsp";
-import { autoMarkers, bpmText, chopBuffer, chopRack, chopStop, chopTempo, newChop, nextChopName, takeMarkers } from "./modes/chop";
+import { autoMarkers, bpmText, chopBuffer, chopRack, chopStop, chopTempo, newChop, nextChopName } from "./modes/chop";
 import { stretchAsync } from "./audio/stretch";
 import { showTemp } from "./modes/notify";
 import { launchkey } from "./midi/launchkey";
@@ -223,11 +223,9 @@ async function finishSampling() {
   const tab = source === "tab";
   const id = await engine.addBuffer(`${tab ? "Tab" : "Rec"} ${new Date().toLocaleTimeString()}`, normalize(buf));
   if (sampleTarget === "chop") {
-    // Straight into Chop with the transients marked: the hardware can audition, adjust and send right away.
-    const markers = takeMarkers(engine.buffer(id)!);
-    const n = markers.length - 1;
-    set({ chop: { ...newChop(id, markers), firstPad: 0 }, tab: "Chop", status: `Captured ${buf.duration.toFixed(1)} s · ${n} chops · the keys play them; hold a key and tap a pad to keep one, Func when done` });
-    showTemp(`${n} chops`, "Keys play them");
+    // Straight into Chop, on its Sample page: trim the take first, then chop it on the Chop page.
+    set({ chop: { ...newChop(id), firstPad: 0 }, tab: "Chop", status: `Captured ${buf.duration.toFixed(1)} s · start and end on encoders 3 and 4 (Func keeps only that), then Encoder page down to chop it` });
+    showTemp("Sample", "Trim, Enc v: chop");
     return;
   }
   const pad = get().selectedPad;
@@ -354,7 +352,29 @@ export async function stretchChop() {
   }
 }
 
-/** Back to the sample before the last stretch. */
+/**
+ * Keep only the region between start and end (Func on the Sample page): a new sample of just that, the chop moving to
+ * it with its markers. The original stays in the library (↺ Original goes back to it).
+ */
+export async function keepRegion() {
+  const c = get().chop, buf = chopBuffer();
+  if (!c || !buf) return;
+  const [a, b] = [c.markers[0], c.markers[c.markers.length - 1]];
+  if (a <= 0 && b >= 1) return showTemp("Keep", "Set start or end first");
+  chopStop();
+  const id = await cropSample(c.sampleId, a, b);
+  const now = get().chop;
+  // Closed or moved on meanwhile: the new sample stays in the library, the session is left alone.
+  if (!id || now?.sampleId !== c.sampleId) return;
+  const span = b - a, secs = (span * buf.duration).toFixed(2);
+  set({
+    chop: { ...now, sampleId: id, markers: now.markers.map((m) => (m - a) / span), view: [0, 1], sel: null, from: { sampleId: c.sampleId, markers: c.markers, slices: c.slices, beats: c.beats } },
+    status: `Kept ${secs} s of ${get().samples[c.sampleId]?.name ?? "the sample"}`,
+  });
+  showTemp("Kept", `${secs}s`);
+}
+
+/** Back to the sample before the last stretch or keep. */
 export function chopOriginal() {
   const c = get().chop;
   if (!c?.from || !engine.buffer(c.from.sampleId)) return;

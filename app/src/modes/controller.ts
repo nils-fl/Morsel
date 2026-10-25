@@ -1,5 +1,5 @@
 // Maps Launchkey events to actions per hardware mode, and renders LEDs + display.
-import { addDrumTrack, allPresets, bendKeys, currentKit, finishChop, keyOff, keyOn, modKeys, kitNames, liveWhen, openInChop, playPad, releasePad, setRepeatLatch, stretchChop, toggleSampling, togglePlay, toggleRecord } from "../actions";
+import { addDrumTrack, allPresets, bendKeys, currentKit, finishChop, keepRegion, keyOff, keyOn, modKeys, kitNames, liveWhen, openInChop, playPad, releasePad, setRepeatLatch, stretchChop, toggleSampling, togglePlay, toggleRecord } from "../actions";
 import { engine } from "../audio/engine";
 import { launchkey } from "../midi/launchkey";
 import { keyVelocity, padVelocity } from "../midi/velocity";
@@ -580,13 +580,14 @@ function onButton(button: string, down: boolean) {
     return;
   }
   if (s.hwMode === "chop") {
-    // Chop owns Scene (add a marker, Shift = remove), Play (audition, a loop on the Tempo page; Shift = the
-    // sequencer), Function (Chop page: done, to the rack; Tempo page: stretch) and the encoder page arrows (its
-    // Chop and Tempo pages).
-    if (button === "scene") return void (down && (s.shift ? chopRemoveMarker() : chopAddMarker()));
+    // Chop owns Play (audition, a loop on the Sample page; Shift = the sequencer), the encoder page arrows (its Sample
+    // and Chop pages), Function (Sample page: keep only start-end; Chop page: done, to the rack) and Scene (Sample
+    // page: stretch to the tempo set; Chop page: add a marker at the playhead, Shift = remove the selected one).
+    const samplePage = s.chop?.page === "sample";
+    if (button === "scene") return void (down && (samplePage ? !s.shift && stretchChop() : s.shift ? chopRemoveMarker() : chopAddMarker()));
     if (down && button === "play") return s.shift ? togglePlay() : chopTogglePlay();
-    if (down && !s.shift && button === "func") return void (s.chop?.page === "tempo" ? stretchChop() : finishChop());
-    if (!s.shift && (button === "encPageUp" || button === "encPageDown")) return void (down && chopSetPage(button === "encPageUp" ? "chop" : "tempo"));
+    if (down && !s.shift && button === "func") return void (samplePage ? keepRegion() : finishChop());
+    if (!s.shift && (button === "encPageUp" || button === "encPageDown")) return void (down && chopSetPage(button === "encPageUp" ? "sample" : "chop"));
     // Pad ⌃ / ⌄ step through the markers, like encoder 3 (with Shift they still change track, below).
     if (!s.shift && (button === "padUp" || button === "padDown")) return void (down && chopStepMarker(button === "padUp" ? -1 : 1));
   }
@@ -1008,13 +1009,13 @@ function funcSceneLeds(s: AppState) {
 }
 
 /** Encoder page arrows: lit when the selected track has a page that way. Browse: they step through the list. Shift: Browse / Chop
- *  (Chop: drum tracks; in Browse, when a sample is highlighted). Chop: its Chop / Tempo pages. */
+ *  (Chop: drum tracks; in Browse, when a sample is highlighted). Chop: its Sample / Chop pages. */
 function encPageLeds(s: AppState) {
   if (s.shift) {
     const chop = s.hwMode === "browse" ? browseOnSample() : selectedTrack(s).kind === "drum" || s.hwMode === "chop";
     return { up: LED_FULL, down: chop ? LED_FULL : 0 };
   }
-  if (s.hwMode === "chop") return { up: s.chop?.page === "tempo" ? LED_FULL : 0, down: s.chop?.page === "tempo" ? 0 : LED_FULL };
+  if (s.hwMode === "chop") return { up: s.chop?.page === "chop" ? LED_FULL : 0, down: s.chop?.page === "sample" ? LED_FULL : 0 };
   if (s.hwMode === "browse") {
     const on = browseCan().enter ? LED_FULL : 0;
     return { up: on, down: on };

@@ -111,7 +111,7 @@ describe("chop screen", () => {
   });
   it("shows the region's tempo and the stretch target on the Tempo page", () => {
     const chop = chopScreen({ ...base, markers: [0.1, 0.9] });
-    const tempo = chopScreen({ ...base, markers: [0.1, 0.9], page: "tempo" });
+    const tempo = chopScreen({ ...base, markers: [0.1, 0.9], page: "sample" });
     // A shorter waveform, with the tempo line under it.
     const row = (f: typeof chop, y: number) => Array.from({ length: 128 }, (_, x) => f.get(x, y)).some(Boolean);
     expect(row(chop, 45)).toBe(true);

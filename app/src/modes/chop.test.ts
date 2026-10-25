@@ -15,11 +15,12 @@ vi.mock("../audio/engine", () => ({
   },
 }));
 
-import { CHOP_KEY0, chopEncoder, chopKeyDown, chopKeysReleased, chopKeyUp, chopMarkerArrows, chopPad, chopRack, chopStepMarker, newChop, updateChop } from "./chop";
+import { CHOP_KEY0, chopEncoder, chopSetPage, chopKeyDown, chopKeysReleased, chopKeyUp, chopMarkerArrows, chopPad, chopRack, chopStepMarker, newChop, updateChop } from "./chop";
 import { DRUMS_ID, KEYS_ID, defaultProject, get, set } from "../state/store";
 import { DEFAULT_SLICE } from "../state/types";
 
-const session = (sel: number | null) => set({ chop: { ...newChop("s", [0, 0.25, 0.5, 1]), sel, count: 8 } });
+/** A chop on its Chop page with three chops (markers at 0, ¼, ½, 1). */
+const session = (sel: number | null) => set({ chop: { ...newChop("s", [0, 0.25, 0.5, 1]), page: "chop", sel, count: 8 } });
 
 beforeEach(() => {
   set({ project: defaultProject(), undo: [], redo: [], selectedTrack: DRUMS_ID, drumTrack: DRUMS_ID, keysTrack: KEYS_ID });
@@ -148,32 +149,73 @@ describe("pitch and choke encoders (7, 8)", () => {
   });
 });
 
-describe("Tempo page", () => {
-  it("guesses the length, then takes the one set on encoder 3", () => {
-    set({ project: { ...defaultProject(), bpm: 90 } });
-    session(null);
-    updateChop({ page: "tempo" });
-    // 1 s: the guess is 1 bar (240 BPM, the closest to 90 of 1, 2, 4… bars); one detent adds a beat.
-    chopEncoder(2, 1, false);
-    expect(get().chop!.beats).toBe(5);
-    chopEncoder(2, -1, true);
-    expect(get().chop!.beats).toBe(1);
+describe("Sample page", () => {
+  it("is where a new chop opens: no chops yet, the whole sample as the region", () => {
+    set({ chop: newChop("s") });
+    expect(get().chop).toMatchObject({ page: "sample", markers: [0, 1], detect: "equal" });
   });
-  it("trims the region with encoders 1 and 2, dropping markers it passes", () => {
+  it("trims the region with encoders 3 and 4, dropping markers it passes", () => {
     session(null);
-    updateChop({ page: "tempo", view: [0, 1] });
-    for (let i = 0; i < 40; i++) chopEncoder(0, 1, false);
+    updateChop({ page: "sample", view: [0, 1] });
+    for (let i = 0; i < 40; i++) chopEncoder(2, 1, false);
     const m = get().chop!.markers;
     expect(m[0]).toBeGreaterThan(0.25);
     expect(m).toHaveLength(3);
+    for (let i = 0; i < 20; i++) chopEncoder(3, -1, false);
+    expect(get().chop!.markers.at(-1)).toBeLessThan(1);
   });
-  it("sets the target tempo on encoder 4 (Shift: tenths)", () => {
+  it("guesses the length, then takes the one set on encoder 5", () => {
     set({ project: { ...defaultProject(), bpm: 90 } });
     session(null);
-    updateChop({ page: "tempo" });
-    chopEncoder(3, 1, false);
-    chopEncoder(3, 1, true);
+    updateChop({ page: "sample" });
+    // 1 s: the guess is 1 bar (240 BPM, the closest to 90 of 1, 2, 4… bars); one detent adds a beat.
+    chopEncoder(4, 1, false);
+    expect(get().chop!.beats).toBe(5);
+    chopEncoder(4, -1, true);
+    expect(get().chop!.beats).toBe(1);
+  });
+  it("sets the target tempo on encoder 6 (Shift: tenths)", () => {
+    set({ project: { ...defaultProject(), bpm: 90 } });
+    session(null);
+    updateChop({ page: "sample" });
+    chopEncoder(5, 1, false);
+    chopEncoder(5, 1, true);
     expect(get().chop!.toBpm).toBeCloseTo(91.1);
+  });
+});
+
+describe("Chop page", () => {
+  it("places equal steps across the region the first time it opens", () => {
+    set({ chop: { ...newChop("s"), markers: [0.2, 0.6] } });
+    chopSetPage("chop");
+    const m = get().chop!.markers;
+    expect(m).toHaveLength(17); // 16 steps
+    expect(m[0]).toBeCloseTo(0.2);
+    expect(m[16]).toBeCloseTo(0.6);
+    expect(m[1] - m[0]).toBeCloseTo(0.4 / 16, 3);
+  });
+  it("leaves chops already made alone", () => {
+    session(null);
+    updateChop({ page: "sample" });
+    chopSetPage("chop");
+    expect(get().chop!.markers).toEqual([0, 0.25, 0.5, 1]);
+  });
+  it("sets the number of steps on encoder 5", () => {
+    session(null);
+    chopEncoder(4, -1, false); // 8 -> 7
+    expect(get().chop!.markers).toHaveLength(8);
+    expect(get().chop!.count).toBe(7);
+  });
+  it("chops by Equal at the left end of encoder 6, at the hits further right", () => {
+    session(null);
+    chopEncoder(5, 1, false);
+    expect(get().chop).toMatchObject({ detect: "hits", sens: 0.1 });
+    chopEncoder(5, 1, false);
+    expect(get().chop!.sens).toBeCloseTo(0.2);
+    chopEncoder(5, -1, false);
+    chopEncoder(5, -1, false);
+    expect(get().chop!.detect).toBe("equal");
+    expect(get().chop!.markers).toHaveLength(9); // back to 8 equal steps
   });
 });
 

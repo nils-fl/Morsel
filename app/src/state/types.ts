@@ -237,13 +237,14 @@ export interface ChopSession {
   sel: number | null;
   /** Pad the first slice is sent to. */
   firstPad: number;
-  /** Automatic markers: most slices (Transients) or slice count (Equal), and transient sensitivity 0..1. */
+  /** How chops are placed: equal steps (`count` of them) or at the hits (at most `count`, found with sensitivity `sens` 0..1). */
+  detect: "equal" | "hits";
   count: number;
   sens: number;
   /** Drum track that key + pad puts chops on (made by the first one) and the choke group they share there. */
   rack: { id: string; group: number } | null;
-  /** The Launchkey's Chop page (markers and chops) or Tempo page (region length and stretch). */
-  page: "chop" | "tempo";
+  /** The Launchkey's Sample page (scroll, zoom, start, end, keep, tempo and stretch) or Chop page (markers and chops). */
+  page: "sample" | "chop";
   /** The region's length in beats; null = guessed from its length and the project tempo. */
   beats: number | null;
   /** Tempo the region is stretched to. */

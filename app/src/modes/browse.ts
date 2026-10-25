@@ -5,7 +5,7 @@ import { entrySample, folderLabel, folderSamples, folderToMulti, isSampleFolder,
 import { COLOR, type LedMode } from "../midi/protocol";
 import { loadNamedKit, samplesToPads } from "../actions";
 import { engine } from "../audio/engine";
-import { newChop, takeMarkers } from "./chop";
+import { newChop } from "./chop";
 import { listKits } from "../state/persist";
 import { drumPads, drumTrack, get, selectedTrack, set, updateKeys, updatePad } from "../state/store";
 import { showTemp } from "./notify";
@@ -134,10 +134,9 @@ export async function browseChop(): Promise<boolean> {
     set({ tab: "Chop" });
     return true;
   }
-  const markers = takeMarkers(buf);
-  const n = markers.length - 1;
-  set({ chop: { ...newChop(id, markers), firstPad: 0 }, tab: "Chop", status: `${e.name}: ${n} chops · the keys play them; hold a key and tap a pad to keep one, Func when done` });
-  showTemp(`${n} chops`, "Keys play them");
+  // On Chop's Sample page: trim it first, then chop it on the Chop page.
+  set({ chop: { ...newChop(id), firstPad: 0 }, tab: "Chop", status: `${e.name}: start and end on encoders 3 and 4 (Func keeps only that), then Encoder page down to chop it` });
+  showTemp("Sample", "Trim, Enc v: chop");
   return true;
 }
 

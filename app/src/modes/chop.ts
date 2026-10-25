@@ -1,7 +1,8 @@
 // Chop session shared by the Chop tab and the Launchkey: view, marker selection, audition, and the hardware side.
 // The keys play the chops (C3 = chop 1); hold a key and tap a pad to put that chop on the pad of the session's rack.
-// Two encoder pages: Chop (scroll / zoom / pick / move markers, chop count, sensitivity, pitch, choke) and Tempo
-// (trim the region, its length in beats, the tempo to stretch it to).
+// Two encoder pages. Sample, where a chop opens: scroll, zoom, the region's start and end (Func keeps only it), its length
+// in beats and the tempo to stretch it to (Scene). Chop: scroll, zoom, pick and move markers, the number of steps, how
+// they're placed (equal steps, or at the hits), and the selected chop's pitch and choke.
 import { MAX_CHOPS, addMarker, beatsLabel, clampView, detectOnsets, equalSlices, guessBeats, remapSliceOpts, removeMarker, slicesFromMarkers, sourceBpm, trimRegion, zeroCrossing } from "../audio/chop";
 import { DECAY_MAX } from "../audio/dsp";
 import { engine } from "../audio/engine";
@@ -27,8 +28,8 @@ const defaultSlices = (markers: number[]) => Array.from({ length: Math.max(0, ma
 
 export function newChop(sampleId: string, markers: number[] = [0, 1]): ChopSession {
   return {
-    sampleId, markers, slices: defaultSlices(markers), view: [0, 1], sel: null, firstPad: get().selectedPad, count: 16, sens: 0.5,
-    rack: null, page: "chop", beats: null, toBpm: get().project.bpm,
+    sampleId, markers, slices: defaultSlices(markers), view: [0, 1], sel: null, firstPad: get().selectedPad, detect: "equal", count: 16, sens: 0.5,
+    rack: null, page: "sample", beats: null, toBpm: get().project.bpm,
   };
 }
 
@@ -39,24 +40,23 @@ export function autoMarkers(buf: AudioBuffer, range: [number, number], mode: "eq
   return [...detectOnsets(buf.getChannelData(0), buf.sampleRate, count, sensitivity, range), b];
 }
 
-/** Markers for a fresh take: transients across the whole sample, or 8 equal slices when there are none. Inner markers snap to zero crossings. */
-export function takeMarkers(buf: AudioBuffer): number[] {
-  let markers = autoMarkers(buf, [0, 1], "transient", 16);
-  if (markers.length < 3) markers = autoMarkers(buf, [0, 1], "equal", 8);
-  const data = buf.getChannelData(0);
-  return markers.map((m, i, a) => (i === 0 || i === a.length - 1 ? m : zeroCrossing(data, m)));
-}
-
-/** Re-place the markers inside the region with the session's count and sensitivity. Returns the slice count. */
-export function autoChop(mode: "equal" | "transient") {
+/**
+ * Re-place the markers inside the region: `mode` (else the session's own way, equal steps or hits) with its count and
+ * sensitivity. Inner markers snap to zero crossings. Returns the slice count.
+ */
+export function autoChop(mode?: "equal" | "transient") {
   const c = get().chop, buf = chopBuffer();
   if (!c || !buf) return 0;
   const data = buf.getChannelData(0);
   const region: [number, number] = [c.markers[0], c.markers[c.markers.length - 1]];
-  const markers = autoMarkers(buf, region, mode, c.count, c.sens).map((m, i, a) => (i === 0 || i === a.length - 1 ? m : zeroCrossing(data, m)));
-  updateChop({ markers, sel: null });
+  const how = mode ?? (c.detect === "equal" ? "equal" : "transient");
+  const markers = autoMarkers(buf, region, how, c.count, c.sens).map((m, i, a) => (i === 0 || i === a.length - 1 ? m : zeroCrossing(data, m)));
+  updateChop({ markers, sel: null, ...(mode && { detect: mode === "equal" ? "equal" as const : "hits" as const }) });
   return markers.length - 1;
 }
+
+/** How chops are placed, for the screen: "Equal" or "Hits 50%". */
+export const detectText = (c: ChopSession) => (c.detect === "equal" ? "Equal" : `Hits ${Math.round(c.sens * 100)}%`);
 
 /**
  * Patch the open session (no-op without one). A patch function sees the latest state. When the markers change, the
@@ -140,7 +140,7 @@ export function chopPlaySlice(k: number, gain?: number) {
   if (s) chopPlay(s[0], s[1], gain, c.slices[k] ?? DEFAULT_SLICE);
 }
 
-/** Loop the region (the Tempo page's Play, the Tab's Loop), or stop. */
+/** Loop the region (the Sample page's Play, the Tab's Loop), or stop. */
 export function chopToggleLoop() {
   const c = get().chop;
   if (!c) return;
@@ -245,11 +245,11 @@ export function setChopOpts(ks: number[], patch: Partial<SliceOpts>) {
 
 const time = (f: number, buf: AudioBuffer) => `${(f * buf.duration).toFixed(f * buf.duration < 10 ? 3 : 2)}s`;
 
-/** Play button: on the Chop page play from the selected marker (or the region start) to the region end; on the Tempo page loop the region. Or stop. */
+/** Play button: on the Chop page play from the selected marker (or the region start) to the region end; on the Sample page loop the region. Or stop. */
 export function chopTogglePlay() {
   const c = get().chop;
   if (!c) return;
-  if (c.page === "tempo") return chopToggleLoop();
+  if (c.page === "sample") return chopToggleLoop();
   if (chopPlaying()) return chopStop();
   const end = c.markers[c.markers.length - 1];
   chopPlay(c.sel !== null && c.sel < c.markers.length - 1 ? c.markers[c.sel] : c.markers[0], end);
@@ -293,46 +293,50 @@ export function chopMarkerArrows() {
   return c.sel === null ? { up: true, down: true } : { up: c.sel > 0, down: c.sel < c.markers.length - 1 };
 }
 
-/** Encoder page ⌃ / ⌄: the Chop page or the Tempo page. The Tempo page shows the whole region. */
+/**
+ * Encoder page ⌃ / ⌄: the Sample page (where a chop opens) or the Chop page. Going to the Chop page the first time (no
+ * chops yet) places the steps in the region, equal ones unless hits were picked.
+ */
 export function chopSetPage(page: ChopSession["page"]) {
   const c = get().chop, buf = chopBuffer();
   if (!c || !buf) return;
-  if (c.page !== page) {
-    const [a, b] = [c.markers[0], c.markers[c.markers.length - 1]];
-    updateChop(page === "tempo" ? { page, view: clampView(a - (b - a) * 0.05, (b - a) * 1.1, minSpan(buf)) } : { page });
+  if (c.page !== page) updateChop({ page });
+  if (page === "sample") return showTemp("Sample", "Fn=keep Scn=stretch");
+  if (c.markers.length === 2) {
+    const n = autoChop();
+    return showTemp("Chop", `${n} ${c.detect === "equal" ? "steps" : "hits"}, keys play them`);
   }
-  if (page === "tempo") {
-    const t = chopTempo(get().chop!, buf);
-    showTemp("Tempo", `${beatsLabel(t.beats)} = ${bpmText(t.bpm)} BPM`);
-  } else showTemp("Chop", "Keys play chops");
+  showTemp("Chop", "Keys play chops");
 }
 
-/** Encoders. Chop page: 1 scroll, 2 zoom, 3 pick marker, 4 move marker (Shift = fine), 5 most chops, 6 sensitivity,
- *  7 pitch of the selected chop, 8 its choke (Shift: every chop). Tempo page: 1 region start, 2 region end (Shift =
- *  fine), 3 length in beats (Shift = bars), 4 the tempo to stretch to (Shift = 0.1). */
-export function chopEncoder(index: number, delta: number, fine: boolean) {
-  const c = get().chop, buf = chopBuffer();
-  if (!c || !buf) return;
-  if (c.page === "tempo") return tempoEncoder(c, buf, index, delta, fine);
+/** Encoders 1 and 2 on both pages: scroll and zoom (around the selected marker when it's on screen). */
+function viewEncoder(c: ChopSession, buf: AudioBuffer, index: number, delta: number, fine: boolean) {
   const min = minSpan(buf);
   const [v0, v1] = c.view;
   const span = v1 - v0;
+  if (index === 0) {
+    updateChop({ view: clampView(v0 + delta * span * (fine ? 0.005 : 0.04), span, min) });
+    return showTemp("Scroll", time(get().chop!.view[0], buf));
+  }
+  // Clockwise zooms in.
+  const anchor = c.sel !== null && c.markers[c.sel] >= v0 && c.markers[c.sel] <= v1 ? c.markers[c.sel] : (v0 + v1) / 2;
+  const next = span * Math.exp(-delta * (fine ? 0.03 : 0.15));
+  updateChop({ view: clampView(anchor - ((anchor - v0) / span) * next, next, min) });
+  const v = get().chop!.view;
+  showTemp("Zoom", `${(1 / (v[1] - v[0])).toFixed(1)}x`);
+}
+
+/** Encoders. Both pages: 1 scroll, 2 zoom (Shift = fine). Sample page: 3 start, 4 end (Shift = fine), 5 length in beats
+ *  (Shift = bars), 6 the tempo to stretch to (Shift = 0.1). Chop page: 3 pick marker, 4 move it (Shift = fine), 5 steps,
+ *  6 how they're placed (Equal, or Hits at a sensitivity), 7 pitch of the selected chop, 8 its choke (Shift: every chop). */
+export function chopEncoder(index: number, delta: number, fine: boolean) {
+  const c = get().chop, buf = chopBuffer();
+  if (!c || !buf) return;
+  if (index < 2) return viewEncoder(c, buf, index, delta, fine);
+  if (c.page === "sample") return sampleEncoder(c, buf, index, delta, fine);
+  const min = minSpan(buf);
+  const span = c.view[1] - c.view[0];
   switch (index) {
-    case 0: {
-      updateChop({ view: clampView(v0 + delta * span * (fine ? 0.005 : 0.04), span, min) });
-      const v = get().chop!.view;
-      showTemp("Scroll", time(v[0], buf));
-      break;
-    }
-    case 1: {
-      // Clockwise zooms in, around the selected marker when it is on screen.
-      const anchor = c.sel !== null && c.markers[c.sel] >= v0 && c.markers[c.sel] <= v1 ? c.markers[c.sel] : (v0 + v1) / 2;
-      const next = span * Math.exp(-delta * (fine ? 0.03 : 0.15));
-      updateChop({ view: clampView(anchor - ((anchor - v0) / span) * next, next, min) });
-      const v = get().chop!.view;
-      showTemp("Zoom", `${(1 / (v[1] - v[0])).toFixed(1)}x`);
-      break;
-    }
     case 2:
       chopStepMarker(delta > 0 ? 1 : -1);
       break;
@@ -358,15 +362,21 @@ export function chopEncoder(index: number, delta: number, fine: boolean) {
       showTemp(`Marker ${i + 1}`, time(m, buf));
       break;
     }
-    case 4:
+    case 4: {
+      // Steps: the number of equal chops (with hits: the most of them). The chops are placed again.
+      updateChop({ count: Math.max(1, Math.min(MAX_CHOPS, c.count + Math.sign(delta))) });
+      const n = autoChop();
+      const now = get().chop!;
+      showTemp(now.detect === "equal" ? "Steps" : "Max hits", now.detect === "equal" ? `${n}` : `${now.count} (${n} found)`, { encoder: index });
+      break;
+    }
     case 5: {
-      // Re-detect transients with the new count or sensitivity.
-      const patch = index === 4
-        ? { count: Math.max(2, Math.min(MAX_CHOPS, c.count + Math.sign(delta))) }
-        : { sens: Math.round(Math.max(0, Math.min(1, c.sens + Math.sign(delta) * 0.05)) * 20) / 20 };
-      updateChop(patch);
-      const n = autoChop("transient");
-      showTemp(index === 4 ? `Max ${get().chop!.count}` : `Sens ${Math.round(get().chop!.sens * 100)}%`, `${n} chops`);
+      // How chops are placed: Equal at the left end, then at the hits, more sensitive the further right.
+      const at = c.detect === "equal" ? 0 : Math.round(c.sens * 10);
+      const next = Math.max(0, Math.min(10, at + Math.sign(delta)));
+      updateChop(next === 0 ? { detect: "equal" } : { detect: "hits", sens: next / 10 });
+      const n = autoChop();
+      showTemp("Chop by", `${detectText(get().chop!)}: ${n}`, { encoder: index });
       break;
     }
     case 6:
@@ -392,31 +402,32 @@ export function chopEncoder(index: number, delta: number, fine: boolean) {
   }
 }
 
-function tempoEncoder(c: ChopSession, buf: AudioBuffer, index: number, delta: number, fine: boolean) {
+/** The Sample page's encoders 3-6: start, end, length in beats, the tempo to stretch to. */
+function sampleEncoder(c: ChopSession, buf: AudioBuffer, index: number, delta: number, fine: boolean) {
   const min = minSpan(buf);
   switch (index) {
-    case 0:
-    case 1: {
-      const i = index === 0 ? 0 : c.markers.length - 1;
+    case 2:
+    case 3: {
+      const i = index === 2 ? 0 : c.markers.length - 1;
       const span = c.view[1] - c.view[0];
       // A screen pixel per detent (Shift: an eighth of one), snapped to a zero crossing.
       const step = Math.max(1, Math.round((span * buf.length) / (fine ? 1024 : 128)));
       const at = zeroCrossing(buf.getChannelData(0), c.markers[i] + (delta * step) / buf.length, Math.floor(step / 2));
-      const markers = trimRegion(c.markers, index === 0 ? "start" : "end", at, MIN_GAP_S / buf.duration);
+      const markers = trimRegion(c.markers, index === 2 ? "start" : "end", at, MIN_GAP_S / buf.duration);
       updateChop({ markers, sel: i === 0 ? 0 : markers.length - 1, view: centerOn(c, markers[i === 0 ? 0 : markers.length - 1], min) });
       const next = get().chop!;
       followLoop(next);
       const t = chopTempo(next, buf);
-      showTemp(index === 0 ? "Start" : "End", `${t.seconds.toFixed(2)}s ${bpmText(t.bpm)} BPM`, { encoder: index });
+      showTemp(index === 2 ? "Start" : "End", `${t.seconds.toFixed(2)}s ${bpmText(t.bpm)} BPM`, { encoder: index });
       break;
     }
-    case 2: {
+    case 4: {
       const beats = Math.max(1, Math.min(256, chopTempo(c, buf).beats + Math.sign(delta) * (fine ? 4 : 1)));
       updateChop({ beats });
       showTemp(beatsLabel(beats), `${bpmText(chopTempo(get().chop!, buf).bpm)} BPM`, { encoder: index });
       break;
     }
-    case 3: {
+    case 5: {
       const toBpm = Math.round(Math.max(40, Math.min(240, c.toBpm + Math.sign(delta) * (fine ? 0.1 : 1))) * 10) / 10;
       updateChop({ toBpm });
       showTemp("Stretch to", `${bpmText(chopTempo(c, buf).bpm)} > ${bpmText(toBpm)} BPM`, { encoder: index });
@@ -476,7 +487,7 @@ export function chopPadLeds(held: Set<number>) {
   });
 }
 
-/** The encoders of the Chop or Tempo page as params, for the on-screen encoder strip: names, values, and turning them
+/** The encoders of the Sample or Chop page as params, for the on-screen encoder strip: names, values, and turning them
  *  as the Launchkey's encoders do (chopEncoder, popups included). Empty without an open chop. */
 export function chopParams(): Param[] {
   const c = get().chop, buf = chopBuffer();
@@ -485,25 +496,29 @@ export function chopParams(): Param[] {
   // The strip's cells are narrow: short names, seconds to two places.
   const secs = (f: number) => `${(f * buf.duration).toFixed(f * buf.duration < 100 ? 2 : 1)}s`;
   const n = c.markers.length;
-  if (c.page === "tempo") {
+  const [v0, v1] = c.view;
+  const view: Param[] = [
+    { name: "Scroll", value: () => v0, range: [0, Math.max(1e-9, 1 - (v1 - v0))], nudge: turn(0), format: () => secs(v0) },
+    { name: "Zoom", value: () => Math.log(1 / (v1 - v0)), range: [0, Math.log(1 / minSpan(buf))], nudge: turn(1), format: () => `${(1 / (v1 - v0)).toFixed(1)}x` },
+  ];
+  if (c.page === "sample") {
     const t = chopTempo(c, buf);
     return [
-      { name: "Start", value: () => c.markers[0], range: [0, 1], nudge: turn(0), format: () => secs(c.markers[0]) },
-      { name: "End", value: () => c.markers[n - 1], range: [0, 1], nudge: turn(1), format: () => secs(c.markers[n - 1]) },
-      { name: "Length", value: () => t.beats, range: [1, 64], nudge: turn(2), format: () => beatsLabel(t.beats) },
-      { name: "To BPM", value: () => c.toBpm, range: [40, 240], nudge: turn(3), format: () => bpmText(c.toBpm) },
+      ...view,
+      { name: "Start", value: () => c.markers[0], range: [0, 1], nudge: turn(2), format: () => secs(c.markers[0]) },
+      { name: "End", value: () => c.markers[n - 1], range: [0, 1], nudge: turn(3), format: () => secs(c.markers[n - 1]) },
+      { name: "Length", value: () => t.beats, range: [1, 64], nudge: turn(4), format: () => beatsLabel(t.beats) },
+      { name: "To BPM", value: () => c.toBpm, range: [40, 240], nudge: turn(5), format: () => bpmText(c.toBpm) },
     ];
   }
-  const [v0, v1] = c.view;
   const k = selectedChop(c);
   const o = k !== null ? (c.slices[k] ?? DEFAULT_SLICE) : null;
   return [
-    { name: "Scroll", value: () => v0, range: [0, Math.max(1e-9, 1 - (v1 - v0))], nudge: turn(0), format: () => secs(v0) },
-    { name: "Zoom", value: () => Math.log(1 / (v1 - v0)), range: [0, Math.log(1 / minSpan(buf))], nudge: turn(1), format: () => `${(1 / (v1 - v0)).toFixed(1)}x` },
+    ...view,
     { name: "Marker", value: () => c.sel ?? 0, range: [0, n - 1], nudge: turn(2), format: () => (c.sel === null ? "–" : `${c.sel + 1}/${n}`) },
     { name: "Move", value: () => (c.sel === null ? 0 : c.markers[c.sel]), range: [0, 1], nudge: turn(3), format: () => (c.sel === null ? "–" : secs(c.markers[c.sel])) },
-    { name: "Chops", value: () => c.count, range: [2, MAX_CHOPS], nudge: turn(4), format: () => `≤${c.count}` },
-    { name: "Sens", value: () => c.sens, range: [0, 1], nudge: turn(5), format: () => `${Math.round(c.sens * 100)}%` },
+    { name: c.detect === "equal" ? "Steps" : "Max", value: () => c.count, range: [1, MAX_CHOPS], nudge: turn(4), format: () => `${c.count}` },
+    { name: c.detect === "equal" ? "Mode" : "Hits", value: () => (c.detect === "equal" ? 0 : c.sens), range: [0, 1], nudge: turn(5), format: () => (c.detect === "equal" ? "Equal" : `${Math.round(c.sens * 100)}%`) },
     { name: "Pitch", value: () => o?.pitch ?? 0, range: [-24, 24], nudge: turn(6), format: () => (o ? `${o.pitch > 0 ? "+" : ""}${o.pitch} st` : "–") },
     { name: "Choke", value: () => (o?.choke ? 1 : 0), range: [0, 1], nudge: turn(7), format: () => (o ? (o.choke ? "On" : "Off") : "–") },
   ];
@@ -513,7 +528,7 @@ export function chopParams(): Param[] {
 export function chopPageInfo(): string {
   const c = get().chop;
   if (!c) return "";
-  if (c.page === "tempo") return "Tempo";
+  if (c.page === "sample") return "Sample";
   const k = selectedChop(c);
   return k === null ? "Chop" : `Chop ${k + 1}`;
 }

@@ -1,6 +1,6 @@
 // The 8 encoders of the current page as small knobs: arc = value, name and formatted value beside it. They turn like
 // the Launchkey's: drag up or down, scroll, or the arrow keys, Shift for fine steps. In Chop mode they are the Chop or
-// Tempo page's encoders, as on the Launchkey.
+// Chop page's encoders, as on the Launchkey.
 import { useEffect, useRef, useState } from "react";
 import { chopPageInfo, chopParams, chopSetPage } from "../modes/chop";
 import { turnPageEncoder } from "../modes/controller";
@@ -48,10 +48,10 @@ export function EncoderStrip() {
     return (
       <div className="enc-strip">
         <button
-          className="enc-tag" onClick={() => chopSetPage(chopPage === "chop" ? "tempo" : "chop")}
-          title="Chop's encoder pages: Chop (markers, chops) and Tempo (region, stretch). Click for the other one (Launchkey: Encoder page ⌃ / ⌄)"
+          className="enc-tag" onClick={() => chopSetPage(chopPage === "sample" ? "chop" : "sample")}
+          title="Chop's encoder pages: Sample (start, end, keep, tempo) and Chop (steps, markers, chops). Click for the other one (Launchkey: Encoder page ⌃ / ⌄)"
         >
-          <b>CHOP {chopPage === "chop" ? 1 : 2}/2</b><span>{chopPageInfo()}</span>
+          <b>CHOP {chopPage === "sample" ? 1 : 2}/2</b><span>{chopPageInfo()}</span>
         </button>
         <div className="enc-knobs">
           {Array.from({ length: 8 }, (_, i) => <EncoderCell key={i} index={i} p={params[i]} turn={turnChop} />)}

@@ -1,7 +1,7 @@
 // Chop editor: place slice markers on a long recording, audition them, put the chops on pads, stretch the region.
 // The session (markers, view, selection) lives in the store so the Launchkey can drive it too (modes/chop.ts).
 import { useEffect, useRef, useState } from "react";
-import { chopOriginal, confirmDeleteSample, cropSample, finishChop, openInChop, sendChopToNewTrack, slicesToPads, stretchChop } from "../actions";
+import { chopOriginal, confirmDeleteSample, finishChop, keepRegion, openInChop, sendChopToNewTrack, slicesToPads, stretchChop } from "../actions";
 import { MAX_CHOPS, addMarker, beatsLabel, clampView, moveMarker, removeMarker, slicesFromMarkers, zeroCrossing } from "../audio/chop";
 import { engine } from "../audio/engine";
 import {
@@ -302,17 +302,8 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
     const dropped = slices.length - n;
     set({ status: `Sent ${n} slice${n === 1 ? "" : "s"} to pads ${firstPad + 1}–${firstPad + n}${dropped ? ` (${dropped} didn't fit)` : ""}` });
   };
-  const crop = async () => {
-    chopStop();
-    const id = await cropSample(sampleId, region[0], region[1]);
-    if (!id) return;
-    // Keep the inner markers, re-expressed in the cropped sample, and the chops' settings.
-    const span = region[1] - region[0];
-    set({
-      chop: { ...chop, sampleId: id, markers: markers.map((m) => (m - region[0]) / span), view: [0, 1], sel: null },
-      status: `Cropped to ${(span * buffer.duration).toFixed(2)} s`,
-    });
-  };
+  // Keep only the region as a new sample, its markers and the chops' settings with it (the Sample page's Function).
+  const crop = () => void keepRegion();
   const stretch = async () => {
     setStretching(true);
     await stretchChop().finally(() => setStretching(false));
@@ -336,7 +327,7 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
           <>
             {source}
             <button onClick={() => confirmDeleteSample(sampleId)} title="Delete this sample from the library and every pad using it">Delete</button>
-            <button onClick={crop} disabled={region[0] <= 0 && region[1] >= 1} title="Keep only the region between the outer markers as a new sample">Crop to region</button>
+            <button onClick={crop} disabled={region[0] <= 0 && region[1] >= 1} title="Keep only what's between start and end, as a new sample (Launchkey: Sample page, Function)">Keep start–end</button>
           </>
         }
       >
@@ -355,7 +346,7 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
             <input type="range" min={0} max={1} step={0.05} value={sens} onChange={(e) => updateChop({ sens: Number(e.target.value) })} />
           </label>
           <select value={count} onChange={(e) => updateChop({ count: Number(e.target.value) })} title="Most slices for Transients / slices for Equal">
-            {[2, 4, 8, 12, 16, 24, MAX_CHOPS].map((n) => <option key={n} value={n}>{n} max</option>)}
+            {[2, 4, 8, 12, 16, 24, MAX_CHOPS].map((n) => <option key={n} value={n}>{n} {chop.detect === "equal" ? "steps" : "max"}</option>)}
           </select>
           <button onClick={() => auto("equal")}>Equal</button>
           <button onClick={() => updateChop({ markers: region, sel: null })}>Clear</button>
@@ -428,7 +419,7 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
             <input type="number" min={40} max={240} step={0.1} value={chop.toBpm} onChange={(e) => updateChop({ toBpm: Math.max(40, Math.min(240, Number(e.target.value) || projectBpm)) })} />
           </Field>
           {chop.toBpm !== projectBpm && <button onClick={() => updateChop({ toBpm: projectBpm })}>Project ({bpmText(projectBpm)})</button>}
-          <button disabled={stretching || Math.abs(tempo.bpm - chop.toBpm) < 0.05} onClick={stretch} title="Render the region at the new tempo, keeping its pitch, as a new sample (Launchkey: Tempo page, Function)">
+          <button disabled={stretching || Math.abs(tempo.bpm - chop.toBpm) < 0.05} onClick={stretch} title="Render the region at the new tempo, keeping its pitch, as a new sample (Launchkey: Sample page, Scene)">
             {stretching ? "Stretching…" : `Stretch ${bpmText(tempo.bpm)} → ${bpmText(chop.toBpm)}`}
           </button>
           {chop.from && <button onClick={chopOriginal} title="Back to the sample before the stretch">↺ Original</button>}
@@ -440,11 +431,13 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
           Markers snap to zero crossings. Set the region's length in bars to see its tempo, then stretch it to yours.
         </p>
         <p className="hint tip">
-          <b>Launchkey:</b> the keys play the chops (C3 = chop 1) · <b>hold a key and tap a pad</b> to put that chop on it (the first one
-          makes a new drum rack; the pads then play it) · encoder 1 scroll · 2 zoom · 3 pick marker · 4 move marker (Shift = fine) ·
-          5 max chops · 6 sensitivity · 7 pitch · 8 choke (Shift: all) · Play: play from the marker · Scene: add a marker at the playhead
-          (Shift + Scene: remove) · <b>Function: done</b> (to your rack, or chops 1–16 on a new one) · Encoder ⌄: <b>Tempo page</b>
-          (1 start, 2 end, 3 length, 4 tempo, Play loops, Function stretches; ⌃ back) · Shift + Encoder ⌄: leave.
+          <b>Launchkey, Sample page</b> (where a chop opens): encoder 1 scroll · 2 zoom · 3 start · 4 end · 5 length · 6 tempo ·
+          Play loops start–end · <b>Function keeps only start–end</b> · Scene stretches to the tempo · Encoder ⌄: <b>Chop page</b>.{" "}
+          <b>Chop page:</b> equal steps across start–end · the keys play the chops (C3 = chop 1) · <b>hold a key and tap a pad</b> to put
+          that chop on it (the first one makes a new drum rack; the pads then play it) · encoder 1 scroll · 2 zoom · 3 pick marker ·
+          4 move it (Shift = fine) · 5 steps · 6 chop by: Equal, or at the hits (more sensitive to the right) · 7 pitch · 8 choke (Shift: all) ·
+          Play: play from the marker · Scene: add a marker at the playhead (Shift + Scene: remove) · <b>Function: done</b> (to your rack,
+          or chops 1–16 on a new one) · Encoder ⌃: back to Sample · Shift + Encoder ⌄: leave.
         </p>
         <div className="row">
           <button className="primary" disabled={!slices.length} onClick={newRack} title="Crop to the region, make a new drum track and put the slices on pads 1–16 (Launchkey: Function)">

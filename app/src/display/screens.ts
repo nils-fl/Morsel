@@ -82,17 +82,18 @@ export interface ChopScreenView {
   sel: number | null;
   playhead: number | null; // within the window, or null
   slices: number;
-  page: "chop" | "tempo";
+  page: "sample" | "chop";
   /** Chop page footer: the selected chop ("7 F#3 +3st CH") or zoom and position. */
   info: string;
-  /** Tempo page: the region's length ("4 bars"), its tempo and the tempo it stretches to. */
+  /** Sample page: the region's length ("4 bars"), its tempo and the tempo it stretches to. */
   tempo: { length: string; from: string; to: string; seconds: string };
 }
 
-/** Chop page: the zoomed waveform with its markers. Tempo page: the region, its length and tempo, the stretch target. */
+/** Chop page: the zoomed waveform with its markers. Sample page: the waveform with start and end, the region's length
+ *  and tempo, the stretch target, and what Func and Scene do there. */
 export function chopScreen(v: ChopScreenView): Frame {
   const f = new Frame();
-  const tempo = v.page === "tempo";
+  const tempo = v.page === "sample";
   header(f, v.name, tempo ? v.tempo.length : `${v.slices} SL`);
   const y = HEADER_H + 2, h = tempo ? 26 : 40;
   waveform(f, 0, y, W, h, v.peaks, 0, 1);
@@ -115,7 +116,7 @@ export function chopScreen(v: ChopScreenView): Frame {
     const sw = textWidth(v.tempo.seconds);
     f.text(W - 2 - sw, y + h + 3, v.tempo.seconds);
     f.textFit(2, y + h + 3, `${v.tempo.from} > ${v.tempo.to} BPM`, W - 4 - sw - 6);
-    footer(f, "TEMPO", "Fn=stretch");
+    footer(f, "SAMPLE", "Fn=keep");
   } else footer(f, "CHOP", v.info);
   return f;
 }
