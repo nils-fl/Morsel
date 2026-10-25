@@ -1,13 +1,17 @@
-// Chop editor: place slice markers on a long recording, audition them, send the slices to pads.
+// Chop editor: place slice markers on a long recording, audition them, put the chops on pads, stretch the region.
 // The session (markers, view, selection) lives in the store so the Launchkey can drive it too (modes/chop.ts).
 import { useEffect, useRef, useState } from "react";
-import { confirmDeleteSample, cropSample, openInChop, sendChopToNewTrack, slicesToPads } from "../actions";
-import { addMarker, clampView, moveMarker, removeMarker, slicesFromMarkers, zeroCrossing } from "../audio/chop";
+import { chopOriginal, confirmDeleteSample, cropSample, finishChop, openInChop, sendChopToNewTrack, slicesToPads, stretchChop } from "../actions";
+import { MAX_CHOPS, addMarker, beatsLabel, clampView, moveMarker, removeMarker, slicesFromMarkers, zeroCrossing } from "../audio/chop";
 import { engine } from "../audio/engine";
-import { autoChop, chopPlay, chopPlayhead, chopPlaying, chopPlaySlice, chopStop, minSpan, newChop, updateChop } from "../modes/chop";
+import {
+  CHOP_KEY0, assignChop, autoChop, bpmText, chopLooping, chopPadOf, chopPlay, chopPlayhead, chopPlaying, chopPlaySlice, chopRack, chopStop, chopTempo,
+  chopToggleLoop, minSpan, newChop, updateChop,
+} from "../modes/chop";
 import { enterChopHw } from "../modes/controller";
 import { canAddTrack, drumPads, drumTrack, get, set, useApp } from "../state/store";
-import { PAD_COUNT, type ChopSession } from "../state/types";
+import { DEFAULT_SLICE, PAD_COUNT, type ChopSession } from "../state/types";
+import { noteName } from "./notes";
 import { Field, Section } from "./controls";
 import { SamplePicker } from "./SamplePicker";
 import { ask } from "../state/confirm";
@@ -61,6 +65,10 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
   const { sampleId, markers, view, sel, firstPad, count, sens } = chop;
   const name = useApp((s) => s.samples[sampleId]?.name ?? "Sample");
   const pads = useApp(drumPads);
+  const rack = useApp(chopRack);
+  const projectBpm = useApp((s) => s.project.bpm);
+  const [assignTo, setAssignTo] = useState(0);
+  const [stretching, setStretching] = useState(false);
   const theme = useApp((s) => s.theme); // canvas colours come from CSS variables: redraw when they change
   const [playhead, setPlayhead] = useState<number | null>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -290,7 +298,7 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
       message: `Replace ${used} pad${used === 1 ? "" : "s"} with samples on ${drumTrack().name}? Undo brings them back.`,
       ok: "Replace",
     }))) return;
-    const n = slicesToPads(sampleId, markers, firstPad, name);
+    const n = slicesToPads(sampleId, markers, firstPad, name, chop.slices);
     const dropped = slices.length - n;
     set({ status: `Sent ${n} slice${n === 1 ? "" : "s"} to pads ${firstPad + 1}–${firstPad + n}${dropped ? ` (${dropped} didn't fit)` : ""}` });
   };
@@ -298,15 +306,27 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
     chopStop();
     const id = await cropSample(sampleId, region[0], region[1]);
     if (!id) return;
-    // Keep the inner markers, re-expressed in the cropped sample.
+    // Keep the inner markers, re-expressed in the cropped sample, and the chops' settings.
     const span = region[1] - region[0];
     set({
-      chop: { ...newChop(id, markers.map((m) => (m - region[0]) / span)), firstPad, count, sens },
+      chop: { ...chop, sampleId: id, markers: markers.map((m) => (m - region[0]) / span), view: [0, 1], sel: null },
       status: `Cropped to ${(span * buffer.duration).toFixed(2)} s`,
     });
   };
+  const stretch = async () => {
+    setStretching(true);
+    await stretchChop().finally(() => setStretching(false));
+  };
   const pct = (f: number) => `${((f - view[0]) / (view[1] - view[0])) * 100}%`;
   const time = (f: number) => `${(f * buffer.duration).toFixed(2)} s`;
+  const state = get();
+  const onPad = slices.map((_, k) => chopPadOf(state, k));
+  // The selected chop: the one starting at the selected marker.
+  const cur = sel !== null && sel < slices.length ? sel : null;
+  const opts = cur !== null ? (chop.slices[cur] ?? DEFAULT_SLICE) : null;
+  const setOpts = (patch: Partial<typeof DEFAULT_SLICE>) => cur !== null && updateChop((c) => ({ slices: c.slices.map((o, j) => (j === cur ? { ...o, ...patch } : o)) }));
+  const tempo = chopTempo(chop, buffer);
+  const looping = playhead !== null && chopLooping();
 
   return (
     <div className="chop-editor">
@@ -321,7 +341,8 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
         }
       >
         <div className="row wrap chop-tools">
-          <button className={playhead !== null ? "on" : ""} onClick={() => (chopPlaying() ? chopStop() : chopPlay(...region))}>{playhead !== null ? "■ Stop" : "▶ Play"}</button>
+          <button className={playhead !== null && !looping ? "on" : ""} onClick={() => (chopPlaying() ? chopStop() : chopPlay(...region))}>{playhead !== null && !looping ? "■ Stop" : "▶ Play"}</button>
+          <button className={looping ? "on" : ""} onClick={chopToggleLoop} title="Loop the region, to count its bars and hear the seam">⟳ Loop</button>
           <span className="chop-sep" />
           <button onClick={() => zoomAt(playhead ?? (view[0] + view[1]) / 2, 0.5)} aria-label="Zoom in">＋</button>
           <button onClick={() => zoomAt((view[0] + view[1]) / 2, 2)} aria-label="Zoom out">－</button>
@@ -334,7 +355,7 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
             <input type="range" min={0} max={1} step={0.05} value={sens} onChange={(e) => updateChop({ sens: Number(e.target.value) })} />
           </label>
           <select value={count} onChange={(e) => updateChop({ count: Number(e.target.value) })} title="Most slices for Transients / slices for Equal">
-            {[2, 4, 8, 12, 16, 32].map((n) => <option key={n} value={n}>{n} max</option>)}
+            {[2, 4, 8, 12, 16, 24, MAX_CHOPS].map((n) => <option key={n} value={n}>{n} max</option>)}
           </select>
           <button onClick={() => auto("equal")}>Equal</button>
           <button onClick={() => updateChop({ markers: region, sel: null })}>Clear</button>
@@ -346,10 +367,14 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
             <button
               key={k}
               style={{ left: pct(a), width: `calc(${pct(b)} - ${pct(a)})`, "--slice": padColor(pads, firstPad, k) ?? "var(--dim)" } as React.CSSProperties}
-              onClick={() => chopPlaySlice(k)}
-              title={`Slice ${k + 1}${firstPad + k < PAD_COUNT ? ` → pad ${firstPad + k + 1}` : " (no pad)"} · ${time(b - a)}`}
+              className={k === sel ? "on" : ""}
+              onClick={() => {
+                chopPlaySlice(k);
+                updateChop({ sel: k });
+              }}
+              title={`Chop ${k + 1} · key ${noteName(CHOP_KEY0 + k)}${onPad[k] >= 0 ? ` · on pad ${onPad[k] + 1} of ${rack?.name}` : ""} · ${time(b - a)}`}
             >
-              {k + 1}
+              {k + 1}{onPad[k] >= 0 && <small>→{onPad[k] + 1}</small>}
             </button>
           ))}
         </div>
@@ -359,15 +384,67 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
         </div>
         <canvas ref={overview} className="chop-overview" onPointerDown={onOverview} onPointerMove={onOverview} />
 
+        <div className="row wrap chop-tools">
+          {cur !== null && opts ? (
+            <>
+              <b>Chop {cur + 1}</b>
+              <span className="hint">key {noteName(CHOP_KEY0 + cur)}</span>
+              <Field label="Pitch">
+                <input type="number" min={-24} max={24} step={1} value={opts.pitch} onChange={(e) => setOpts({ pitch: Math.max(-24, Math.min(24, Math.round(Number(e.target.value)) || 0)) })} />
+              </Field>
+              <label title="Chops with Choke on cut each other off; the others ring out">
+                <input type="checkbox" checked={opts.choke} onChange={(e) => setOpts({ choke: e.target.checked })} /> Choke
+              </label>
+              <span className="chop-sep" />
+              <select value={assignTo} onChange={(e) => setAssignTo(Number(e.target.value))}>
+                {PAD_IDS.map((i) => <option key={i} value={i}>Pad {i + 1}</option>)}
+              </select>
+              <button onClick={() => assignChop(cur, assignTo)} title="Put this chop on the pad (Launchkey: hold its key and tap the pad)">
+                → {rack ? rack.name : "new rack"}
+              </button>
+            </>
+          ) : (
+            <span className="hint">Click a numbered chop (or play its key) to set its pitch and choke and put it on a pad.</span>
+          )}
+          {rack && (
+            <button className="primary chop-done" onClick={finishChop} title="Go to the rack and play (Launchkey: Function)">
+              Done → {rack.name}
+            </button>
+          )}
+        </div>
+
+        <div className="row wrap chop-tools">
+          <b>Tempo</b>
+          <Field label="Length">
+            <input
+              type="number" min={0.25} max={64} step={0.25} value={tempo.beats / 4}
+              onChange={(e) => updateChop({ beats: Math.max(1, Math.min(256, Math.round(Number(e.target.value) * 4) || 1)) })}
+            />
+          </Field>
+          <span className="hint">
+            bars{chop.beats === null ? " (guessed)" : ""} · {beatsLabel(tempo.beats)} in {tempo.seconds.toFixed(2)} s = <b>{bpmText(tempo.bpm)} BPM</b>
+          </span>
+          <Field label="Stretch to">
+            <input type="number" min={40} max={240} step={0.1} value={chop.toBpm} onChange={(e) => updateChop({ toBpm: Math.max(40, Math.min(240, Number(e.target.value) || projectBpm)) })} />
+          </Field>
+          {chop.toBpm !== projectBpm && <button onClick={() => updateChop({ toBpm: projectBpm })}>Project ({bpmText(projectBpm)})</button>}
+          <button disabled={stretching || Math.abs(tempo.bpm - chop.toBpm) < 0.05} onClick={stretch} title="Render the region at the new tempo, keeping its pitch, as a new sample (Launchkey: Tempo page, Function)">
+            {stretching ? "Stretching…" : `Stretch ${bpmText(tempo.bpm)} → ${bpmText(chop.toBpm)}`}
+          </button>
+          {chop.from && <button onClick={chopOriginal} title="Back to the sample before the stretch">↺ Original</button>}
+        </div>
+
         <p className="hint tip">
           Click: add marker · drag marker: move · double-click or Delete: remove · drag empty: scroll · wheel: zoom (shift: scroll) ·
-          Space: play region · <b>M</b> while playing: drop a marker at the playhead · 1–9: play slice · click a numbered slice to hear it.
-          Markers snap to zero crossings.
+          Space: play region · <b>M</b> while playing: drop a marker at the playhead · 1–9: play chop · click a numbered chop to hear and pick it.
+          Markers snap to zero crossings. Set the region's length in bars to see its tempo, then stretch it to yours.
         </p>
         <p className="hint tip">
-          <b>Launchkey:</b> pads play slices 1–16 and select that slice's start marker · encoder 1 scroll · 2 zoom · 3 pick marker ·
-          4 move marker (Shift = fine) · 5 max slices · 6 sensitivity · Play: play from the marker · Scene: add a marker at the playhead
-          (Shift + Scene: remove) · <b>Function: new drum rack</b> · Shift + Encoder ⌄: leave.
+          <b>Launchkey:</b> the keys play the chops (C3 = chop 1) · <b>hold a key and tap a pad</b> to put that chop on it (the first one
+          makes a new drum rack; the pads then play it) · encoder 1 scroll · 2 zoom · 3 pick marker · 4 move marker (Shift = fine) ·
+          5 max chops · 6 sensitivity · 7 pitch · 8 choke (Shift: all) · Play: play from the marker · Scene: add a marker at the playhead
+          (Shift + Scene: remove) · <b>Function: done</b> (to your rack, or chops 1–16 on a new one) · Encoder ⌄: <b>Tempo page</b>
+          (1 start, 2 end, 3 length, 4 tempo, Play loops, Function stretches; ⌃ back) · Shift + Encoder ⌄: leave.
         </p>
         <div className="row">
           <button className="primary" disabled={!slices.length} onClick={newRack} title="Crop to the region, make a new drum track and put the slices on pads 1–16 (Launchkey: Function)">

@@ -340,7 +340,59 @@ class Engine {
     this.stream.el.play().catch(() => undefined); // a newer preview cut it off, or the format can't be played
   }
 
+  private chopVoices: { src: AudioBufferSourceNode; gain: GainNode; choke: boolean }[] = [];
+
+  /**
+   * Chop audition (the Chop tab, the Launchkey's keys): `duration` seconds of buffer from `offset` at `rate`. A choking
+   * one cuts the other choking ones; the rest ring out. `loop` repeats the region until stopped. Returns its start time.
+   */
+  chopVoice(id: string, offset: number, duration: number, opts: { rate?: number; gain?: number; choke?: boolean; loop?: boolean } = {}): number | undefined {
+    const buf = this.buffers.get(id);
+    if (!buf) return;
+    const { rate = 1, gain = 0.8, choke = true, loop = false } = opts;
+    const when = this.ctx.currentTime;
+    if (choke) for (const v of this.chopVoices.filter((x) => x.choke)) this.cutChopVoice(v, when);
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = rate;
+    const g = this.ctx.createGain();
+    g.gain.value = gain;
+    src.connect(g).connect(this.voices.master);
+    if (loop) {
+      src.loop = true;
+      src.loopStart = offset;
+      src.loopEnd = offset + duration;
+      src.start(when, offset);
+    } else src.start(when, offset, duration);
+    const v = { src, gain: g, choke };
+    this.chopVoices.push(v);
+    src.onended = () => {
+      this.chopVoices = this.chopVoices.filter((x) => x !== v);
+      g.disconnect();
+    };
+    return when;
+  }
+
+  /** Move the loop of a looping chop audition (the region was trimmed while it plays). */
+  setChopLoop(offset: number, duration: number) {
+    for (const { src } of this.chopVoices) {
+      if (!src.loop) continue;
+      src.loopStart = offset;
+      src.loopEnd = offset + duration;
+    }
+  }
+
+  /** 5 ms fade, like a choke. */
+  private cutChopVoice(v: { src: AudioBufferSourceNode; gain: GainNode }, when: number) {
+    this.chopVoices = this.chopVoices.filter((x) => x !== v);
+    v.gain.gain.setTargetAtTime(0, when, 0.0015);
+    try {
+      v.src.stop(when + 0.01);
+    } catch { /* already stopped */ }
+  }
+
   stopPreview() {
+    for (const v of this.chopVoices) this.cutChopVoice(v, this.ctx.currentTime);
     this.previewToken++;
     if (this.stream && this.streamUrl) {
       this.stream.el.pause();

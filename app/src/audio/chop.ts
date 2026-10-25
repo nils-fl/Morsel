@@ -92,3 +92,50 @@ export function clampView(a: number, span: number, min: number): [number, number
   a = Math.max(0, Math.min(1 - span, a));
   return [a, a + span];
 }
+
+/** Most chops a session makes: the keys play them (25 keys, more with the octave buttons). */
+export const MAX_CHOPS = 32;
+
+/**
+ * Per-slice settings after the markers changed. Same count: a marker moved, so they stay. Otherwise each new slice
+ * takes the settings of the old slice starting at the same place, else of the one it starts inside (a split slice
+ * keeps its settings in both halves); slices outside the old region get `fallback`.
+ */
+export function remapSliceOpts<T>(oldMarkers: number[], oldOpts: T[], newMarkers: number[], fallback: T): T[] {
+  const n = newMarkers.length - 1;
+  if (n === oldMarkers.length - 1) return Array.from({ length: n }, (_, k) => oldOpts[k] ?? fallback);
+  return newMarkers.slice(0, -1).map((m) => {
+    const exact = oldMarkers.findIndex((x, k) => k < oldMarkers.length - 1 && Math.abs(x - m) < 1e-9);
+    const k = exact >= 0 ? exact : oldMarkers.findIndex((x, i) => i < oldMarkers.length - 1 && x <= m && m < oldMarkers[i + 1]);
+    return k >= 0 ? (oldOpts[k] ?? fallback) : fallback;
+  });
+}
+
+/** Move the region's start or end to `at`, dropping the inner markers it passes. */
+export function trimRegion(markers: number[], which: "start" | "end", at: number, minGap: number): number[] {
+  const first = markers[0], last = markers[markers.length - 1];
+  const inner = markers.slice(1, -1);
+  if (which === "start") {
+    const a = Math.max(0, Math.min(last - minGap, at));
+    return [a, ...inner.filter((m) => m >= a + minGap), last];
+  }
+  const b = Math.min(1, Math.max(first + minGap, at));
+  return [first, ...inner.filter((m) => m <= b - minGap), b];
+}
+
+/** Tempo of a region `seconds` long that lasts `beats` beats. */
+export const sourceBpm = (beats: number, seconds: number) => (beats * 60) / seconds;
+
+/** Beats in a region `seconds` long: the 1, 2, 4, 8 or 16 bars (of 4/4) whose tempo comes closest to `bpm`. */
+export function guessBeats(seconds: number, bpm: number): number {
+  let best = 4, off = Infinity;
+  for (const bars of [1, 2, 4, 8, 16]) {
+    const d = Math.abs(Math.log(sourceBpm(bars * 4, seconds) / bpm));
+    if (d < off) [best, off] = [bars * 4, d];
+  }
+  return best;
+}
+
+/** "4 bars", "1 bar", "6 beats". */
+export const beatsLabel = (beats: number) =>
+  beats % 4 === 0 ? `${beats / 4} bar${beats === 4 ? "" : "s"}` : `${beats} beat${beats === 1 ? "" : "s"}`;

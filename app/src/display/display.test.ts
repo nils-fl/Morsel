@@ -97,7 +97,10 @@ describe("filter panel", () => {
 });
 
 describe("chop screen", () => {
-  const base = { name: "Tab", peaks: null, sel: null, playhead: null, slices: 2, zoom: 1, at: "0.000s" };
+  const base = {
+    name: "Tab", peaks: null, sel: null, playhead: null, slices: 2, page: "chop" as const, info: "1x 0.000s",
+    tempo: { length: "4 bars", from: "78.4", to: "90", seconds: "12.25s" },
+  };
   it("draws the selected marker solid and hides markers outside the window", () => {
     const f = chopScreen({ ...base, markers: [0.25, 0.5, 1.5], sel: 1 });
     const x = Math.round(0.5 * 127);
@@ -105,6 +108,15 @@ describe("chop screen", () => {
     expect(col(x).every(Boolean)).toBe(true); // selected: solid
     const dotted = col(Math.round(0.25 * 127));
     expect(dotted.some(Boolean) && !dotted.every(Boolean)).toBe(true); // others: dotted
+  });
+  it("shows the region's tempo and the stretch target on the Tempo page", () => {
+    const chop = chopScreen({ ...base, markers: [0.1, 0.9] });
+    const tempo = chopScreen({ ...base, markers: [0.1, 0.9], page: "tempo" });
+    // A shorter waveform, with the tempo line under it.
+    const row = (f: typeof chop, y: number) => Array.from({ length: 128 }, (_, x) => f.get(x, y)).some(Boolean);
+    expect(row(chop, 45)).toBe(true);
+    expect(row(tempo, 42)).toBe(true);
+    expect(lit(tempo)).not.toBe(lit(chop));
   });
 });
 
@@ -290,9 +302,11 @@ describe("shift map", () => {
     expect(shiftRows("browse", "drum", false).map((r) => r[1])).toContain("Exit browse");
     // Shift + Scene in Browse still goes up a folder; the map must not promise "Clear track".
     expect(shiftRows("browse", "drum", false)).toContainEqual(["Scene", "Up folder"]);
+    // Shift + Enc page down in Browse chops the highlighted sample, on drum and keys tracks alike.
+    for (const kind of ["drum", "keys"] as const) expect(shiftRows("browse", kind, false, false)).toContainEqual(["Enc v", "Chop sample"]);
     expect(shiftEncHint("browse")).toBe("enc2=by 8");
     expect(shiftEncHint("mute")).toBe("enc=fine");
-    expect(shiftRows("chop", "drum", false).map((r) => r[1])).toContain("Exit chop");
+    expect(shiftRows("chop", "drum", false).map((r) => r[1])).toEqual(expect.arrayContaining(["Exit chop", "Choke all"]));
     // Browse works on keys tracks too (a sample on the keys, a folder as the multisample); Chop doesn't.
     expect(shiftRows("play", "keys", false)).toContainEqual(["Enc ^", "Browse"]);
     expect(shiftRows("browse", "keys", false)).toContainEqual(["Func", "Folder>multi"]);

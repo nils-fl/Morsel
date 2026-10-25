@@ -1,5 +1,5 @@
 // Maps Launchkey events to actions per hardware mode, and renders LEDs + display.
-import { allPresets, bendKeys, currentKit, keyOff, keyOn, modKeys, kitNames, liveWhen, openInChop, playPad, releasePad, sendChopToNewTrack, setRepeatLatch, toggleSampling, togglePlay, toggleRecord } from "../actions";
+import { allPresets, bendKeys, currentKit, finishChop, keyOff, keyOn, modKeys, kitNames, liveWhen, openInChop, playPad, releasePad, setRepeatLatch, stretchChop, toggleSampling, togglePlay, toggleRecord } from "../actions";
 import { engine } from "../audio/engine";
 import { launchkey } from "../midi/launchkey";
 import { CC, COLOR, type LedMode, type PadLayout } from "../midi/protocol";
@@ -14,8 +14,8 @@ import type { HwMode, KeysInstrument, NoteEvent, Track } from "../state/types";
 import { noteForKeysPad, stepForPad } from "./stepMap";
 import { noteName } from "../ui/notes";
 import { activeOverlay, releaseHold, showTemp, type Overlay } from "./notify";
-import { chopAddMarker, chopEncoder, chopMarkerArrows, chopPad, chopPadLeds, chopRemoveMarker, chopStepMarker, chopStop, chopTogglePlay, chopView } from "./chop";
-import { browseCan, browseDisplay, browseEncoder, browseEnter, browseLeds, browseOnFolder, browseShiftEnter, browsePad, browseUp, browseView, enterBrowse, exitBrowse } from "./browse";
+import { chopAddMarker, chopEncoder, chopKeyDown, chopKeyUp, chopKeysReleased, chopMarkerArrows, chopPad, chopPadLeds, chopRemoveMarker, chopSetPage, chopStepMarker, chopStop, chopTogglePlay, chopView } from "./chop";
+import { browseCan, browseChop, browseDisplay, browseEncoder, browseEnter, browseLeds, browseOnFolder, browseOnSample, browseShiftEnter, browsePad, browseUp, browseView, enterBrowse, exitBrowse } from "./browse";
 import { H, W, type Frame } from "../display/frame";
 import { browserScreen, chopScreen, duckScreen, encoderScreen, gridScreen, keysScreen, padScreen, shiftCoverText, shiftEncHint, shiftRows, shiftScreen, stepScreen } from "../display/screens";
 import { HEADER_H, computePeaks, duckPanel, filterPanel, overlayBar, type Peaks } from "../display/widgets";
@@ -165,6 +165,7 @@ export function releaseAll() {
     releasePad(pad);
   }
   for (const key of [...erasingKeys.keys()]) stopErase(erasingKeys, key);
+  chopKeysReleased();
   funcHeld = false;
   sceneHeld = false;
   setRepeatLatch(false);
@@ -297,6 +298,9 @@ export const padForKey = (note: number) => ((note % 16) + 16) % 16;
 
 function onKey(note: number, vel: number, on: boolean) {
   if (!on) stopErase(erasingKeys, note);
+  if (!on) chopKeyUp(note);
+  // Chop: the keys play the chops (and, held, put one on the next pad tapped).
+  if (on && get().hwMode === "chop") return chopKeyDown(note, vel);
   if (on && funcHeld && get().hwMode === "play") return startErase(erasingKeys, note, keysTrack(), note);
   if (!on) {
     const track = instrumentKeys.get(note);
@@ -354,7 +358,7 @@ function onPad(pad: number, vel: number) {
       browsePad();
       break;
     case "chop":
-      chopPad(pad, vel);
+      chopPad(pad, vel, liveWhen());
       break;
     case "play": {
       if (funcHeld) {
@@ -460,8 +464,10 @@ function onButton(button: string, down: boolean) {
   const s = get();
   if (button === "shift") return set({ shift: down });
   // Shift + the encoder page arrows: Browse (any track) and Chop (drum tracks) on / off. Checked before Browse takes the arrows.
+  // In Browse, Shift + ⌄ chops the highlighted sample (any track): leaving Chop goes back to the mode before Browse.
   if (down && s.shift && (button === "encPageUp" || button === "encPageDown")) {
     if (button === "encPageUp" ? s.hwMode === "browse" : s.hwMode === "chop") return button === "encPageUp" ? setHwMode(s.prevHwMode) : exitChopHw();
+    if (button === "encPageDown" && s.hwMode === "browse") return void browseChop().then((ok) => ok && enterChopHw());
     if (button === "encPageDown" && selectedTrack(s).kind !== "drum") return showTemp("Chop", "Drum track only");
     return button === "encPageUp" ? setHwMode("browse") : hwOpenChop();
   }
@@ -485,12 +491,13 @@ function onButton(button: string, down: boolean) {
     return;
   }
   if (s.hwMode === "chop") {
-    // Chop owns Scene (add a marker, Shift = remove), Play (audition; Shift = the sequencer), Function (send to
-    // a new drum rack) and the encoders, so the encoder page arrows do nothing here.
+    // Chop owns Scene (add a marker, Shift = remove), Play (audition, a loop on the Tempo page; Shift = the
+    // sequencer), Function (Chop page: done, to the rack; Tempo page: stretch) and the encoder page arrows (its
+    // Chop and Tempo pages).
     if (button === "scene") return void (down && (s.shift ? chopRemoveMarker() : chopAddMarker()));
     if (down && button === "play") return s.shift ? togglePlay() : chopTogglePlay();
-    if (down && !s.shift && button === "func") return void sendChopToNewTrack();
-    if (!s.shift && (button === "encPageUp" || button === "encPageDown")) return;
+    if (down && !s.shift && button === "func") return void (s.chop?.page === "tempo" ? stretchChop() : finishChop());
+    if (!s.shift && (button === "encPageUp" || button === "encPageDown")) return void (down && chopSetPage(button === "encPageUp" ? "chop" : "tempo"));
     // Pad ⌃ / ⌄ step through the markers, like encoder 3 (with Shift they still change track, below).
     if (!s.shift && (button === "padUp" || button === "padDown")) return void (down && chopStepMarker(button === "padUp" ? -1 : 1));
   }
@@ -907,10 +914,14 @@ function funcSceneLeds(s: AppState) {
   return { func: LED_FULL, scene: sequencer.repeatOn ? LED_FULL : LED_DIM };
 }
 
-/** Encoder page arrows: lit when the selected track has a page that way. Browse: they step through the list. Shift: Browse / Chop (Chop: drum tracks). Chop: unused. */
+/** Encoder page arrows: lit when the selected track has a page that way. Browse: they step through the list. Shift: Browse / Chop
+ *  (Chop: drum tracks; in Browse, when a sample is highlighted). Chop: its Chop / Tempo pages. */
 function encPageLeds(s: AppState) {
-  if (s.shift) return { up: LED_FULL, down: selectedTrack(s).kind === "drum" || s.hwMode === "chop" ? LED_FULL : 0 };
-  if (s.hwMode === "chop") return { up: 0, down: 0 };
+  if (s.shift) {
+    const chop = s.hwMode === "browse" ? browseOnSample() : selectedTrack(s).kind === "drum" || s.hwMode === "chop";
+    return { up: LED_FULL, down: chop ? LED_FULL : 0 };
+  }
+  if (s.hwMode === "chop") return { up: s.chop?.page === "tempo" ? LED_FULL : 0, down: s.chop?.page === "tempo" ? 0 : LED_FULL };
   if (s.hwMode === "browse") {
     const on = browseCan().enter ? LED_FULL : 0;
     return { up: on, down: on };

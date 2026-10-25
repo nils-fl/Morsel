@@ -2,17 +2,22 @@
 import { slicesFromMarkers } from "../audio/chop";
 import { DECAY_MAX } from "../audio/dsp";
 import { defaultPad } from "./store";
-import { PAD_COUNT, type Pad } from "./types";
+import { PAD_COUNT, type Pad, type SliceOpts } from "./types";
 
-/** Slices between `markers` on consecutive pads from `firstPad`, keeping each pad's colour. Slices past pad 16 are dropped. */
-export function slicePads(pads: Pad[], sampleId: string, markers: number[], firstPad: number, baseName: string): Pad[] {
+/**
+ * Slices between `markers` on consecutive pads from `firstPad`, keeping each pad's colour. Slices past pad 16 are dropped.
+ * With `opts` (a chop session's), each pad gets its slice's pitch, and choke group `group` when the slice chokes.
+ */
+export function slicePads(pads: Pad[], sampleId: string, markers: number[], firstPad: number, baseName: string, opts?: SliceOpts[], group = 1): Pad[] {
   const slices = slicesFromMarkers(markers).slice(0, PAD_COUNT - firstPad);
   const base = baseName.slice(0, 9);
   return pads.map((pad, i) => {
     const k = i - firstPad;
     if (k < 0 || k >= slices.length) return pad;
     const [start, end] = slices[k];
-    return { ...pad, sampleId, name: `${base} ${k + 1}`, start, end, decay: DECAY_MAX, mode: "oneshot", reverse: false };
+    const o = opts?.[k];
+    const sound = o ? { pitch: o.pitch, choke: o.choke ? group : 0 } : {};
+    return { ...pad, sampleId, name: `${base} ${k + 1}`, start, end, decay: DECAY_MAX, mode: "oneshot", reverse: false, ...sound };
   });
 }
 
@@ -30,4 +35,10 @@ export function padsFromSamples(samples: { id: string; name: string }[]): Pad[] 
   const closed = list.findIndex((s) => HAT.test(s.name) && !OPEN.test(s.name));
   if (open >= 0 && closed >= 0) pads[open].choke = pads[closed].choke = 1;
   return pads;
+}
+
+/** The first choke group (1-4) no pad uses, else 1. */
+export function freeChokeGroup(pads: Pad[]): number {
+  for (let g = 1; g <= 4; g++) if (!pads.some((p) => p.choke === g)) return g;
+  return 1;
 }

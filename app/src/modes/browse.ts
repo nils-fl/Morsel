@@ -4,6 +4,8 @@ import { Cursor, KITS, fitLine, fitName, jumpLetter, type Entry } from "../brows
 import { entrySample, folderLabel, folderSamples, folderToMulti, isSampleFolder, listAt, previewEntry, stopPreview, type Listing } from "../browse/source";
 import { COLOR, type LedMode } from "../midi/protocol";
 import { loadNamedKit, samplesToPads } from "../actions";
+import { engine } from "../audio/engine";
+import { newChop, takeMarkers } from "./chop";
 import { listKits } from "../state/persist";
 import { drumPads, drumTrack, get, selectedTrack, set, updateKeys, updatePad } from "../state/store";
 import { showTemp } from "./notify";
@@ -107,6 +109,43 @@ async function loadItem(e: Exclude<Entry, { kind: "folder" }>): Promise<{ popup:
   if (forKeys()) return { popup: ["Kits", "Drum track only"], loaded: false }; // a starred kit in Favorites
   return (await loadNamedKit(e.name)) ? { popup: ["KIT LOADED", fitName(e.name)], loaded: true } : null;
 }
+
+/**
+ * Shift + Encoder page ⌄: open the highlighted sample in Chop with its hits marked (on the keys), without loading it
+ * onto a pad or the keys. The sample already open in Chop stays as it is. Resolves true when Chop has it.
+ */
+export async function browseChop(): Promise<boolean> {
+  const e = current();
+  if (e?.kind !== "sample" && e?.kind !== "file") {
+    showTemp("Chop", "Pick a sample");
+    return false;
+  }
+  let id: string;
+  try {
+    id = await entrySample(e);
+  } catch (err) {
+    set({ status: `${e.name}: ${(err as Error).message}` });
+    showTemp("Can't load", fitName(e.name));
+    return false;
+  }
+  const buf = engine.buffer(id);
+  if (!buf) return false;
+  if (get().chop?.sampleId === id) {
+    set({ tab: "Chop" });
+    return true;
+  }
+  const markers = takeMarkers(buf);
+  const n = markers.length - 1;
+  set({ chop: { ...newChop(id, markers), firstPad: 0 }, tab: "Chop", status: `${e.name}: ${n} chops · the keys play them; hold a key and tap a pad to keep one, Func when done` });
+  showTemp(`${n} chops`, "Keys play them");
+  return true;
+}
+
+/** The highlighted entry can be chopped (Shift + Encoder page ⌄). */
+export const browseOnSample = () => {
+  const e = current();
+  return e?.kind === "sample" || e?.kind === "file";
+};
 
 /** The highlighted entry is a folder (Shift + Function puts it on the pads) rather than an item (load and leave). */
 export const browseOnFolder = () => current()?.kind === "folder";

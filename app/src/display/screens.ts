@@ -82,14 +82,19 @@ export interface ChopScreenView {
   sel: number | null;
   playhead: number | null; // within the window, or null
   slices: number;
-  zoom: number;
-  at: string; // time of the selected marker (or the view start)
+  page: "chop" | "tempo";
+  /** Chop page footer: the selected chop ("7 F#3 +3st CH") or zoom and position. */
+  info: string;
+  /** Tempo page: the region's length ("4 bars"), its tempo and the tempo it stretches to. */
+  tempo: { length: string; from: string; to: string; seconds: string };
 }
 
+/** Chop page: the zoomed waveform with its markers. Tempo page: the region, its length and tempo, the stretch target. */
 export function chopScreen(v: ChopScreenView): Frame {
   const f = new Frame();
-  header(f, v.name, `${v.slices} SL`);
-  const y = HEADER_H + 2, h = 40;
+  const tempo = v.page === "tempo";
+  header(f, v.name, tempo ? v.tempo.length : `${v.slices} SL`);
+  const y = HEADER_H + 2, h = tempo ? 26 : 40;
   waveform(f, 0, y, W, h, v.peaks, 0, 1);
   const px = (m: number) => Math.round(m * (W - 1));
   v.markers.forEach((m, i) => {
@@ -106,7 +111,12 @@ export function chopScreen(v: ChopScreenView): Frame {
     const x = px(v.playhead);
     for (let j = y; j < y + h; j++) f.set(x, j, (j >> 1) % 2);
   }
-  footer(f, "CHOP", `${v.zoom < 10 ? v.zoom.toFixed(1) : Math.round(v.zoom)}x ${v.sel !== null ? `M${v.sel + 1} ` : ""}${v.at}`);
+  if (tempo) {
+    const sw = textWidth(v.tempo.seconds);
+    f.text(W - 2 - sw, y + h + 3, v.tempo.seconds);
+    f.textFit(2, y + h + 3, `${v.tempo.from} > ${v.tempo.to} BPM`, W - 4 - sw - 6);
+    footer(f, "TEMPO", "Fn=stretch");
+  } else footer(f, "CHOP", v.info);
   return f;
 }
 
@@ -274,8 +284,8 @@ export function shiftRows(mode: HwMode, kind: TrackKind, sampling: boolean, onFo
   const play: ShiftRow = ["Play", mode === "chop" ? "Play/stop seq" : "Metronome"];
   const track: ShiftRow = ["Pad ^v", "Track -/+"];
   // Browse keeps Scene as "up a folder" with Shift held too.
-  if (mode === "browse") return [play, rec, ["Func", !onFolder ? "Load + exit" : kind === "drum" ? "Folder>pads" : "Folder>multi"], ["Scene", "Up folder"], track, ["Enc ^", "Exit browse"]];
-  if (mode === "chop") return [play, rec, ["Func", "Undo"], ["Scene", "Remove marker"], track, ["Enc v", "Exit chop"]];
+  if (mode === "browse") return [play, rec, ["Func", !onFolder ? "Load + exit" : kind === "drum" ? "Folder>pads" : "Folder>multi"], ["Scene", "Up folder"], ["Enc ^", "Exit browse"], ["Enc v", "Chop sample"]];
+  if (mode === "chop") return [play, rec, ["Func", "Undo"], ["Scene", "Remove marker"], ["Enc 8", "Choke all"], ["Enc v", "Exit chop"]];
   return [
     play,
     rec,
@@ -288,7 +298,7 @@ export function shiftRows(mode: HwMode, kind: TrackKind, sampling: boolean, onFo
 
 /** Two 16-character lines for the device's own text popup while Shift is held (when the bitmap can't show). */
 export function shiftCoverText(mode: HwMode, kind: TrackKind, onFolder = true): [string, string] {
-  if (mode === "browse") return [!onFolder ? "Fn=Load + exit" : kind === "drum" ? "Fn=Folder>pads" : "Fn=Folder>multi", "Enc^=Exit browse"];
+  if (mode === "browse") return [!onFolder ? "Fn=Load + exit" : kind === "drum" ? "Fn=Folder>pads" : "Fn=Folder>multi", "Enc^=Exit v=Chop"];
   if (mode === "chop") return ["Scn=Del marker", "Encv=Exit chop"];
   return ["Play=Met Rec=Smp", "Fn=Undo Scn=Clr"];
 }
@@ -299,8 +309,8 @@ export interface ShiftView {
   enc?: string;
 }
 
-/** The shift map's header hint: Browse jumps by 8 with encoder 2, Chop's encoder 4 moves a marker finely. */
-export const shiftEncHint = (mode: HwMode) => (mode === "browse" ? "enc2=by 8" : mode === "chop" ? "enc4=fine" : "enc=fine");
+/** The shift map's header hint: Browse jumps by 8 with encoder 2. */
+export const shiftEncHint = (mode: HwMode) => (mode === "browse" ? "enc2=by 8" : "enc=fine");
 
 /** The shift map: six rows of "button: action". */
 export function shiftScreen(v: ShiftView): Frame {

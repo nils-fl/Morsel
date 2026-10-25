@@ -215,11 +215,22 @@ export type SampleSource = "input" | "master" | "tab";
 /** Where a sampled take lands. */
 export type SampleTarget = "chop" | "pad";
 
-/** Chop editor session, shared by the Chop tab and the Launchkey (encoders, pads, screen). */
+/** A chop's own sound, carried onto the pad it is put on. */
+export interface SliceOpts {
+  pitch: number; // semitones
+  /** Cuts the other chops (and pads) with choke on, like an MPC chop. */
+  choke: boolean;
+}
+
+export const DEFAULT_SLICE: SliceOpts = { pitch: 0, choke: true };
+
+/** Chop editor session, shared by the Chop tab and the Launchkey (encoders, keys, pads, screen). */
 export interface ChopSession {
   sampleId: string;
   /** Sorted slice boundaries (N + 1 markers = N slices); the first and last bound the region. */
   markers: number[];
+  /** One per slice, in order: kept in step with the markers by updateChop. */
+  slices: SliceOpts[];
   /** Visible window, fractions 0..1 of the sample. */
   view: [number, number];
   /** Selected marker index, or null. */
@@ -229,6 +240,16 @@ export interface ChopSession {
   /** Automatic markers: most slices (Transients) or slice count (Equal), and transient sensitivity 0..1. */
   count: number;
   sens: number;
+  /** Drum track that key + pad puts chops on (made by the first one) and the choke group they share there. */
+  rack: { id: string; group: number } | null;
+  /** The Launchkey's Chop page (markers and chops) or Tempo page (region length and stretch). */
+  page: "chop" | "tempo";
+  /** The region's length in beats; null = guessed from its length and the project tempo. */
+  beats: number | null;
+  /** Tempo the region is stretched to. */
+  toBpm: number;
+  /** The sample before the last stretch, to go back to. */
+  from?: { sampleId: string; markers: number[]; slices: SliceOpts[]; beats: number | null };
 }
 
 export interface SampleInfo {
