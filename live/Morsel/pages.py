@@ -97,6 +97,27 @@ class ChoiceParam(Param):
         return self.labels[i] if 0 <= i < len(self.labels) else "?"
 
 
+class ActionParam(Param):
+    """Not a value: each step of a turn does something (left or right), like Morsel's Double."""
+
+    detents = STEPPED
+
+    def __init__(self, name, act, fmt):
+        self.name, self._act, self._fmt = name, act, fmt
+
+    def value(self):
+        return 0.0
+
+    def level(self):
+        return 0.0
+
+    def nudge(self, delta):
+        self._act(_sign(delta))
+
+    def format(self):
+        return self._fmt()
+
+
 class Page(object):
     def __init__(self, key, tag, summary, params, device=None):
         self.key = key  # stays the same across rebuilds: "DEV0", "TRK", "MIX", "GLB"

@@ -1,4 +1,4 @@
-from fakes import FakeClip, FakeHost
+from fakes import FakeClip, FakeHost, FakeNote
 
 from Morsel import protocol as P
 from Morsel.controller import Controller
@@ -49,14 +49,12 @@ def test_connect_enters_daw_mode():
 
 def test_func_cycles_modes_and_switches_layout():
     host, c = setup()
-    tap(c, "func")  # Play switches on release (held, Func will erase)
-    assert c.mode == "track"
+    tap(c, "func")  # Play switches on release (held, Func erases)
+    assert c.mode == "step"
     assert P.cc7(P.CC_PAD_LAYOUT, 2) in host.sent
-    assert host.rebuilds == 1
-    tap(c, "func")
-    tap(c, "func")
-    tap(c, "func")
-    assert c.mode == "play"
+    for mode in ("track", "mute", "pattern", "play"):
+        tap(c, "func")
+        assert c.mode == mode
     assert host.sent[-1] != P.cc7(P.CC_PAD_LAYOUT, 2)
 
 
@@ -156,7 +154,7 @@ def test_encoder_pages_and_stepped_params():
     host, c = setup()
     song = host.song
     keys = [p.key for p in c.pages()]
-    assert keys == ["DEV0", "DEV1", "TRK", "MIX", "GLB"]
+    assert keys == ["PAD", "DEV0", "DEV1", "TRK", "MIX", "GLB"]
     tap(c, "encPageDown")
     assert c.page_key == "DEV1" and song.tracks[0].view.selected_device is song.tracks[0].devices[1]
     for _ in range(3):
@@ -243,7 +241,166 @@ def test_play_fires_selected_scene_with_clips():
 
 def test_every_mode_renders():
     host, c = setup()
-    for mode in ("play", "track", "mute", "pattern"):
+    host.song.tracks[0].clip_slots[0].clip = FakeClip()
+    host.song.tracks[0].clip_slots[0].clip.is_playing = True
+    for mode in ("play", "step", "track", "mute", "pattern"):
         c.set_mode(mode)
         host.t += 2
         c.tick()
+
+
+def to_step(c):
+    c.set_mode("step")
+    assert c.layout == "daw" and c.page_key == "STEP"
+
+
+def test_step_mode_adds_a_clip_and_toggles_steps():
+    host, c = setup()
+    to_step(c)
+    song = host.song
+    hit(c, 8)  # top left = step 1, selected pad (note 36)
+    clip = song.tracks[0].clip_slots[0].clip
+    assert clip is not None and clip.length == 4.0
+    assert [(n.pitch, n.start_time, n.duration) for n in clip.notes] == [(36, 0.0, 0.25)]
+    hit(c, 0)  # bottom left = step 9
+    assert sorted(n.start_time for n in clip.notes) == [0.0, 2.0]
+    assert c.step.steps()[:9] == [True] + [False] * 7 + [True]
+    hit(c, 8)  # a lit step goes on release
+    assert [n.start_time for n in clip.notes] == [2.0]
+
+
+def test_step_mode_held_step_velocity_and_nudge():
+    host, c = setup()
+    to_step(c)
+    pad(c, 9)  # step 2 (t = 0.25), held
+    enc(c, 0, -5)
+    enc(c, 1, 3)
+    pad(c, 9, False)
+    clip = host.song.tracks[0].clip_slots[0].clip
+    (n,) = clip.notes  # edited, so the release didn't remove it
+    assert n.velocity == 90 and abs(n.start_time - (0.25 + 3 / 96.0)) < 1e-9
+    assert c.step.steps()[1]  # still its step
+    hit(c, 9)  # the nudged note still belongs to step 2: removed
+    assert clip.notes == []
+
+
+def test_step_page_bars_double_grid():
+    host, c = setup()
+    to_step(c)
+    hit(c, 8)
+    clip = host.song.tracks[0].clip_slots[0].clip
+    params = {p.name: i for i, p in enumerate(c.current_page().params) if p}
+    enc(c, params["Double"], 1)
+    assert clip.loop_end == 8.0 and len(clip.notes) == 2 and c.step.pages() == 2
+    tap(c, "padDown")
+    assert c.step.page == 1 and c.step.bar_label() == "2"
+    host.t += 1
+    enc(c, params["Grid"], 1)  # 1/32: half a bar per page
+    assert c.step.span == 0.125 and c.step.pages() == 4 and c.step.bar_label() == "1.1"
+    host.t += 1
+    enc(c, params["Bars"], -1)
+    assert clip.loop_end == 4.0
+
+
+def test_step_triplet_rows_use_six_pads():
+    host, c = setup()
+    to_step(c)
+    c.step.set_grid(2)  # 1/8T
+    hit(c, 14)  # top row, 7th pad: unused on a triplet grid
+    assert host.song.tracks[0].clip_slots[0].clip is None
+    hit(c, 0)  # bottom left = step 7 (t = 6 * 1/3)
+    (n,) = host.song.tracks[0].clip_slots[0].clip.notes
+    assert abs(n.start_time - 2.0) < 1e-9
+
+
+def test_step_mode_pad_choice_and_shift_scene_clears_only_that_pad():
+    host, c = setup()
+    to_step(c)
+    hit(c, 8)
+    params = {p.name: i for i, p in enumerate(c.current_page().params) if p}
+    enc(c, params["Pad"], 1)  # pad 2 = note 37
+    rack = host.song.tracks[0].devices[0]
+    assert rack.view.selected_drum_pad.note == 37
+    hit(c, 9)
+    clip = host.song.tracks[0].clip_slots[0].clip
+    assert sorted(n.pitch for n in clip.notes) == [36, 37]
+    shift(c, True)
+    tap(c, "scene")
+    shift(c, False)
+    assert [n.pitch for n in clip.notes] == [36]
+
+
+def test_leaving_step_restores_the_page():
+    host, c = setup()
+    tap(c, "encPageDown")
+    before = c.page_key
+    c.set_mode("step")
+    c.set_mode("track")
+    assert c.page_key == before
+
+
+def test_pad_page_shows_the_selected_pads_instrument():
+    host, c = setup()
+    page = c.pages()[0]
+    assert page.key == "PAD" and page.summary == "1 Pad 36" and page.params[0].name == "Simpler 1"
+
+
+def test_erase_while_func_held():
+    host, c = setup()
+    song = host.song
+    t = song.tracks[0]
+    clip = FakeClip()
+    clip.notes = [FakeNote(36, x, 0.25, 100) for x in (0.0, 1.0, 2.0, 3.0)] + [FakeNote(38, 1.0, 0.25, 100)]
+    t.clip_slots[0].clip = clip
+    t.playing_slot_index = 0
+    song.is_playing = True
+    clip.playing_position = 0.5
+    press(c, "func")
+    assert c.layout == "daw"  # pads come to the script while Func is held
+    pad(c, 0)  # pad 1 = note 36
+    clip.playing_position = 1.5
+    c.tick()
+    assert sorted(n.start_time for n in clip.notes if n.pitch == 36) == [0.0, 2.0, 3.0]
+    clip.playing_position = 0.2  # looped round: the rest of the loop and its start
+    c.tick()
+    assert [n.pitch for n in clip.notes] == [38]  # only the held pad's note
+    press(c, "func", False)  # used for erasing: no mode switch, the pads play again
+    assert c.mode == "play" and c.layout == "drum" and not c.erasing
+
+
+def test_func_in_play_keeps_the_daw_layout_the_device_confirms():
+    host, c = setup()
+    press(c, "func")
+    c.handle_midi((0xB6, P.CC_PAD_LAYOUT, 2))  # the device confirms DAW while the mode is still Play
+    press(c, "func", False)
+    assert c.mode == "step" and c.layout == "daw"
+    assert P.cc7(P.CC_PAD_LAYOUT, 1) not in host.sent  # not switched back to drum
+
+
+def test_keys_pick_the_step_pad_or_note():
+    host, c = setup()
+    c.on_key(44, 100, True)  # outside Step mode: just played
+    rack = host.song.tracks[0].devices[0]
+    assert rack.view.selected_drum_pad.note == 36
+    c.set_mode("step")
+    c.on_key(44, 100, True)  # the Drum Rack pad you hear: note 44 = Launchkey pad 5
+    assert rack.view.selected_drum_pad.note == 44 and c.step.item() == "5 Pad 44"
+    hit(c, 8)
+    assert [n.pitch for n in host.song.tracks[0].clip_slots[0].clip.notes] == [44]
+    c.on_key(62, 100, True)  # off the Launchkey's 16 pads: still that Drum Rack pad
+    assert c.step.pitch() == 62 and c.step.item() == "D3 Pad 62"
+    host.song.view.selected_track = host.song.tracks[1]  # a keys track: the key is the note
+    c.on_key(67, 100, True)
+    assert c.step.keys_note == 67
+
+
+def test_keys_map_to_the_pads_on_drum_tracks():
+    host, c = setup()
+    assert host.keys_rebuilds == 1  # set up for the drum track selected at start
+    km = c.key_map()
+    assert km[48] == 36 and km[52] == 44 and km[56] == 40 and km[63] == 51 and km[64] == 36  # C3 = pad 1, wraps
+    host.song.view.selected_track = host.song.tracks[1]  # a keys track: the keys pass as they are
+    c.tick()
+    assert c.key_map() is None and host.keys_rebuilds == 2
+    c.tick()
+    assert host.keys_rebuilds == 2  # only when it changes

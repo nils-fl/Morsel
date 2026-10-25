@@ -34,11 +34,20 @@ class LiveHost(object):
     def request_rebuild_midi_map(self):
         self._surface.request_rebuild_midi_map()
 
+    def keys_routing_changed(self):
+        for keys in self._surface.keys_surfaces:
+            keys.request_rebuild_midi_map()
+
     def set_launch_quantization(self, i):
         self.song.clip_trigger_quantization = Live.Song.Quantization.values[i]
 
     def set_record_quantization(self, i):
         self.song.midi_recording_quantization = Live.Song.RecordingQuantization.values[i]
+
+    def add_note(self, clip, pitch, start, duration, velocity):
+        spec = Live.Clip.MidiNoteSpecification(pitch=pitch, start_time=start, duration=duration, velocity=velocity,
+                                               mute=False)
+        clip.add_new_notes((spec,))
 
     def device_bank(self, device):
         """Live's own best 8 parameters for its devices; the first 8 (after Device On) for anything else."""
@@ -68,6 +77,7 @@ class MorselSurface(ControlSurface):
         ControlSurface.__init__(self, c_instance)
         self._controller = Controller(LiveHost(self, c_instance))
         self._errors = 0
+        self.keys_surfaces = []  # Morsel Keys instances (the keybed port), linked through connect_script_instances
         self.schedule_message(1, self._connect)
 
     def _connect(self):
@@ -81,6 +91,23 @@ class MorselSurface(ControlSurface):
             self._errors += 1
             if self._errors <= 20:
                 self.log_message("Morsel error:\n" + traceback.format_exc())
+
+    # ---- Morsel Keys (live/Morsel_Keys) -------------------------------------------------------------------------
+
+    def link_keys(self, keys):
+        if keys not in self.keys_surfaces:
+            self.keys_surfaces.append(keys)
+
+    def unlink_keys(self, keys):
+        if keys in self.keys_surfaces:
+            self.keys_surfaces.remove(keys)
+
+    def key_map(self):
+        return self._controller.key_map()
+
+    def on_key(self, note, velocity, on):
+        """A key played on the keybed (after the key map)."""
+        self._guard(self._controller.on_key, note, velocity, on)
 
     def build_midi_map(self, midi_map_handle):
         h = self._c_instance.handle()

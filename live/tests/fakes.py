@@ -19,7 +19,8 @@ class FakeParam(object):
 class FakeDrumPad(object):
     def __init__(self, note, loaded):
         self.name = "Pad %d" % note
-        self.chains = [Obj(color=0xFF0000)] if loaded else []
+        self.note = note
+        self.chains = [Obj(color=0xFF0000, devices=[FakeDevice("Simpler")])] if loaded else []
         self.mute = False
         self.solo = False
 
@@ -42,15 +43,42 @@ class FakeDevice(object):
         self.parameters = [FakeParam("Device On")] + [FakeParam("%s %d" % (name, i)) for i in range(1, 12)]
 
 
+class FakeNote(object):
+    def __init__(self, pitch, start_time, duration, velocity):
+        self.pitch, self.start_time, self.duration, self.velocity = pitch, start_time, duration, velocity
+
+
 class FakeClip(object):
     is_midi_clip = True
-    length = loop_end = end_marker = 4.0
 
-    def __init__(self):
+    def __init__(self, length=4.0):
         self.removed = []
+        self.notes = []
+        self.loop_start = 0.0
+        self.loop_end = self.end_marker = self.length = length
+        self.is_playing = False
+        self.playing_position = 0.0
 
-    def remove_notes_extended(self, *args):
-        self.removed.append(args)
+    def _in(self, n, pitch, span, start, dur):
+        return pitch <= n.pitch < pitch + span and start <= n.start_time < start + dur
+
+    def get_notes_extended(self, pitch, span, start, dur):
+        return [n for n in self.notes if self._in(n, pitch, span, start, dur)]
+
+    def remove_notes_extended(self, pitch, span, start, dur):
+        self.removed.append((pitch, span, start, dur))
+        self.notes = [n for n in self.notes if not self._in(n, pitch, span, start, dur)]
+
+    def add_new_notes(self, notes):
+        self.notes.extend(notes)
+
+    def apply_note_modifications(self, notes):
+        pass  # the fakes are modified in place
+
+    def duplicate_loop(self):
+        n = self.loop_end - self.loop_start
+        self.notes += [FakeNote(x.pitch, x.start_time + n, x.duration, x.velocity) for x in self.notes]
+        self.loop_end = self.end_marker = self.length = self.loop_end + n
 
 
 class FakeSlot(object):
@@ -66,6 +94,9 @@ class FakeSlot(object):
 
     def delete_clip(self):
         self.clip = None
+
+    def create_clip(self, length):
+        self.clip = FakeClip(length)
 
 
 class FakeTrack(object):
@@ -122,6 +153,8 @@ class FakeSong(object):
         self.can_undo = True
         self.undos = 0
         self.can_capture_midi = False
+        self.signature_numerator = 4
+        self.signature_denominator = 4
 
     def undo(self):
         self.undos += 1
@@ -143,6 +176,7 @@ class FakeHost(object):
         self.t = 1000.0
         self.note_repeat = Obj(enabled=False, repeat_rate=0.25)
         self.rebuilds = 0
+        self.keys_rebuilds = 0
         self.loaded = []
 
     def send(self, msg):
@@ -154,6 +188,9 @@ class FakeHost(object):
     def request_rebuild_midi_map(self):
         self.rebuilds += 1
 
+    def keys_routing_changed(self):
+        self.keys_rebuilds += 1
+
     def set_launch_quantization(self, i):
         self.song.clip_trigger_quantization = i
 
@@ -162,6 +199,9 @@ class FakeHost(object):
 
     def device_bank(self, device):
         return list(device.parameters)[1:9]
+
+    def add_note(self, clip, pitch, start, duration, velocity):
+        clip.add_new_notes([FakeNote(pitch, start, duration, velocity)])
 
     def load_instrument(self, kind):
         self.loaded.append(kind)
