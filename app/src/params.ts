@@ -39,6 +39,19 @@ function padParam(name: string, key: keyof Pad & ("start" | "end" | "pitch" | "a
   };
 }
 
+/** The selected pad's choke group: Off or 1-4 (pads in a group cut each other off). */
+const CHOKE_PARAM: Param = {
+  name: "Choke",
+  value: () => drumPads()[get().selectedPad].choke,
+  range: [0, 4],
+  detents: STEPPED,
+  nudge: (d) => updatePad(get().selectedPad, { choke: clamp(drumPads()[get().selectedPad].choke + Math.sign(d), 0, 4) }),
+  format: () => {
+    const g = drumPads()[get().selectedPad].choke;
+    return g ? `Group ${g}` : "Off";
+  },
+};
+
 /** An LFO setting of the keys track; rates move in bigger steps the faster they get. */
 function lfoParam(name: string, key: keyof KeysLfo, lo: number, hi: number, step: number, fmt: (v: number) => string, log = false): Param {
   const cur = () => keysNow().lfo[key];
@@ -509,11 +522,12 @@ export const PAGES: Page[] = [
     kind: "drum",
     summary: () => {
       const p = padNow();
-      return `Reso ${Math.round(p.resonance * 100)}% Pan ${panText(p.pan)}`;
+      return `Reso ${Math.round(p.resonance * 100)}% Pan ${panText(p.pan)} ${p.choke ? `Ch${p.choke}` : "NoCh"}`;
     },
     params: [
       { ...padParam("Resonance", "resonance", 0, 1, 0.01, pct), visual: padFilterVisual },
       padParam("Pan", "pan", -1, 1, 0.02, panText),
+      CHOKE_PARAM,
     ],
   },
   {

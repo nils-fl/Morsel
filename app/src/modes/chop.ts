@@ -209,12 +209,35 @@ export function assignChop(k: number, pad: number) {
   showTemp(`Chop ${k + 1} > Pad ${pad + 1}`, `8 tracks: ${t.name}`);
 }
 
-/** The pad of the rack holding chop k (same sample and region), or -1. */
-export function chopPadOf(s = get(), k: number): number {
+/** The pads of the rack holding chop k (same sample and region). */
+export function chopPadsOf(s = get(), k: number): number[] {
   const c = s.chop, rack = chopRack(s);
   const slice = c && slicesFromMarkers(c.markers)[k];
-  if (!rack || !slice) return -1;
-  return rack.pads.findIndex((p) => p.sampleId === c.sampleId && Math.abs(p.start - slice[0]) < 1e-9 && Math.abs(p.end - slice[1]) < 1e-9);
+  if (!rack || !slice) return [];
+  const on = (p: Pad) => p.sampleId === c.sampleId && Math.abs(p.start - slice[0]) < 1e-9 && Math.abs(p.end - slice[1]) < 1e-9;
+  return rack.pads.flatMap((p, i) => (on(p) ? [i] : []));
+}
+
+/** The first pad of the rack holding chop k, or -1. */
+export const chopPadOf = (s = get(), k: number) => chopPadsOf(s, k)[0] ?? -1;
+
+/** Set chops' pitch and choke (by index), and the same on the rack's pads already holding them, so a change after key + pad reaches the pads too. */
+export function setChopOpts(ks: number[], patch: Partial<SliceOpts>) {
+  updateChop((c) => ({ slices: c.slices.map((o, j) => (ks.includes(j) ? { ...o, ...patch } : o)) }));
+  const s = get(), c = s.chop, rack = chopRack(s);
+  if (!c?.rack || !rack) return;
+  const group = c.rack.group;
+  const onPads = new Map(ks.flatMap((k) => chopPadsOf(s, k).map((i) => [i, k] as const)));
+  if (!onPads.size) return;
+  updateTrack(rack.id, (t) => ({
+    ...t,
+    pads: t.pads.map((p, i) => {
+      const k = onPads.get(i);
+      if (k === undefined) return p;
+      const o = c.slices[k] ?? DEFAULT_SLICE;
+      return { ...p, pitch: o.pitch, choke: o.choke ? group : 0 };
+    }),
+  }));
 }
 
 // ---------- Launchkey ----------
@@ -351,7 +374,7 @@ export function chopEncoder(index: number, delta: number, fine: boolean) {
       if (index === 7 && fine) {
         // Shift: every chop at once.
         const choke = delta > 0;
-        updateChop({ slices: c.slices.map((o) => ({ ...o, choke })) });
+        setChopOpts(c.slices.map((_, j) => j), { choke });
         showTemp("All chops", choke ? "Choke" : "No choke", { encoder: index });
         break;
       }
@@ -361,7 +384,7 @@ export function chopEncoder(index: number, delta: number, fine: boolean) {
       }
       const o = c.slices[k] ?? DEFAULT_SLICE;
       const next = index === 6 ? { ...o, pitch: Math.max(-24, Math.min(24, o.pitch + Math.sign(delta))) } : { ...o, choke: delta > 0 };
-      updateChop({ slices: c.slices.map((x, j) => (j === k ? next : x)) });
+      setChopOpts([k], next);
       showTemp(`Chop ${k + 1}`, sliceText(next), { encoder: index });
       break;
     }

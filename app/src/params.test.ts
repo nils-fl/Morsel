@@ -201,3 +201,15 @@ describe("screen text", () => {
     }
   });
 });
+
+describe("Pad 2 page", () => {
+  it("sets the selected pad's choke group, Off to 4", () => {
+    set({ project: defaultProject(), selectedTrack: "drums", drumTrack: "drums", selectedPad: 2 });
+    const choke = PAGES.find((p) => p.tag === "PAD2")!.params.find((p) => p.name === "Choke")!;
+    expect(choke.format()).toBe("Off");
+    for (let i = 0; i < 6; i++) choke.nudge(1, false);
+    expect(choke.format()).toBe("Group 4");
+    choke.nudge(-1, false);
+    expect(get().project.tracks[0].pads[2].choke).toBe(3);
+  });
+});

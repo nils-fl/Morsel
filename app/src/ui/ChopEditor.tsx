@@ -5,7 +5,7 @@ import { chopOriginal, confirmDeleteSample, cropSample, finishChop, openInChop, 
 import { MAX_CHOPS, addMarker, beatsLabel, clampView, moveMarker, removeMarker, slicesFromMarkers, zeroCrossing } from "../audio/chop";
 import { engine } from "../audio/engine";
 import {
-  CHOP_KEY0, assignChop, autoChop, bpmText, chopLooping, chopPadOf, chopPlay, chopPlayhead, chopPlaying, chopPlaySlice, chopRack, chopStop, chopTempo,
+  CHOP_KEY0, assignChop, autoChop, setChopOpts, bpmText, chopLooping, chopPadOf, chopPlay, chopPlayhead, chopPlaying, chopPlaySlice, chopRack, chopStop, chopTempo,
   chopToggleLoop, minSpan, newChop, updateChop,
 } from "../modes/chop";
 import { enterChopHw } from "../modes/controller";
@@ -324,7 +324,7 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
   // The selected chop: the one starting at the selected marker.
   const cur = sel !== null && sel < slices.length ? sel : null;
   const opts = cur !== null ? (chop.slices[cur] ?? DEFAULT_SLICE) : null;
-  const setOpts = (patch: Partial<typeof DEFAULT_SLICE>) => cur !== null && updateChop((c) => ({ slices: c.slices.map((o, j) => (j === cur ? { ...o, ...patch } : o)) }));
+  const setOpts = (patch: Partial<typeof DEFAULT_SLICE>) => cur !== null && setChopOpts([cur], patch);
   const tempo = chopTempo(chop, buffer);
   const looping = playhead !== null && chopLooping();
 

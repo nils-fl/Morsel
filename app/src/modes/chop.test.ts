@@ -209,3 +209,29 @@ describe("the view follows the selected marker", () => {
     expect(get().chop!.view[1]).toBeCloseTo(1, 6);
   });
 });
+
+describe("changing a chop after it is on a pad", () => {
+  it("changes the pads holding it too", () => {
+    session(null);
+    chopKeyDown(CHOP_KEY0 + 1, 100);
+    chopPad(3, 100);
+    chopPad(7, 100); // the same chop on two pads
+    chopEncoder(7, -1, false); // choke off
+    chopEncoder(6, 1, false); // +1 st
+    const pads = chopRack()!.pads;
+    expect([pads[3].choke, pads[7].choke]).toEqual([0, 0]);
+    expect([pads[3].pitch, pads[7].pitch]).toEqual([1, 1]);
+  });
+  it("Shift + encoder 8 sets every chop's pads", () => {
+    session(null);
+    chopKeyDown(CHOP_KEY0, 100);
+    chopPad(0, 100);
+    chopKeyUp(CHOP_KEY0);
+    chopKeyDown(CHOP_KEY0 + 2, 100);
+    chopPad(1, 100);
+    chopEncoder(7, -1, true);
+    expect(chopRack()!.pads.slice(0, 2).map((p) => p.choke)).toEqual([0, 0]);
+    chopEncoder(7, 1, true);
+    expect(chopRack()!.pads.slice(0, 2).map((p) => p.choke)).toEqual([1, 1]);
+  });
+});
