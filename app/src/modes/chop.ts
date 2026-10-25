@@ -76,11 +76,11 @@ export const chopBuffer = () => {
   return c ? engine.buffer(c.sampleId) : undefined;
 };
 
-/** Centre the view on `f` when it is off screen. */
-function reveal(c: ChopSession, f: number, min: number): [number, number] {
-  const [v0, v1] = c.view;
-  if (f >= v0 && f <= v1) return c.view;
-  return clampView(f - (v1 - v0) / 2, v1 - v0, min);
+/** The view, same zoom, with `f` in the middle: the waveform scrolls under a selected or moving marker. At the sample's
+ *  start and end it stops at the edge, and the marker moves off centre. */
+function centerOn(c: ChopSession, f: number, min: number): [number, number] {
+  const span = c.view[1] - c.view[0];
+  return clampView(f - span / 2, span, min);
 }
 
 /** The chop with marker `sel` as its start, or null when the selection is the region's end (or nothing). */
@@ -258,7 +258,7 @@ export function chopStepMarker(dir: 1 | -1) {
   if (!c || !buf) return;
   const n = c.markers.length;
   const sel = c.sel === null ? (dir > 0 ? 0 : n - 1) : Math.max(0, Math.min(n - 1, c.sel + dir));
-  updateChop({ sel, view: reveal(c, c.markers[sel], minSpan(buf)) });
+  updateChop({ sel, view: centerOn(c, c.markers[sel], minSpan(buf)) });
   showTemp("Marker", `${sel + 1}/${n} ${time(c.markers[sel], buf)}`);
 }
 
@@ -330,7 +330,7 @@ export function chopEncoder(index: number, delta: number, fine: boolean) {
       m = Math.max(lo, Math.min(hi, m));
       const markers = c.markers.slice();
       markers[i] = m;
-      updateChop({ markers, view: reveal(c, m, min) });
+      updateChop({ markers, view: centerOn(c, m, min) });
       showTemp(`Marker ${i + 1}`, time(m, buf));
       break;
     }
@@ -379,7 +379,7 @@ function tempoEncoder(c: ChopSession, buf: AudioBuffer, index: number, delta: nu
       const step = Math.max(1, Math.round((span * buf.length) / (fine ? 1024 : 128)));
       const at = zeroCrossing(buf.getChannelData(0), c.markers[i] + (delta * step) / buf.length, Math.floor(step / 2));
       const markers = trimRegion(c.markers, index === 0 ? "start" : "end", at, MIN_GAP_S / buf.duration);
-      updateChop({ markers, sel: i === 0 ? 0 : markers.length - 1, view: reveal(c, markers[i === 0 ? 0 : markers.length - 1], min) });
+      updateChop({ markers, sel: i === 0 ? 0 : markers.length - 1, view: centerOn(c, markers[i === 0 ? 0 : markers.length - 1], min) });
       const next = get().chop!;
       followLoop(next);
       const t = chopTempo(next, buf);
@@ -415,7 +415,7 @@ export function chopKeyDown(note: number, vel: number) {
   if (k < 0 || k >= n) return showTemp(noteName(note), k < 0 ? `Chop 1 is ${noteName(CHOP_KEY0)}` : `Only ${n} chops`);
   heldChops = [...heldChops.filter((h) => h.note !== note), { note, k }];
   chopPlaySlice(k, 0.2 + 0.8 * (vel / 127));
-  updateChop({ sel: k, view: reveal(c, c.markers[k], minSpan(buf)) });
+  updateChop({ sel: k, view: centerOn(c, c.markers[k], minSpan(buf)) });
   const pad = chopPadOf(get(), k);
   showTemp(`Chop ${k + 1} ${noteName(note)}`, pad >= 0 ? `On pad ${pad + 1}` : `${sliceText(c.slices[k] ?? DEFAULT_SLICE)} ${time(c.markers[k + 1] - c.markers[k], buf)}`);
 }

@@ -176,3 +176,36 @@ describe("Tempo page", () => {
     expect(get().chop!.toBpm).toBeCloseTo(91.1);
   });
 });
+
+describe("the view follows the selected marker", () => {
+  const centre = () => (get().chop!.view[0] + get().chop!.view[1]) / 2;
+
+  it("keeps a moving marker in the middle, the waveform scrolling under it", () => {
+    session(2);
+    updateChop({ view: [0.4, 0.6] });
+    for (let i = 0; i < 20; i++) chopEncoder(3, 1, false);
+    expect(centre()).toBeCloseTo(get().chop!.markers[2], 6);
+    expect(get().chop!.view[1] - get().chop!.view[0]).toBeCloseTo(0.2, 6); // same zoom
+  });
+
+  it("centres a marker picked with encoder 3 or a key", () => {
+    session(null);
+    updateChop({ view: [0.6, 0.8] });
+    chopKeyDown(CHOP_KEY0 + 1, 100);
+    expect(centre()).toBeCloseTo(0.25, 6);
+    chopEncoder(2, 1, false);
+    expect(centre()).toBeCloseTo(0.5, 6);
+  });
+
+  it("stops at the sample's start and end, where the marker can't be centred", () => {
+    session(null);
+    updateChop({ view: [0.4, 0.6] });
+    chopEncoder(2, 1, false); // marker 1, at 0
+    expect(get().chop!.view).toEqual([0, expect.closeTo(0.2, 6)]);
+    session(3);
+    updateChop({ view: [0.2, 0.4] });
+    chopEncoder(2, -1, false);
+    chopEncoder(2, 1, false); // marker 4, at the end
+    expect(get().chop!.view[1]).toBeCloseTo(1, 6);
+  });
+});
