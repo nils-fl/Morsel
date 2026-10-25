@@ -1,6 +1,8 @@
 // The 8 encoders of the current page as small knobs: arc = value, name and formatted value beside it. They turn like
-// the Launchkey's: drag up or down, scroll, or the arrow keys, Shift for fine steps.
+// the Launchkey's: drag up or down, scroll, or the arrow keys, Shift for fine steps. In Chop mode they are the Chop or
+// Tempo page's encoders, as on the Launchkey.
 import { useEffect, useRef, useState } from "react";
+import { chopPageInfo, chopParams, chopSetPage } from "../modes/chop";
 import { turnPageEncoder } from "../modes/controller";
 import { PAGES, pagesFor, type Param } from "../params";
 import { selectedTrack, set, useApp } from "../state/store";
@@ -33,8 +35,34 @@ function Knob({ value, range }: { value: number; range: [number, number] }) {
   );
 }
 
+/** One detent (or a whole step, for a key press) of encoder `index`: delta's sign is the direction. */
+type Turn = (index: number, delta: number, fine: boolean, whole?: boolean) => void;
+
 export function EncoderStrip() {
   useApp((s) => s); // values come from the store via the params, so redraw on any change
+  const chopPage = useApp((s) => (s.hwMode === "chop" && s.chop ? s.chop.page : null));
+  if (chopPage) {
+    // The Launchkey's encoders scroll, zoom and move markers in Chop: show (and turn) those.
+    const params = chopParams();
+    const turnChop: Turn = (i, d, fine) => params[i]?.nudge(d, fine);
+    return (
+      <div className="enc-strip">
+        <button
+          className="enc-tag" onClick={() => chopSetPage(chopPage === "chop" ? "tempo" : "chop")}
+          title="Chop's encoder pages: Chop (markers, chops) and Tempo (region, stretch). Click for the other one (Launchkey: Encoder page ⌃ / ⌄)"
+        >
+          <b>CHOP {chopPage === "chop" ? 1 : 2}/2</b><span>{chopPageInfo()}</span>
+        </button>
+        <div className="enc-knobs">
+          {Array.from({ length: 8 }, (_, i) => <EncoderCell key={i} index={i} p={params[i]} turn={turnChop} />)}
+        </div>
+      </div>
+    );
+  }
+  return <PageStrip />;
+}
+
+function PageStrip() {
   const encPage = useApp((s) => s.encPage);
   // Only the pages of the selected track's kind (no Pad pages on a keys track, no Keys page on a drum track).
   const pages = pagesFor(useApp(selectedTrack).kind);
@@ -46,20 +74,25 @@ export function EncoderStrip() {
         <b>ENC {at + 1}/{pages.length}</b><span>{page.name}</span>
       </button>
       <div className="enc-knobs">
-        {Array.from({ length: 8 }, (_, i) => <EncoderCell key={i} page={pages[at]} index={i} p={page.params[i]} />)}
+        {Array.from({ length: 8 }, (_, i) => <EncoderCell key={i} index={i} p={page.params[i]} turn={(j, d, fine, whole) => turnPageEncoder(pages[at], j, d, fine, whole)} />)}
       </div>
     </div>
   );
 }
 
 /** One encoder: turned as on the Launchkey, so the screen shows the value too. */
-function EncoderCell({ page, index, p }: { page: number; index: number; p: Param | undefined }) {
+function EncoderCell({ index, p, turn: turnOne }: { index: number; p: Param | undefined; turn: Turn }) {
   const ref = useRef<HTMLDivElement>(null);
   const drag = useRef<number | null>(null); // the pointer's y at the last detent
   const [turning, setTurning] = useState(false);
+  // The wheel listener stays bound across renders; it turns through the latest callback.
+  const turnRef = useRef(turnOne);
+  useEffect(() => {
+    turnRef.current = turnOne;
+  });
   // Detent by detent, like the hardware, so list params (presets, kits) step one entry each.
   const turn = (detents: number, fine: boolean, whole = false) => {
-    for (let k = 0; k < Math.abs(detents); k++) turnPageEncoder(page, index, Math.sign(detents), fine, whole);
+    for (let k = 0; k < Math.abs(detents); k++) turnRef.current(index, Math.sign(detents), fine, whole);
   };
   const live = !!p;
   useEffect(() => {
@@ -73,11 +106,11 @@ function EncoderCell({ page, index, p }: { page: number; index: number; p: Param
       acc -= (e.deltaY || e.deltaX) * (e.deltaMode === 1 ? 16 : 1);
       const d = Math.trunc(acc / WHEEL_PX);
       acc -= d * WHEEL_PX;
-      for (let k = 0; k < Math.abs(d); k++) turnPageEncoder(page, index, Math.sign(d), e.shiftKey);
+      for (let k = 0; k < Math.abs(d); k++) turnRef.current(index, Math.sign(d), e.shiftKey);
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [page, index, live]);
+  }, [index, live]);
   if (!p) {
     return (
       <div className="enc-knob empty" title={`Encoder ${index + 1}: unused`}>

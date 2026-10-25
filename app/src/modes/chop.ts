@@ -11,6 +11,7 @@ import { freeChokeGroup } from "../state/pads";
 import { addTrack, defaultPad, drumTrack, get, set, updateTrack } from "../state/store";
 import { DEFAULT_SLICE, PAD_COUNT, type ChopSession, type Pad, type SliceOpts, type Track } from "../state/types";
 import { noteName } from "../ui/notes";
+import type { Param } from "../params";
 import { showTemp } from "./notify";
 
 /** Narrowest view: 512 samples across the screen. */
@@ -473,6 +474,48 @@ export function chopPadLeds(held: Set<number>) {
     const color: number = pad?.sampleId ? pad.color : taking ? COLOR.dimWhite : COLOR.off;
     return { color, mode: taking ? ("pulse" as const) : ("static" as const) };
   });
+}
+
+/** The encoders of the Chop or Tempo page as params, for the on-screen encoder strip: names, values, and turning them
+ *  as the Launchkey's encoders do (chopEncoder, popups included). Empty without an open chop. */
+export function chopParams(): Param[] {
+  const c = get().chop, buf = chopBuffer();
+  if (!c || !buf) return [];
+  const turn = (i: number) => (d: number, fine: boolean) => chopEncoder(i, d, fine);
+  // The strip's cells are narrow: short names, seconds to two places.
+  const secs = (f: number) => `${(f * buf.duration).toFixed(f * buf.duration < 100 ? 2 : 1)}s`;
+  const n = c.markers.length;
+  if (c.page === "tempo") {
+    const t = chopTempo(c, buf);
+    return [
+      { name: "Start", value: () => c.markers[0], range: [0, 1], nudge: turn(0), format: () => secs(c.markers[0]) },
+      { name: "End", value: () => c.markers[n - 1], range: [0, 1], nudge: turn(1), format: () => secs(c.markers[n - 1]) },
+      { name: "Length", value: () => t.beats, range: [1, 64], nudge: turn(2), format: () => beatsLabel(t.beats) },
+      { name: "To BPM", value: () => c.toBpm, range: [40, 240], nudge: turn(3), format: () => bpmText(c.toBpm) },
+    ];
+  }
+  const [v0, v1] = c.view;
+  const k = selectedChop(c);
+  const o = k !== null ? (c.slices[k] ?? DEFAULT_SLICE) : null;
+  return [
+    { name: "Scroll", value: () => v0, range: [0, Math.max(1e-9, 1 - (v1 - v0))], nudge: turn(0), format: () => secs(v0) },
+    { name: "Zoom", value: () => Math.log(1 / (v1 - v0)), range: [0, Math.log(1 / minSpan(buf))], nudge: turn(1), format: () => `${(1 / (v1 - v0)).toFixed(1)}x` },
+    { name: "Marker", value: () => c.sel ?? 0, range: [0, n - 1], nudge: turn(2), format: () => (c.sel === null ? "–" : `${c.sel + 1}/${n}`) },
+    { name: "Move", value: () => (c.sel === null ? 0 : c.markers[c.sel]), range: [0, 1], nudge: turn(3), format: () => (c.sel === null ? "–" : secs(c.markers[c.sel])) },
+    { name: "Chops", value: () => c.count, range: [2, MAX_CHOPS], nudge: turn(4), format: () => `≤${c.count}` },
+    { name: "Sens", value: () => c.sens, range: [0, 1], nudge: turn(5), format: () => `${Math.round(c.sens * 100)}%` },
+    { name: "Pitch", value: () => o?.pitch ?? 0, range: [-24, 24], nudge: turn(6), format: () => (o ? `${o.pitch > 0 ? "+" : ""}${o.pitch} st` : "–") },
+    { name: "Choke", value: () => (o?.choke ? 1 : 0), range: [0, 1], nudge: turn(7), format: () => (o ? (o.choke ? "On" : "Off") : "–") },
+  ];
+}
+
+/** The encoder strip's page label in Chop, short like the other pages' names: the page, and the chop selected. */
+export function chopPageInfo(): string {
+  const c = get().chop;
+  if (!c) return "";
+  if (c.page === "tempo") return "Tempo";
+  const k = selectedChop(c);
+  return k === null ? "Chop" : `Chop ${k + 1}`;
 }
 
 // Peaks of the visible window, recomputed only when the view changes.
