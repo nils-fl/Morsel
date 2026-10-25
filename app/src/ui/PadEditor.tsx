@@ -43,34 +43,43 @@ export function PadEditor() {
         }
       >
         <Waveform color={paletteCss(pad.color)} buffer={buffer} start={pad.start} end={pad.end} slices={slices} onChange={(start, end) => up({ start, end })} />
-        <div className="row wrap">
-          <Field label="Name">
-            <input value={pad.name} maxLength={12} onChange={(e) => up({ name: e.target.value })} />
-          </Field>
-          <Field label="Sample">
-            <SamplePicker value={pad.sampleId} onPick={(id) => up({ sampleId: id, start: 0, end: 1 })} folderAction={{
-              label: "Folder → pads",
-              title: "Put this folder's first 16 samples on pads 1–16 as a kit",
-              run: folderToPads,
-            }} />
-          </Field>
-          <Field label="Mode">
-            <select value={pad.mode} onChange={(e) => up({ mode: e.target.value as "oneshot" | "gate" })}>
-              <option value="oneshot">One-shot</option>
-              <option value="gate">Note on (gate)</option>
-            </select>
-          </Field>
-          <Field label="Choke">
-            <select value={pad.choke} onChange={(e) => up({ choke: Number(e.target.value) })}>
-              {[0, 1, 2, 3, 4].map((c) => <option key={c} value={c}>{c ? `Group ${c}` : "Off"}</option>)}
-            </select>
-          </Field>
-          <Field label="Reverse">
-            <input type="checkbox" checked={pad.reverse} onChange={(e) => up({ reverse: e.target.checked })} />
-          </Field>
-          <Field label="Colour">
-            <ColorPicker value={pad.color} onPick={(c) => up({ color: c })} label="Pad colour" />
-          </Field>
+        {/* The pad's settings in the same four columns as its sliders below, so both end on one line. */}
+        <div className="slider-groups pad-fields">
+          <div className="slider-group">
+            <Field label="Name">
+              <input value={pad.name} maxLength={12} onChange={(e) => up({ name: e.target.value })} />
+            </Field>
+          </div>
+          <div className="slider-group">
+            <Field label="Sample">
+              <SamplePicker value={pad.sampleId} onPick={(id) => up({ sampleId: id, start: 0, end: 1 })} folderAction={{
+                label: "Folder → pads",
+                title: "Put this folder's first 16 samples on pads 1–16 as a kit",
+                run: folderToPads,
+              }} />
+            </Field>
+          </div>
+          <div className="slider-group">
+            <Field label="Mode">
+              <select value={pad.mode} onChange={(e) => up({ mode: e.target.value as "oneshot" | "gate" })}>
+                <option value="oneshot">One-shot</option>
+                <option value="gate">Note on (gate)</option>
+              </select>
+            </Field>
+            <Field label="Choke">
+              <select value={pad.choke} onChange={(e) => up({ choke: Number(e.target.value) })}>
+                {[0, 1, 2, 3, 4].map((c) => <option key={c} value={c}>{c ? `Group ${c}` : "Off"}</option>)}
+              </select>
+            </Field>
+          </div>
+          <div className="slider-group">
+            <Field label="Reverse">
+              <input type="checkbox" checked={pad.reverse} onChange={(e) => up({ reverse: e.target.checked })} />
+            </Field>
+            <Field label="Colour">
+              <ColorPicker value={pad.color} onPick={(c) => up({ color: c })} label="Pad colour" />
+            </Field>
+          </div>
         </div>
         {/* One column per stage of the sound: what plays, its envelope, its filter, where it goes. */}
         <div className="slider-groups">
@@ -132,7 +141,7 @@ function SampleChopPanel() {
           : `Shift + Record (or ● Sample) arms a take; it starts with the sound${source === "tab" ? " (press play in the tab), up to 2 min" : ", up to 30 s"}. ` +
             (target === "chop" ? "The take opens in Chop with its hits marked; Function on the Launchkey makes a new drum rack." : `The take goes on pad ${pad + 1}.`)}
       </p>
-      <div className="row">
+      <div className="row grow-first">
         <select value={source} disabled={sampling !== "idle"} onChange={(e) => set({ sampleSource: e.target.value as SampleSource })}>
           <option value="input">Audio input</option>
           <option value="master">Resample (master out)</option>
@@ -157,7 +166,7 @@ function SampleChopPanel() {
       <MeterRow label="Level" level={level} value={sampling === "idle" ? "—" : `${Math.round(level * 100)}%`} title="Input level" />
       <h4 className="sub-head">Chop pad {pad + 1}</h4>
       <p className="hint">Slices the pad's region across pads {pad + 1}–{Math.min(16, pad + count)}.</p>
-      <div className="row">
+      <div className="row even">
         <select value={count} onChange={(e) => setCount(Number(e.target.value))}>
           {[2, 4, 8, 16].map((n) => <option key={n} value={n}>{n} slices</option>)}
         </select>

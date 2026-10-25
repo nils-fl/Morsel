@@ -245,6 +245,10 @@ p.hint { margin: 0 0 8px; }
 .section .bezel { max-width: 100%; }
 .section .screen-preview { max-width: 100%; height: auto; }
 .row.wrap { flex-wrap: wrap; align-items: flex-end; }
+/* Rows that end on their panel's edge: the first control takes the slack, or all share the width equally. */
+.row.grow-first > :first-child { flex: 1; min-width: 0; }
+.row.even > * { flex: 1 1 0; min-width: 0; }
+.row > .push-end { margin-left: auto; }
 .row.wrap:has(> .section) { align-items: stretch; }
 .wide { min-width: 420px; }
 .panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; align-content: start; }
@@ -541,6 +545,13 @@ html { overflow-anchor: none; }
 @media (min-width: 901px) and (max-width: 1180px) { .panels .slider-groups { grid-template-columns: minmax(0, 1fr); } .panels .slider-group { padding-right: 0; } }
 @media (max-width: 600px) { .slider-groups, .panels .slider-groups { grid-template-columns: minmax(0, 1fr); } .slider-group { padding-right: 0; } }
 .slider-groups.first { margin-top: 0; }
+/* The pad's settings over its slider columns: fields side by side in each column, filling it. */
+.slider-groups.pad-fields { margin-top: 12px; }
+.pad-fields .slider-group { flex-direction: row; align-items: flex-end; gap: 8px; }
+.pad-fields .field { flex: 1; min-width: 0; }
+.pad-fields .field > input:not([type="checkbox"]), .pad-fields .field > select, .pad-fields .field > button.sample-pick { width: 100%; max-width: none; }
+.pad-fields .slider-group:last-child { justify-content: space-between; }
+.pad-fields .slider-group:last-child .field { flex: none; }
 .slider-group { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .slider-group .sub-head { margin: 0 0 2px; padding-bottom: 4px; border-bottom: 1px solid var(--line); }
 .sliders { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px 28px; margin-top: 14px; }
@@ -584,7 +595,10 @@ html { overflow-anchor: none; }
 
 /* ---------- sequencer ---------- */
 /* Sequencer tools over the grid: small labelled groups divided by hairlines. */
-.seq-toolbar { display: flex; flex-wrap: wrap; align-items: center; row-gap: 10px; margin-bottom: 16px; }
+.seq-toolbar { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.tool-line { display: flex; flex-wrap: wrap; align-items: center; row-gap: 10px; }
+/* The last group of a line sits on the right edge. */
+.tool-group.end { margin-left: auto; padding-right: 0; border-left: none; }
 .tool-group { display: flex; align-items: center; gap: 6px; padding: 0 14px; border-left: 1px solid var(--line); }
 .tool-group:first-child { padding-left: 0; border-left: none; }
 .tool-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; margin-right: 2px; }
@@ -632,11 +646,13 @@ html { overflow-anchor: none; }
   margin: 0 calc(-1 * var(--gutter)); padding: 14px var(--gutter); border-bottom: 1px solid var(--line);
 }
 .keys-source .slider { width: 280px; padding: 0; }
+/* Volume on the right edge, like the panels' actions. */
+.keys-source > .tool-group:last-child { margin-left: auto; padding-right: 0; border-left: none; }
 /* Buttons that are one choice, joined into a single control. */
 .segmented { display: flex; }
 .segmented button + button { margin-left: -1px; }
 /* A select or a switch laid out as a slider row (label, then the control across the bar and value columns). */
-.select-row select { grid-column: 2 / 4; justify-self: start; min-width: 120px; }
+.select-row select { grid-column: 2 / 4; justify-self: stretch; min-width: 0; }
 .toggle-row input { grid-column: 2 / 4; justify-self: start; }
 .channel .select-row select { min-width: 0; width: 100%; }
 /* A meter as a slider row: the bar the height of a slider's, under its label. */
@@ -667,6 +683,7 @@ html { overflow-anchor: none; }
 /* ---------- song ---------- */
 .song-list { padding-left: 0; list-style: none; counter-reset: song; margin: 0; }
 .song-list li { margin: 4px 0; display: flex; align-items: center; gap: 6px; counter-increment: song; }
+.song-list li select { flex: 1; min-width: 0; }
 .song-list li::before {
   content: counter(song, decimal-leading-zero); color: var(--page); background: color-mix(in srgb, var(--page) var(--tint), var(--panel));
   font-size: 10px; padding: 0 6px; font-weight: 700; align-self: stretch; display: flex; align-items: center;

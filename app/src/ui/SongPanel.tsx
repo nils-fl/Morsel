@@ -62,16 +62,19 @@ export function SongPanel() {
         </Section>
 
         <Section title="Export audio">
-          <div className="row">
+          {/* Two lines across the panel: what to bounce, then how (the pattern's loops, the bit depth). */}
+          <div className="row even">
             <button disabled={busy} onClick={() => bounce(true)}>Bounce song to WAV</button>
-            <span className="hint">or</span>
             <button disabled={busy} onClick={() => bounce(false)}>Bounce current pattern</button>
+          </div>
+          <div className="row">
+            <span className="hint">Pattern</span>
             <span>×</span>
-            <input type="number" min={1} max={64} value={loops} onChange={(e) => setLoops(Math.max(1, Math.min(64, Math.round(Number(e.target.value) || 1))))} />
+            <input type="number" min={1} max={64} value={loops} onChange={(e) => setLoops(Math.max(1, Math.min(64, Math.round(Number(e.target.value) || 1))))} aria-label="Pattern loops" />
             <span className="hint">loops</span>
-            <select value={bits} onChange={(e) => set({ bounceBits: Number(e.target.value) as 16 | 24 })} aria-label="Bit depth">
-              <option value={24}>24-bit</option>
-              <option value={16}>16-bit</option>
+            <select className="push-end" value={bits} onChange={(e) => set({ bounceBits: Number(e.target.value) as 16 | 24 })} aria-label="Bit depth">
+              <option value={24}>24-bit WAV</option>
+              <option value={16}>16-bit WAV</option>
             </select>
           </div>
         </Section>
