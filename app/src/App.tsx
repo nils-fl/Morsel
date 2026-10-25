@@ -151,11 +151,19 @@ export default function App() {
   );
 }
 
-/** The browser only starts audio after a click or key press on the page; the window listeners in the engine resume it. */
+/** The browser only starts audio after a click or key press on the page; the window listeners in the engine resume it.
+ *  The same click asks for the connected folders the browser forgot (browse/disk.ts). */
 function AudioBanner() {
   const ready = useApp((s) => s.audioReady);
+  const folders = useApp((s) => s.folders.filter((f) => f.access === "prompt").length);
   if (ready) return null;
-  return <button className="audio-banner">Audio is paused by the browser. Click anywhere to start it.</button>;
+  return (
+    <button className="audio-banner">
+      {folders
+        ? `Audio is paused and ${folders === 1 ? "a sample folder needs" : `${folders} sample folders need`} the browser's permission again. Click anywhere to start both.`
+        : "Audio is paused by the browser. Click anywhere to start it."}
+    </button>
+  );
 }
 
 /** Wide windows draw the screen preview at 3x (192 px tall: the Pattern, Track and Launchkey rows plus the encoders);

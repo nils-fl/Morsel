@@ -59,8 +59,9 @@ const web: DiskBackend = {
   async reconnect(f) {
     try {
       return (await f.handle!.requestPermission?.({ mode: "read" })) ?? "granted";
-    } catch {
-      return "missing";
+    } catch (err) {
+      // Gone from disk, or the browser wouldn't ask (no click to ask with): then Reconnect stays.
+      return (err as DOMException).name === "NotFoundError" ? "missing" : "prompt";
     }
   },
   forget() {},
@@ -135,6 +136,36 @@ export async function initDisk() {
   if (!diskSupported()) return;
   roots = await Promise.all((await loadFolders()).map(async (f) => ({ ...f, access: await backend.access(f) })));
   publish();
+  if (!native && roots.some((r) => r.access === "prompt")) reconnectOnFirstClick();
+}
+
+/**
+ * A browser forgets the folders' permission when it restarts, and only asks for it again from a click. The first click
+ * or key press on the page (the one that also starts audio) asks for all of them, so one click brings back both.
+ * Folders it doesn't get back keep their Reconnect button.
+ */
+function reconnectOnFirstClick() {
+  const once = () => {
+    window.removeEventListener("pointerdown", once, true);
+    window.removeEventListener("keydown", once, true);
+    void reconnectForgotten();
+  };
+  window.addEventListener("pointerdown", once, true);
+  window.addEventListener("keydown", once, true);
+}
+
+async function reconnectForgotten() {
+  const asked = roots.filter((r) => r.access === "prompt");
+  // All asked at once, while the click still counts.
+  const results = await Promise.all(asked.map((r) => backend.reconnect(r)));
+  asked.forEach((r, i) => {
+    r.access = results[i];
+    forget(rootPath(r.name));
+  });
+  publish();
+  bump();
+  const back = asked.filter((r) => r.access === "granted").map((r) => r.name);
+  if (back.length) set({ status: `Reconnected ${back.join(", ")}` });
 }
 
 /** The folder picker (needs a click in a browser). Returns the connected folder's name, or undefined when cancelled. */

@@ -99,7 +99,7 @@ Load samples by dropping audio files onto an on-screen pad, or use **Import fold
 The same app in its own window ([Electron](https://www.electronjs.org/), so it runs on Chromium as in Chrome). It adds what a browser can't do:
 
 - No permission prompts for MIDI, SysEx or the microphone, and audio starts without a click first.
-- Connected sample folders stay readable after a restart (a browser asks again).
+- Connected sample folders stay readable after a restart. (A browser forgets the permission when it restarts: the first click on the page, the one that starts audio, asks for every connected folder again, and Reconnect next to a folder is there if that didn't work.)
 - The sequencer keeps time while the window is in the background or hidden, and the Mac doesn't nap the app while it plays.
 - An app menu (⌘, Preferences, ⌘N New project, ⌘Z / ⇧⌘Z undo and redo), and the window remembers where it was.
 - Preferences in `~/Library/Application Support/Morsel/preferences.json`, with *Open in full screen* added.
