@@ -1,7 +1,7 @@
 import { engine } from "../audio/engine";
 import { scheduleNote } from "../audio/voices";
-import { addEvent, clipOf, get, markUndo, patternLength, set, setEventLength, trackLength, updateClip } from "../state/store";
-import type { Clip, NoteEvent } from "../state/types";
+import { addEvent, clipOf, get, markUndo, patternLength, set, setEventLength, touchesTrack, trackLength, updateClip } from "../state/store";
+import type { Clip, NoteEvent, Project } from "../state/types";
 import { BAR_TICKS, PPQN, quantizeTick, secondsPerTick, soundTick, swingOffsetTicks } from "./timing";
 
 const LOOKAHEAD = 0.12; // seconds scheduled ahead
@@ -66,8 +66,9 @@ class Sequencer {
   private erasing = new Set<string>();
   /** Whether this erase (from the first note held to the last let go) already has its undo step. */
   private eraseOpen = false;
-  /** Whether this take already has its undo step (made on its first recorded note, so Undo removes the whole take). */
-  private takeOpen = false;
+  /** The loop pass each track is recording into (`pattern:pass`), and the undo snapshot this recording made last. */
+  private takes = new Map<string, string>();
+  private takeSnapshot: Project | null = null;
 
   /** Start erasing a note (a drum track's pad) of a track. */
   eraseStart(track: string, note: number) {
@@ -81,20 +82,30 @@ class Sequencer {
 
   /** Delete notes the playhead reached while held for erasing. All of one erase is one undo step. */
   private erase(track: string, ids: Set<string>) {
-    if (!this.eraseOpen) markUndo();
+    if (!this.eraseOpen) markUndo(true);
     this.eraseOpen = true;
     updateClip(this.pattern, track, (events) => events.filter((e) => !ids.has(e.id)), false);
   }
 
   /** Recording (re)starts: the next recorded note opens a new undo step. */
   newTake() {
-    this.takeOpen = false;
+    this.takes.clear();
+    this.takeSnapshot = null;
   }
 
-  private beginTake() {
-    if (this.takeOpen) return;
-    markUndo();
-    this.takeOpen = true;
+  /**
+   * A note recorded on `track` in loop pass `pass` (of its own clip): each pass of each track is one undo step, so
+   * Shift + Func takes back the last pass of the selected track. Passes of several tracks recorded together share
+   * the snapshot as long as it still holds the track as it was (undoing one track restores only that track).
+   */
+  private beginTake(track: string, pass: string) {
+    if (this.takes.get(track) === pass) return;
+    this.takes.set(track, pass);
+    const s = get();
+    const last = s.undo[s.undo.length - 1];
+    if (last && last === this.takeSnapshot && !touchesTrack(last, s.project, track)) return;
+    markUndo(true);
+    this.takeSnapshot = get().undo.at(-1) ?? null;
   }
 
   start(opts: { countIn?: boolean } = {}) {
@@ -190,7 +201,7 @@ class Sequencer {
             if (recording && eventsByTick(clipOf(pat, track), trackLen).get(local)?.some((e) => e.note === pad)) continue;
             engine.voices.pad(track, pad, vel, when, s.repeatRate * spt, true);
             if (recording) {
-              this.beginTake();
+              this.beginTake(track, `${this.pattern}:${Math.floor(tick / trackLen)}`);
               addEvent(this.pattern, track, { tick: local, note: pad, vel, len: s.repeatRate });
             }
           }
@@ -268,9 +279,9 @@ class Sequencer {
 
   /**
    * Where a live hit on `track` is recorded: `tick` in the track's clip, and `at`, the pattern tick it lands on (the
-   * next pass of the clip when quantised forward past its end).
+   * next pass of the clip when quantised forward past its end), and `pass`, which loop pass of the clip that is.
    */
-  private recordTick(track: string, at: number): { tick: number; pattern: number; at: number } | null {
+  private recordTick(track: string, at: number): { tick: number; pattern: number; at: number; pass: string } | null {
     const s = get();
     if (!s.recording || s.countIn) return null;
     const pos = this.tickAt(at);
@@ -279,7 +290,8 @@ class Sequencer {
     const local = pos.tick % len;
     const tick = quantizeTick(local, s.quantize, len);
     const wrapped = tick < local - len / 2;
-    return { tick, pattern: pos.pattern, at: Math.round(pos.tick - local) + tick + (wrapped ? len : 0) };
+    const where = Math.round(pos.tick - local) + tick + (wrapped ? len : 0);
+    return { tick, pattern: pos.pattern, at: where, pass: `${pos.pattern}:${Math.floor(where / len)}` };
   }
 
   private skipIfAhead(ev: NoteEvent, r: { pattern: number; at: number }) {
@@ -291,7 +303,7 @@ class Sequencer {
   recordPad(track: string, pad: number, vel: number, at: number) {
     const r = this.recordTick(track, at);
     if (!r) return;
-    this.beginTake();
+    this.beginTake(track, r.pass);
     const ev = addEvent(r.pattern, track, { tick: r.tick, note: pad, vel, len: get().quantize || 24 });
     this.skipIfAhead(ev, r);
   }
@@ -299,7 +311,7 @@ class Sequencer {
   recordKeyOn(track: string, note: number, vel: number, at: number) {
     const r = this.recordTick(track, at);
     if (!r) return;
-    this.beginTake();
+    this.beginTake(track, r.pass);
     const ev = addEvent(r.pattern, track, { tick: r.tick, note, vel, len: 24 });
     this.skipIfAhead(ev, r);
     const pos = this.tickAt(at);

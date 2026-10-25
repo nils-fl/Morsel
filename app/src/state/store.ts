@@ -560,17 +560,29 @@ export function usedSampleIds(p: Project) {
 
 // ---------- project mutations ----------
 
+/**
+ * What each undo step changed, keyed by the snapshot taken before it: the project right after it (an undoable edit), or
+ * "clips" for a step made of many small edits to clips (a recorded pass, an erase, held steps). Knob moves aren't steps:
+ * they land in whatever step is open, and this keeps undoing one track from taking them back with it.
+ */
+const stepResult = new WeakMap<Project, Project | "clips">();
+
 export function updateProject(fn: (p: Project) => Project, undoable = true) {
   const s = get();
   const next = fn(s.project);
   if (next === s.project) return;
+  if (undoable) stepResult.set(s.project, next);
   // Any change, undoable or not, starts a new history: redoing would throw it away.
   set({ project: next, undo: undoable ? [...s.undo.slice(-49), s.project] : s.undo, redo: [] });
 }
 
-/** Remember the project as it is now as an undo step, for changes made in many small non-undoable edits (a recorded take). */
-export function markUndo() {
+/**
+ * Remember the project as it is now as an undo step, for changes made in many small non-undoable edits. `clips`: they
+ * only edit clips (a recorded pass, an erase), so undoing the step on one track leaves its sound alone.
+ */
+export function markUndo(clips = false) {
   const s = get();
+  if (clips) stepResult.set(s.project, "clips");
   set({ undo: [...s.undo.slice(-49), s.project], redo: [] });
 }
 
@@ -578,6 +590,94 @@ export function undo() {
   const s = get();
   const prev = s.undo[s.undo.length - 1];
   if (prev) set({ project: prev, undo: s.undo.slice(0, -1), redo: [...s.redo, s.project] });
+}
+
+/** Did going from `a` to `b` change track `id`: the track itself (sound, pads, mixer) or its clip in any pattern? */
+export function touchesTrack(a: Project, b: Project, id: string) {
+  return trackById(a, id) !== trackById(b, id) || a.patterns.some((pat, k) => pat.clips[id] !== b.patterns[k]?.clips[id]);
+}
+
+/** Going from `a` to `b` changed nothing but track `id` (and the pattern lengths its clips set). */
+function onlyTouches(a: Project, b: Project, id: string) {
+  const { tracks: ta, patterns: pa, ...ra } = a;
+  const { tracks: tb, patterns: pb, ...rb } = b;
+  const keys = Object.keys(ra) as (keyof typeof ra)[];
+  if (keys.some((k) => ra[k] !== rb[k]) || ta.length !== tb.length) return false;
+  if (ta.some((t, i) => t.id !== tb[i].id || (t.id !== id && t !== tb[i]))) return false;
+  return pa.every((pat, k) => {
+    const other = pb[k];
+    const ids = new Set([...Object.keys(pat.clips), ...Object.keys(other.clips)]);
+    return [...ids].every((cid) => cid === id || pat.clips[cid] === other.clips[cid]);
+  });
+}
+
+/** What step `i` of `history` (snapshots, the current project last) changed on track `id`: its settings, which clips. */
+function stepParts(history: Project[], i: number, id: string) {
+  const before = history[i];
+  const result = stepResult.get(before);
+  const after = result && result !== "clips" ? result : history[i + 1];
+  const track = result !== "clips" && trackById(before, id) !== trackById(after, id);
+  const clips = before.patterns.map((pat, k) => pat.clips[id] !== after.patterns[k]?.clips[id]);
+  return { after, track, clips, any: track || clips.some(Boolean) };
+}
+
+/** `p` with the parts of track `id` a step changed put back as they were in `src`. Pattern lengths follow the clips. */
+function withTrackOf(p: Project, src: Project, parts: { track: boolean; clips: boolean[] }, id: string): Project {
+  if (!trackById(p, id)) return p;
+  return {
+    ...p,
+    tracks: parts.track ? p.tracks.map((t) => (t.id === id ? trackById(src, id)! : t)) : p.tracks,
+    patterns: p.patterns.map((pat, k) => {
+      const srcPat = src.patterns[k];
+      const clip = srcPat.clips[id];
+      if (!parts.clips[k] || clip === pat.clips[id]) return pat;
+      const { [id]: _old, ...others } = pat.clips;
+      const clips = clip ? { ...others, [id]: clip } : others;
+      const bars = Math.max(1, clip ? (clip.bars ?? srcPat.bars) : 1, ...Object.values(others).map((c) => c.bars ?? pat.bars));
+      return { ...pat, clips, bars };
+    }),
+  };
+}
+
+/** Undo steps (of the history so far) that changed track `id`. */
+export function trackUndoSteps(s: AppState, id: string) {
+  const history = [...s.undo, s.project];
+  return history.slice(0, -1).filter((_, i) => stepParts(history, i, id).any).length;
+}
+
+/**
+ * Undo the last change to one track (Shift + Func): its last recorded pass, step edit or pad change. Changes to other
+ * tracks made since stay. The rest of the history learns the track's earlier state too, so a later project-wide undo
+ * can't bring the change back, and Redo puts it back. Returns false when there is nothing to undo on the track.
+ */
+export function undoTrack(id: string): boolean {
+  const s = get();
+  const history = [...s.undo, s.project];
+  let i = history.length - 2;
+  while (i >= 0 && !stepParts(history, i, id).any) i--;
+  if (i < 0) return false;
+  const before = history[i];
+  if (!trackById(before, id)) {
+    // That step made the track: only the newest step can be taken back that way (the project-wide undo).
+    if (i !== history.length - 2) return false;
+    undo();
+    return true;
+  }
+  const parts = stepParts(history, i, id);
+  const empty = onlyTouches(before, parts.after, id);
+  const patched = history.map((p, j) => {
+    if (j <= i) return p;
+    const q = withTrackOf(p, before, parts, id);
+    // The later steps keep what they changed, re-expressed with the track as it is now.
+    const result = stepResult.get(p);
+    if (result) stepResult.set(q, result === "clips" ? result : withTrackOf(result, before, parts, id));
+    return q;
+  });
+  const project = patched.pop()!;
+  // A step that changed only this track is now empty: drop it.
+  if (empty) patched.splice(i, 1);
+  set({ project, undo: patched, redo: [...s.redo, s.project] });
+  return true;
 }
 
 /** Take back the last undo (until something else changes the project). */

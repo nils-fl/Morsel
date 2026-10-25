@@ -9,7 +9,7 @@ import { makeTicker, sequencer } from "../seq/sequencer";
 import { PPQN, REPEAT_OPTIONS, pageSteps, rowSteps } from "../seq/timing";
 import {
   type AppState, clearTrack, clipOf, copyClip, copyPattern, drumPads, drumTrack, editStep, get, keysTrack, markUndo, padDucks, patternHasNotes, selectTrack,
-  selectedTrack, set, stepEvents, stepTrack, store, togglePadFlag, toggleStep, toggleTrackFlag, trackAudible, trackBars, trackLength, clipStep, stepPages, undo, updateProject, PAD_COLORS,
+  selectedTrack, set, stepEvents, stepTrack, store, togglePadFlag, toggleStep, toggleTrackFlag, trackAudible, trackBars, trackLength, trackUndoSteps, clipStep, stepPages, undoTrack, updateProject, PAD_COLORS,
 } from "../state/store";
 import type { HwMode, KeysInstrument, NoteEvent, Track } from "../state/types";
 import { noteForKeysPad, stepForPad } from "./stepMap";
@@ -590,9 +590,11 @@ function onButton(button: string, down: boolean) {
       break;
     case "func":
       if (s.shift) {
-        const left = s.undo.length - 1;
-        undo();
-        showTemp("Undo", left < 0 ? "Nothing to undo" : `${left} left`);
+        // The selected track's last change (a recorded pass, step edits, pads); other tracks keep theirs.
+        const t = selectedTrack(s);
+        const done = undoTrack(t.id);
+        const label = `Undo T${s.project.tracks.indexOf(t) + 1}`;
+        showTemp(label, done ? `${trackUndoSteps(get(), t.id)} left` : "Nothing to undo");
       } else if (s.hwMode === "play") {
         // Held with pads it erases; the mode switch waits for the release.
         funcHeld = true;
@@ -686,7 +688,7 @@ const onEncoderScreen = (s: AppState) => s.hwMode === "play" && !INSTRUMENT_TAGS
 /** Encoder 1 (velocity, Shift: fine) or 2 (nudge) turned while step pads are held: edit those steps' notes. */
 function editHeldSteps(index: number, delta: number, fine: boolean) {
   if (!heldStepsUndo) {
-    markUndo();
+    markUndo(true);
     heldStepsUndo = true;
   }
   const dVel = index === 0 ? delta * (fine ? 1 : 2) : 0;

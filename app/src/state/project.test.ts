@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DRUMS_ID, KEYS_ID, addEvent, addTrack, clipOf, editStep, markUndo, canRemoveTrack, copyClip, copyPattern, defaultPad, doubleClip, setClipGrid, setTrackBars, clipStep, stepPages, setTrackDuck, setDuckPad, padDucks, toggleSidechainInput, trackBars, defaultProject, fixSelection, get, migrateV1, normalizeProject, removeTrack, resetSession, selectTrack, set, stepTrack, undo, redo, updateProject,
+  DRUMS_ID, KEYS_ID, addEvent, addTrack, clipOf, editStep, markUndo, canRemoveTrack, copyClip, copyPattern, defaultPad, doubleClip, setClipGrid, setTrackBars, clipStep, stepPages, setTrackDuck, setDuckPad, padDucks, toggleSidechainInput, trackBars, defaultProject, fixSelection, get, migrateV1, normalizeProject, removeTrack, resetSession, selectTrack, set, stepTrack, undo, redo, updateProject, undoTrack, trackUndoSteps,
 } from "./store";
 import { MAX_TRACKS, PATTERN_COUNT, type NoteEvent, type Project } from "./types";
 
@@ -492,5 +492,88 @@ describe("undo and redo", () => {
     expect(get().redo).toHaveLength(0);
     redo();
     expect(get().project).toMatchObject({ bpm: 100, swing: 60 });
+  });
+});
+
+describe("undo on one track (Shift + Func)", () => {
+  const notes = (id: string, pattern = 0) => clipOf(get().project.patterns[pattern], id).events.map((e) => e.note);
+
+  it("takes back the track's last change and leaves newer changes on other tracks", () => {
+    reset();
+    addEvent(0, KEYS_ID, { tick: 0, note: 60, vel: 100, len: 24 }, true);
+    addEvent(0, DRUMS_ID, { tick: 0, note: 1, vel: 100, len: 24 }, true);
+    expect(undoTrack(KEYS_ID)).toBe(true);
+    expect(notes(KEYS_ID)).toEqual([]);
+    expect(notes(DRUMS_ID)).toEqual([1]);
+    expect(trackUndoSteps(get(), KEYS_ID)).toBe(0);
+  });
+
+  it("keeps a later project-wide undo from bringing the change back", () => {
+    reset();
+    addEvent(0, KEYS_ID, { tick: 0, note: 60, vel: 100, len: 24 }, true);
+    addEvent(0, DRUMS_ID, { tick: 0, note: 1, vel: 100, len: 24 }, true);
+    undoTrack(KEYS_ID);
+    // Only the drum step is left in the history; undoing it leaves the keys empty too.
+    expect(get().undo).toHaveLength(1);
+    undo();
+    expect([notes(KEYS_ID), notes(DRUMS_ID)]).toEqual([[], []]);
+  });
+
+  it("is put back by Redo", () => {
+    reset();
+    addEvent(0, KEYS_ID, { tick: 0, note: 60, vel: 100, len: 24 }, true);
+    addEvent(0, DRUMS_ID, { tick: 0, note: 1, vel: 100, len: 24 }, true);
+    undoTrack(KEYS_ID);
+    redo();
+    expect([notes(KEYS_ID), notes(DRUMS_ID)]).toEqual([[60], [1]]);
+  });
+
+  it("restores one track of a step that changed several, and keeps the step for the others", () => {
+    reset();
+    markUndo();
+    addEvent(0, KEYS_ID, { tick: 0, note: 60, vel: 100, len: 24 });
+    addEvent(0, DRUMS_ID, { tick: 0, note: 1, vel: 100, len: 24 });
+    undoTrack(KEYS_ID);
+    expect([notes(KEYS_ID), notes(DRUMS_ID)]).toEqual([[], [1]]);
+    expect(trackUndoSteps(get(), DRUMS_ID)).toBe(1);
+    undoTrack(DRUMS_ID);
+    expect(notes(DRUMS_ID)).toEqual([]);
+  });
+
+  it("follows the track's loop length back, and the pattern's with it", () => {
+    reset();
+    setTrackBars(0, KEYS_ID, 4);
+    addEvent(0, DRUMS_ID, { tick: 0, note: 1, vel: 100, len: 24 }, true);
+    undoTrack(KEYS_ID);
+    expect(trackBars(get().project.patterns[0], KEYS_ID)).toBe(1);
+    expect(get().project.patterns[0].bars).toBe(1);
+  });
+
+  it("says when the track has nothing to undo", () => {
+    reset();
+    addEvent(0, DRUMS_ID, { tick: 0, note: 1, vel: 100, len: 24 }, true);
+    expect(undoTrack(KEYS_ID)).toBe(false);
+    expect(notes(DRUMS_ID)).toEqual([1]);
+  });
+
+  it("removes a track it made only when that is the newest change", () => {
+    reset();
+    const id = addTrack("drum")!;
+    expect(undoTrack(id)).toBe(true);
+    expect(get().project.tracks.some((t) => t.id === id)).toBe(false);
+    const id2 = addTrack("drum")!;
+    addEvent(0, KEYS_ID, { tick: 0, note: 60, vel: 100, len: 24 }, true);
+    expect(undoTrack(id2)).toBe(false);
+  });
+});
+
+describe("undo on one track keeps what wasn't part of the step", () => {
+  it("takes back a recorded pass but not a knob turned since", () => {
+    set({ project: defaultProject(), undo: [], redo: [], selectedTrack: DRUMS_ID, drumTrack: DRUMS_ID, keysTrack: KEYS_ID });
+    addEvent(0, KEYS_ID, { tick: 0, note: 60, vel: 100, len: 24 }, true);
+    updateProject((p) => ({ ...p, tracks: p.tracks.map((t) => (t.id === KEYS_ID ? { ...t, level: 0.3 } : t)) }), false);
+    undoTrack(KEYS_ID);
+    expect(clipOf(get().project.patterns[0], KEYS_ID).events).toEqual([]);
+    expect(get().project.tracks.find((t) => t.id === KEYS_ID)!.level).toBe(0.3);
   });
 });

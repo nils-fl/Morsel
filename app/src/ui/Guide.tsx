@@ -22,7 +22,7 @@ const CONTROLS: Record<ControlId, { name: string; does: string; shift?: string }
   padDown: { name: "Pad ⌄", does: "The arrow left of the bottom pad row. Next pattern. Step mode: next page of steps. Browse: open folder / load onto the pad (keys track: onto the keys). Chop: next marker.", shift: "Next track (the device's “Track >”)" },
   pads: { name: "Pads", does: "Depends on the mode (see Modes). In Play they play the selected track: its drum pads, or on a keys track the notes C3–D#4. Pressure (aftertouch) opens the pad's filters on note-repeat hits." },
   scene: { name: "Scene ›", does: "The › button right of the top pad row. Hold while playing drum pads: note repeat at the tempo, playing or stopped; pad pressure sets the repeats' velocity. Press it twice quickly to latch repeat on (held pads repeat without Scene) and once more to stop. Pattern mode: hold + pad adds that pattern to the song. Browse: up a folder (with or without Shift). Chop: add a marker at the playhead (Shift: remove the selected one).", shift: "Clear the selected track's clip in this pattern (Step mode on a drum track: the selected pad's notes)" },
-  func: { name: "Func", does: "The button right of the bottom pad row. Cycle pad modes: Play → Step → Track → Mute → Pattern (the screen shows which of the 5 you're on; from Play it switches when you let go). Play, while playing: hold it and hold pads or keys to erase their notes as the playhead passes, like the MPC's Erase (one Undo brings them back). Browse: open folder / load onto the pad, or onto the keys on a keys track (Shift: on a sample or kit, load it and leave Browse; on a folder, put it on the pads, or on a keys track make its note-named samples the multisample). Chop: done, to the rack your chops are on (none put on pads yet: chops 1–16 on a new drum rack). Chop's Tempo page: stretch the region to the tempo set.", shift: "Undo (the screen says how many steps are left). Each recorded take is one step; Cmd/Ctrl+Z on the computer does the same" },
+  func: { name: "Func", does: "The button right of the bottom pad row. Cycle pad modes: Play → Step → Track → Mute → Pattern (the screen shows which of the 5 you're on; from Play it switches when you let go). Play, while playing: hold it and hold pads or keys to erase their notes as the playhead passes, like the MPC's Erase (one Undo brings them back). Browse: open folder / load onto the pad, or onto the keys on a keys track (Shift: on a sample or kit, load it and leave Browse; on a folder, put it on the pads, or on a keys track make its note-named samples the multisample). Chop: done, to the rack your chops are on (none put on pads yet: chops 1–16 on a new drum rack). Chop's Tempo page: stretch the region to the tempo set.", shift: "Undo the selected track's last change: its last recorded loop pass, a step edit, a sample loaded or a chop put on a pad (knob moves aren't steps). Other tracks keep theirs; the screen says how many steps that track has left. Cmd/Ctrl+Z on the computer undoes the whole project's last change" },
   keys: { name: "Keys", does: "Play the keys track (the last keys track you selected), recorded into its clip. Step mode on a drum track: pick the pad (lowest 16 keys = pads 1–16); on a keys track: the note the step pads write. The Launchkey's Arp and Scale still work." },
 };
 
@@ -32,7 +32,7 @@ const NATIVE: ControlId[] = ["settings", "octave", "arpScale"];
 const SHORTCUTS: [string, string][] = [
   ["Shift + Play", "Metronome (Chop: start / stop the sequencer)"],
   ["Shift + Record", "Sample (input, master or shared tab) → Chop"],
-  ["Shift + Func", "Undo (Browse: on a sample, load it and leave Browse; on a folder, its samples → pads 1–16, or the keys track's multisample)"],
+  ["Shift + Func", "Undo the selected track's last change (Browse: on a sample, load it and leave Browse; on a folder, its samples → pads 1–16, or the keys track's multisample)"],
   ["Shift + Scene", "Clear selected track's clip"],
   ["Shift + Pad ⌃", "Previous track"],
   ["Shift + Pad ⌄", "Next track"],
@@ -54,7 +54,7 @@ const SHORTCUTS: [string, string][] = [
   ["R", "Computer: record"],
   ["B", "Computer: show / hide the library"],
   ["[ / ]", "Computer: previous / next pattern"],
-  ["⌘ + Z", "Computer: undo (⇧⌘Z or Ctrl+Y: redo)"],
+  ["⌘ + Z", "Computer: undo the project's last change, any track (⇧⌘Z or Ctrl+Y: redo)"],
 ];
 
 const OFF = "#2a2f35", DIM = "#4a525a", WHITE = "#e6e9ec", GREEN = mute("#2fe05a"), BLUE = mute("#3b5bff"), RED = mute("#6b1a1a"), YELLOW = mute("#ffe83b"), CYAN = mute("#3be7ff");
