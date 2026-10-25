@@ -1,5 +1,5 @@
 // Maps Launchkey events to actions per hardware mode, and renders LEDs + display.
-import { allPresets, bendKeys, currentKit, finishChop, keyOff, keyOn, modKeys, kitNames, liveWhen, openInChop, playPad, releasePad, setRepeatLatch, stretchChop, toggleSampling, togglePlay, toggleRecord } from "../actions";
+import { addDrumTrack, allPresets, bendKeys, currentKit, finishChop, keyOff, keyOn, modKeys, kitNames, liveWhen, openInChop, playPad, releasePad, setRepeatLatch, stretchChop, toggleSampling, togglePlay, toggleRecord } from "../actions";
 import { engine } from "../audio/engine";
 import { launchkey } from "../midi/launchkey";
 import { keyVelocity, padVelocity } from "../midi/velocity";
@@ -8,10 +8,10 @@ import { DUCK_PAGE, PAGES, STEP_PAGE, fixPage, inputLabel, keysSampleList, padLa
 import { makeTicker, sequencer } from "../seq/sequencer";
 import { PPQN, REPEAT_OPTIONS, pageSteps, rowSteps } from "../seq/timing";
 import {
-  type AppState, clearTrack, clipOf, copyClip, copyPattern, drumPads, drumTrack, editStep, get, keysTrack, markUndo, padDucks, patternHasNotes, selectTrack,
+  type AppState, addTrack, clearTrack, clipOf, copyClip, copyPattern, drumPads, drumTrack, editStep, get, keysTrack, markUndo, padDucks, patternHasNotes, selectTrack,
   selectedTrack, set, stepEvents, stepTrack, store, togglePadFlag, toggleStep, toggleTrackFlag, trackAudible, trackBars, trackLength, trackUndoSteps, clipStep, stepPages, undoTrack, updateProject, PAD_COLORS,
 } from "../state/store";
-import type { HwMode, KeysInstrument, NoteEvent, Track } from "../state/types";
+import type { HwMode, KeysInstrument, NoteEvent, Track, TrackKind } from "../state/types";
 import { noteForKeysPad, stepForPad } from "./stepMap";
 import { noteName } from "../ui/notes";
 import { activeOverlay, releaseHold, showTemp, type Overlay } from "./notify";
@@ -48,6 +48,7 @@ export function turnPageEncoder(page: number, index: number, delta: number, fine
 export function setHwMode(mode: HwMode) {
   const prev = get().hwMode;
   if (prev === mode) return;
+  cancelNewTrack();
   if (prev === "browse") exitBrowse();
   if (prev === "chop") chopStop(); // e.g. Shift + Enc ⌃ from Chop into Browse: don't leave the audition playing
   if (mode === "browse") enterBrowse();
@@ -283,6 +284,12 @@ export function initController() {
           chopEncoder(e.index, e.delta, s.shift);
           break;
         }
+        if (s.hwMode === "track" && newTrack && e.index === 0) {
+          // Setting up a new track: encoder 1 picks the kind (right = Keys, left = Drums).
+          newTrack.kind = e.delta > 0 ? "keys" : "drum";
+          showNewTrack();
+          break;
+        }
         turnPageEncoder(s.encPage, e.index, e.delta, s.shift);
         break;
       }
@@ -372,6 +379,34 @@ function onKey(note: number, vel: number, on: boolean) {
   instrumentKeys.set(note, keyOn(note, vel));
 }
 
+/**
+ * Track mode: a track being added on the next free slot of the top row. Tapping the slot starts it (Drums), encoder 1
+ * picks Drums or Keys, tapping again adds it. Tapping a track or leaving Track mode calls it off.
+ */
+let newTrack: { kind: TrackKind } | null = null;
+
+function showNewTrack() {
+  if (!newTrack) return;
+  showTemp(`New T${get().project.tracks.length + 1}: ${newTrack.kind === "drum" ? "Drums" : "Keys"}`, "Enc 1 kind, tap: add", { hold: true });
+}
+
+function cancelNewTrack() {
+  if (!newTrack) return;
+  newTrack = null;
+  releaseHold();
+}
+
+/** Add the track set up in Track mode (a drum track gets the Factory kit, like + Drums on screen) and select it. */
+async function addNewTrack(kind: TrackKind) {
+  const before = get().project.tracks.length;
+  if (kind === "drum") await addDrumTrack();
+  else addTrack("keys");
+  const p = get().project;
+  if (p.tracks.length === before) return showTemp("Track", "8 tracks already");
+  const t = p.tracks[p.tracks.length - 1];
+  showTemp(`T${p.tracks.length} added`, t.name);
+}
+
 const DOUBLE_TAP_MS = 300;
 let lastMixerTap = { pad: -1, at: 0 };
 
@@ -441,11 +476,24 @@ function onPad(pad: number, vel: number) {
       const p = s.project;
       if (pad >= 8) {
         const t = p.tracks[pad - 8];
-        if (!t) break;
+        if (!t) {
+          // An empty slot: set up a new track (on the next free one), then a second tap adds it.
+          if (!newTrack) {
+            newTrack = { kind: "drum" };
+            showNewTrack();
+          } else {
+            const kind = newTrack.kind;
+            cancelNewTrack();
+            void addNewTrack(kind);
+          }
+          break;
+        }
+        cancelNewTrack();
         selectTrack(t.id);
         showTemp(`Track ${pad - 7}`, `${t.name} (${t.kind === "drum" ? "drums" : "keys"})`);
         break;
       }
+      cancelNewTrack();
       const t = p.tracks[pad];
       if (!t) break;
       const double = tapIsDouble(pad);
@@ -850,11 +898,13 @@ function screenFor(s: AppState, overlay: Overlay | null): Frame | null {
       // Top row = tracks 1-8 (selected = solid), bottom row = their mute / solo state (solid = audible).
       const cells = Array.from({ length: 16 }, (_, i) => {
         const t = p.tracks[i >= 8 ? i - 8 : i];
+        // The next free slot: "+" to add a track there, its kind (D / K) while one is set up.
+        if (!t && i - 8 === p.tracks.length) return newTrack ? { label: newTrack.kind === "drum" ? "D" : "K", fill: true } : { label: "+", fill: false };
         if (!t) return { label: "", fill: false, dim: true };
         if (i >= 8) return { label: `${i - 7}`, fill: t.id === s.selectedTrack, mark: t.kind === "keys" };
         return { label: t.solo ? "S" : t.mute ? "M" : "", fill: trackAudible(p, t.id) };
       });
-      return gridScreen({ title: trackLabel(s), status, cells, tag: "TRACK", info: "Up:pick Dn:mute" });
+      return gridScreen({ title: trackLabel(s), status, cells, tag: "TRACK", info: newTrack ? "Enc1 kind Tap:add" : "Up:pick Dn:mute" });
     }
     case "mute": {
       // The pads of the drum track (the last one picked when a keys track is selected).
@@ -1040,7 +1090,12 @@ function padLeds(s: AppState) {
       }
       case "track": {
         // Top row: tracks in their colours, the selected one pulsing. Bottom row: their mute/solo state.
+        // The next free slot glows dimly (tap to add a track), pulsing while one is set up.
         const t = p.tracks[i >= 8 ? i - 8 : i];
+        if (!t && i - 8 === p.tracks.length) {
+          color = newTrack ? COLOR.white : COLOR.dimWhite;
+          if (newTrack) mode = "pulse";
+        }
         if (!t) break;
         if (i >= 8) {
           color = t.color;

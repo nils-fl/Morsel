@@ -12,7 +12,7 @@ A browser-based groovebox for the **Novation Launchkey Mini MK4 25**. Morsel put
 - **Pad modes** (cycle with Func):
   - **Play**: play the pads.
   - **Step**: 16-step grid for the selected track (on a drum track, the selected pad; on a keys track, the last key you played is the note). Hold a step and turn encoder 1 for its velocity (Shift: fine) or encoder 2 to nudge it earlier or later (up to just under half a step; it keeps its swing). A lit step is deleted when you let go of it, unless you turned an encoder while holding it. Step mode opens the **Step** encoder page: 1 = the selected track's length (1–4 bars; shortening drops the notes past the end, Undo brings them back), 2 = the bar on the pads, 3 = swing, 4 = quantize. The arrows still reach the track's other pages, and leaving Step mode returns to the page you were on.
-  - **Track**: top pad row selects tracks 1–8, bottom row mutes them (double-tap = solo).
+  - **Track**: top pad row selects tracks 1–8, bottom row mutes them (double-tap = solo). To add a track, tap the next free slot in the top row (it glows dimly), pick Drums or Keys with encoder 1, and tap it again; a new drum track gets the Factory kit. Tapping a track or leaving Track mode calls it off.
   - **Mixer**: tap a pad of the drum track (the last one picked) to mute it, double-tap to solo.
   - **Pattern**: switch patterns; while playing, the switch waits until the loop ends.
 - **Tracks** (MPC style): up to 8 tracks, each a **Drum** rack (16 pads) or a **Keys** instrument. Pick one in the track strip under the pattern buttons, in Track mode, or step through them with **Shift + Pad ⌃ / ⌄** (the Launchkey's own "< Track / Track >"). Everything follows the selected track:
