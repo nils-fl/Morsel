@@ -95,6 +95,37 @@ class LiveHost(object):
         track.name = name
         return track
 
+    # ---- Duck (duck.py) -----------------------------------------------------------------------------------------
+
+    def add_compressor(self, track):
+        """Live's Compressor at the end of `track`: Track.insert_device (Live 12), else through the browser with the
+        track's last device selected, so it lands after it."""
+        devices = list(track.devices)
+        try:
+            track.insert_device("Compressor", len(devices))
+            return
+        except Exception as e:
+            self.log("Morsel Duck: insert_device failed (%r), loading from the browser" % (e,))
+        song = self.song
+        song.view.selected_track = track
+        if devices:
+            song.view.select_device(devices[-1])
+        browser = self.browser
+        item = next((i for i in browser.audio_effects.children if i.name == "Compressor"), None)
+        if item is None:
+            self.log("Morsel Duck: no Compressor in the browser")
+            return
+        try:
+            browser.hotswap_target = None
+        except Exception:
+            pass
+        browser.load_item(item)
+
+    def delete_device(self, track, device):
+        devices = list(track.devices)
+        if device in devices:
+            track.delete_device(devices.index(device))
+
     def insert_simpler(self, track, path):
         """A Simpler on `track` holding the sample file at `path` (Live 12: Track.insert_device and
         SimplerDevice.replace_sample). False when Live can't."""

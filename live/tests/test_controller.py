@@ -1,4 +1,4 @@
-from fakes import FakeClip, FakeDevice, FakeHost, FakeNote, FakePlugin, FakeTrack, Obj, Wrap, WrappingView
+from fakes import FakeClip, FakeCompressor, FakeDevice, FakeHost, FakeNote, FakePlugin, FakeTrack, Obj, Wrap, WrappingView
 
 from Morsel import protocol as P
 from Morsel.colors import nearest_color
@@ -105,12 +105,12 @@ def test_encoder_pages_and_stepped_params():
     song = host.song
     keys = [p.key for p in c.pages()]
     # The Drum Rack's 8 macros are one bank; Reverb has 11 parameters: its best 8, then the other 3.
-    assert keys == ["PAD", "DEV0.0", "DEV1.0", "DEV1.1", "TRK", "MIX", "GLB", "POS"]
+    assert keys == ["PAD", "DEV0.0", "DEV1.0", "DEV1.1", "TRK", "DUCK", "MIX", "GLB", "POS"]
     tap(c, "encPageDown")
     assert c.page_key == "DEV1.0" and song.tracks[0].view.selected_device is song.tracks[0].devices[1]
     tap(c, "encPageDown")
     assert c.page_key == "DEV1.1" and c.current_page().summary == "Reverb 2/2" and c.current_page().tag == "REVER2"
-    for _ in range(3):
+    for _ in range(4):  # TRK, DUCK, MIX, GLB
         tap(c, "encPageDown")
     assert c.page_key == "GLB"
     tap(c, "encPageDown")
@@ -1218,3 +1218,65 @@ def test_the_playhead_keeps_a_steps_note_visible():
     clip.playing_position = 0.25  # on step 2, empty: white
     c.step.forget()
     assert c.pad_leds()[9] == (P.COLOR["white"], "static")
+
+
+def to_duck_page(c):
+    c.set_page([p for p in c.pages() if p.key == "DUCK"][0])
+
+
+def test_duck_adds_a_compressor_sidechained_from_the_kick():
+    host, c = setup()
+    keys = host.song.tracks[1]
+    host.song.view.selected_track = keys
+    c.tick()
+    to_duck_page(c)
+    page = c.current_page()
+    assert page.summary.startswith("Off") and [p.name if p else None for p in page.params][:2] == ["Duck", None]
+    enc(c, 0, 8)  # Duck right: on
+    comp = keys.devices[-1]
+    assert comp.class_name == "Compressor2" and [p for p in comp.parameters if p.name == "S/C On"][0].value == 1
+    assert comp.input_routing_type.display_name == "Drums"
+    assert comp.input_routing_channel.display_name == "505 Core Kit | Bassdrum | Post FX"  # the kick's own Post FX
+    page = c.current_page()
+    assert [p.name if p else None for p in page.params] == ["Duck", "Source", "Pad", "Thresh", "Ratio", "Attack",
+                                                            "Release", "Mix"]
+    assert page.summary == "From Drums Bassdrum"
+    assert page.params[2].labels == ["Whole track", "Bassdrum", "Snare"]  # one per pad, not six
+    enc(c, 2, 8)  # Pad: the next one
+    assert comp.input_routing_channel.display_name == "505 Core Kit | Snare | Post FX"
+    assert [i for i, _ in c.mapped_encoders()] == [3, 4, 5, 6, 7]  # the Compressor's own: through Live's map
+    host.t += 1
+    enc(c, 0, -8)  # Duck left: off, the Compressor goes
+    assert not [d for d in keys.devices if getattr(d, "class_name", "") == "Compressor2"]
+
+
+def test_duck_set_up_when_the_compressor_arrives_later():
+    host, c = setup()
+    keys = host.song.tracks[1]
+    host.song.view.selected_track = keys
+    c.tick()
+    to_duck_page(c)
+    host.compressor_later = True
+    enc(c, 0, 8)
+    assert c.duck.pending is not None
+    keys.devices.append(FakeCompressor(host.song))  # Live loads it from the browser
+    c.tick()
+    assert c.duck.pending is None and c.duck.find(keys) is not None
+
+
+def test_duck_picks_the_kick_once_live_lists_the_pads():
+    host, c = setup()
+    keys = host.song.tracks[1]
+    host.song.view.selected_track = keys
+    c.tick()
+    to_duck_page(c)
+    FakeCompressor.listed = False  # Live lists the drum track's chains a moment after it's chosen
+    try:
+        enc(c, 0, 8)
+        comp = c.duck.find(keys)
+        assert comp.input_routing_type.display_name == "Drums" and comp.input_routing_channel.display_name == ""
+        FakeCompressor.listed = True
+        c.tick()
+        assert comp.input_routing_channel.display_name.endswith("Bassdrum | Post FX") and c.duck.choosing is None
+    finally:
+        FakeCompressor.listed = True

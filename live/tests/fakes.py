@@ -207,6 +207,41 @@ class FakeSimpler(FakeDevice):
         self.warped = beats
 
 
+class FakeCompressor(FakeDevice):
+    """Live's Compressor: its parameters by name, and its sidechain routing (types are tracks, channels a Drum
+    Rack's chains)."""
+
+    def __init__(self, song):
+        FakeDevice.__init__(self, "Compressor")
+        self.class_name = "Compressor2"
+        self.parameters = [FakeParam(n) for n in ("Device On", "Threshold", "Ratio", "Attack", "Release", "Dry/Wet")]
+        self.parameters.append(FakeParam("S/C On", 0, 0, 1, quantized=True))
+        self._song = song
+        self.input_routing_type = Obj(display_name="No Input")
+        self.input_routing_channel = Obj(display_name="")
+
+    @property
+    def available_input_routing_types(self):
+        return [Obj(display_name="No Input")] + [Obj(display_name=t.name) for t in self._song.tracks]
+
+    listed = True  # False: like Live, the new source's channels aren't listed yet (one empty one instead)
+
+    @property
+    def available_input_routing_channels(self):
+        if self.input_routing_type.display_name == "No Input":
+            return []
+        if not self.listed:
+            return [Obj(display_name="")]
+        # As Live lists them: the track's taps, then per pad its own three and three more a level deeper.
+        out = ["Pre FX", "Post FX", "Post Mixer"]
+        for pad, sample in (("Bassdrum", "Bassdrum 505"), ("Snare", "Snare 505")):
+            for tap in ("Pre FX", "Post FX", "Post Mixer"):
+                out.append("505 Core Kit | %s | %s" % (pad, tap))
+            for tap in ("Pre FX", "Post FX", "Post Mixer"):
+                out.append("505 Core Kit | %s | %s | %s | %s" % (pad, pad, sample, tap))
+        return [Obj(display_name=n) for n in out]
+
+
 class FakeNote(object):
     def __init__(self, pitch, start_time, duration, velocity):
         self.pitch, self.start_time, self.duration, self.velocity = pitch, start_time, duration, velocity
@@ -501,6 +536,13 @@ class FakeHost(object):
     def load_onto_track(self, track, item):
         self.song.view.selected_track = track
         track.devices.append(FakeSimpler(FakeSample("/s/" + item.name)))
+
+    def add_compressor(self, track):
+        if not getattr(self, "compressor_later", False):
+            track.devices.append(FakeCompressor(self.song))
+
+    def delete_device(self, track, device):
+        track.devices.remove(device)
 
     def set_enum(self, obj, prop, index):
         setattr(obj, prop, index)

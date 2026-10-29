@@ -51,6 +51,7 @@ Holding Shift shows what it does with each button on the screen.
 - **PAD** (drum tracks): the selected Drum Rack pad's instrument, usually its Simpler.
 - **Devices**: each device's best 8 parameters, then all of them 8 at a time ("Drift 2/5"). Paging to a device selects it in Live, and clicking a device in Live switches to its page.
 - **TRK**: volume, pan and the sends.
+- **DUCK**: sidechain ducking, Morsel's ducker done the Live way. Turn **Duck** right to put Live's Compressor at the end of the track with its sidechain on, fed by the drum track's kick chain (when it finds one); left removes it. **Source** and **Pad** pick the sidechain's track and chain (any pad, or the whole track), then the Compressor's **Thresh**, **Ratio**, **Attack**, **Release** and **Mix**. A Compressor follows the kick's sound, not each sequenced hit as Morsel's does.
 - **MIX**: the levels of tracks 1–8.
 - **GLB**: tempo, groove (Live's Global Groove Amount: how much the groove pool's swing applies), record quantize, note repeat rate, launch quantize.
 - **POS**: song position (a bar per detent), loop on / off, loop start and length, markers (previous / next, with the name), arrangement zoom across and up / down.
