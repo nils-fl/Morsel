@@ -239,12 +239,20 @@ export async function connectLiveLibrary(): Promise<string | undefined> {
 }
 
 /** The Live library's root, shown as what's in it for Morsel (the real folders underneath). */
-const LIVE_SECTIONS: [string, string][] = [
-  ["Live Kits", "Racks/Drum Racks"],
-  ["Live Instruments", "Racks/Instrument Racks"],
-  ["Simpler Instruments", "Devices/Instruments/Simpler"],
-  ["Samples", "Samples"],
+const LIVE_SECTIONS: [name: string, dir: string, holds: LivePreset["kind"] | null][] = [
+  ["Live Kits", "Racks/Drum Racks", "kit"],
+  ["Live Instruments", "Racks/Instrument Racks", "instrument"],
+  ["Simpler Instruments", "Devices/Instruments/Simpler", "instrument"],
+  ["Samples", "Samples", null],
 ];
+
+/** What a folder in the Live library holds: kits, instruments, or (samples, anywhere else) neither. */
+export function liveSection(path: string): LivePreset["kind"] | null {
+  const root = rootOf(path);
+  if (!root?.live) return null;
+  const rel = partsOf(path).join("/");
+  return LIVE_SECTIONS.find(([, dir]) => rel === dir || rel.startsWith(dir + "/"))?.[2] ?? null;
+}
 
 const presets = new Map<string, LivePreset | null>();
 

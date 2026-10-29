@@ -1,6 +1,7 @@
 // The worklet engine's processors. The voice processor, one per mixer strip, plays the voices the main thread sends,
 // each into its own output (a drum pad's bus, or the keys input), sample-accurately in the audio thread. The master
-// processor limits the mix.
+// processor limits the mix. The crush processor holds samples (a track's Bitcrush, its lower sample rate).
+import { CRUSH_PROCESSOR_NAME, CrushCore } from "./crushCore";
 import { MASTER_PROCESSOR_NAME, MasterCore } from "./masterCore";
 import { Expression, PROCESSOR_NAME, SampleVoice, SynthVoice, type FromProcessor, type SampleData, type ToProcessor, type Voice } from "./voiceCore";
 
@@ -102,3 +103,25 @@ class MasterProcessor extends AudioWorkletProcessor {
 }
 
 registerProcessor(MASTER_PROCESSOR_NAME, MasterProcessor);
+
+class CrushProcessor extends AudioWorkletProcessor {
+  static get parameterDescriptors() {
+    return [{ name: "hold", defaultValue: 1, minValue: 1, maxValue: 64, automationRate: "k-rate" }];
+  }
+  private core = new CrushCore();
+  private alive = true;
+
+  constructor() {
+    super();
+    // Its track strip was taken down: let it go.
+    this.port.onmessage = () => (this.alive = false);
+  }
+
+  process(inputs: Float32Array[][], outputs: Float32Array[][], params: Record<string, Float32Array>) {
+    const out = outputs[0];
+    this.core.process(inputs[0], out, out[0].length, Math.max(1, Math.round(params.hold[0])));
+    return this.alive;
+  }
+}
+
+registerProcessor(CRUSH_PROCESSOR_NAME, CrushProcessor);

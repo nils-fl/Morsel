@@ -90,15 +90,30 @@ export interface KeysInstrument {
 export type TrackKind = "drum" | "keys";
 
 /** Insert effects of a track, in signal order. Neutral values leave the sound untouched. */
+/** The effects of a track's FX rack, in their default chain order. */
+export const FX_KINDS = ["filter", "eq", "drive", "comp", "chorus", "delay", "reverb", "crush"] as const;
+export type FxKind = (typeof FX_KINDS)[number];
+
+/** A track's FX rack: every effect once, in the order the sound goes through them; those switched on are in the chain. */
 export interface TrackFx {
-  filter: "off" | "lp" | "hp" | "bp";
-  cutoff: number; // 0..1
-  resonance: number; // 0..1
-  eqLow: number; // dB, -15..15
-  eqMid: number;
-  eqHigh: number;
-  drive: number; // 0..1
-  comp: number; // 0..1 amount (0 = off)
+  /** The chain order, each kind once: the FX page's encoders 1-8. */
+  order: FxKind[];
+  on: Record<FxKind, boolean>;
+  filter: { type: "lp" | "hp" | "bp"; cutoff: number; resonance: number }; // 0..1
+  /** Bands in dB (-15..15); midFreq 0..1 = 200 Hz..5 kHz. */
+  eq: { low: number; mid: number; high: number; midFreq: number };
+  /** amount 0..1, tone 0..1 (dark..open), mix 0..1. */
+  drive: { amount: number; tone: number; mix: number };
+  /** threshold dB (-60..0), ratio 1..20, attack and release in seconds, makeup dB (0..24). */
+  comp: { threshold: number; ratio: number; attack: number; release: number; makeup: number };
+  /** rate Hz (0.05..5), depth and mix 0..1. */
+  chorus: { rate: number; depth: number; mix: number };
+  /** time in 16ths (1..16), feedback, tone and mix 0..1; pingpong: repeats bounce left and right. */
+  delay: { time: number; feedback: number; tone: number; mix: number; pingpong: boolean };
+  /** size, decay, tone and mix 0..1. */
+  reverb: { size: number; decay: number; tone: number; mix: number };
+  /** bits 1..16; rate 0..1 (1 = the full sample rate, 0 = a 32nd of it); mix 0..1. */
+  crush: { bits: number; rate: number; mix: number };
 }
 
 export interface Track {

@@ -1,9 +1,11 @@
 // Library drawer: the connected folders and the sample library, docked on the right while the rest of the app keeps
-// working. Click listens, double-click (or Enter) loads onto the selected pad, rows drag onto pads and the Keys panel.
+// working. It lists what the selected track can use (no Live kits on a keys track, no Live instruments on a drum track).
+// Click listens, double-click (or Enter) loads onto the selected track: the selected pad, or the keys. Rows drag onto
+// pads and the Keys panel.
 // Search covers every connected folder (indexed once, browse/search.ts) and the library.
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import {
-  cleanFolder, confirmDeleteLibraryFolder, confirmDeleteSample, entryToPads, folderToPads, loadLivePreset, moveSample, removeUnusedSamples,
+  cleanFolder, confirmDeleteLibraryFolder, confirmDeleteSample, entryToKeys, entryToPads, folderToPads, loadLivePreset, moveSample, removeUnusedSamples,
   renameLibraryFolder,
   renameSample, sampleUsers,
 } from "../actions";
@@ -14,10 +16,11 @@ import {
 } from "../browse/disk";
 import { toggleFavorite } from "../browse/favorites";
 import { scanFolder, search, type SearchResult } from "../browse/search";
-import { folderSamples, listAt, previewEntry, stopPreview } from "../browse/source";
+import { fitsTrack, folderSamples, folderToMulti, listAt, previewEntry, stopPreview } from "../browse/source";
 import { FAVORITES, SAMPLES, entryKey, parentOf, type Entry } from "../browse/tree";
 import { native } from "../platform/native";
-import { get, set, useApp, type FolderAccess } from "../state/store";
+import { get, selectedTrack, set, useApp, type FolderAccess } from "../state/store";
+import type { TrackKind } from "../state/types";
 import { applyDrawerWidth, applyLibrary, dragEntry } from "./drawer";
 import { drawPeaks, drawWaveBg } from "./wave";
 
@@ -43,15 +46,15 @@ const canLoad = (e: Entry) => e.kind === "sample" || e.kind === "file";
 const hasMenu = (row: { entry: Entry; root?: Root }) =>
   !!row.root || canLoad(row.entry) || row.entry.kind === "preset" || isDiskFolder(row.entry) || isLibFolder(row.entry);
 
-/** The rows the tree shows: each section, and the folders opened in it. */
-function treeRows(favorites: boolean, roots: Root[]): Row[] {
+/** The rows the tree shows: each section, and the folders opened in it, with what a `kind` track can use. */
+function treeRows(favorites: boolean, roots: Root[], kind: TrackKind): Row[] {
   const rows: Row[] = [];
   const add = (section: string, e: Entry, depth: number, root?: Root, heading?: true) => {
     const id = `${section}>${entryKey(e)}`;
     const row: Row = { id, kind: "entry", entry: e, depth, root, section: heading };
     rows.push(row);
     if (e.kind !== "folder" || !isOpen(row)) return;
-    const { entries, note } = listAt(e.path, null);
+    const { entries, note } = listAt(e.path, null, kind);
     for (const c of entries) add(section, c, depth + 1);
     if (!entries.length) rows.push({ id: `${id}>note`, kind: "note", text: note ?? "Empty folder", depth: depth + 1 });
   };
@@ -86,6 +89,8 @@ function Drawer() {
   const favorites = useApp((s) => s.favorites);
   const scans = useApp((s) => s.scans);
   const selectedPad = useApp((s) => s.selectedPad);
+  const trackId = useApp((s) => s.selectedTrack);
+  const kind = useApp((s) => selectedTrack(s).kind);
   const [, redraw] = useState(0);
   const [sel, setSel] = useState<string | null>(lastSel);
   const [query, setQuery] = useState("");
@@ -118,8 +123,8 @@ function Drawer() {
 
   // Built every render: folder listings are cached (browse/disk.ts), and opening a folder only redraws.
   const rows: Row[] = (() => {
-    if (!q) return treeRows(favorites.length > 0, folders);
-    const out: Row[] = (results?.entries ?? []).map((e) => ({ id: `hit>${entryKey(e)}`, kind: "entry", entry: e, depth: 0, sub: hitWhere(e, samples) }));
+    if (!q) return treeRows(favorites.length > 0, folders, kind);
+    const out: Row[] = (results?.entries ?? []).filter((e) => fitsTrack(e, kind)).map((e) => ({ id: `hit>${entryKey(e)}`, kind: "entry", entry: e, depth: 0, sub: hitWhere(e, samples) }));
     for (const f of folders) {
       const n = scans[f.name];
       if (f.access !== "granted") out.push({ id: `note>${f.name}`, kind: "note", text: `${f.name}: reconnect it to search it`, depth: 0 });
@@ -145,8 +150,8 @@ function Drawer() {
   };
 
   const load = (e: Entry) => {
-    if (e.kind === "preset") void loadLivePreset(e.path);
-    else if (canLoad(e)) void entryToPads(e, get().selectedPad);
+    if (e.kind === "preset") void loadLivePreset(e.path, trackId);
+    else if (canLoad(e)) void (kind === "keys" ? entryToKeys(e, trackId) : entryToPads(e, get().selectedPad));
   };
 
   function onKey(ev: KeyboardEvent) {
@@ -206,20 +211,24 @@ function Drawer() {
   function menuItems(row: Extract<Row, { kind: "entry" }>): MenuItem[] {
     const e = row.entry;
     const edit = (mode: Editing["mode"], value: string) => () => setEditing({ id: row.id, mode, value });
-    const pad = `Load on pad ${selectedPad + 1}`;
+    const pad = kind === "keys" ? "Load onto Keys" : `Load on pad ${selectedPad + 1}`;
+    // A folder goes on the pads, or on a keys track becomes its multisample (its note-named samples).
+    const folderTo = (path: string): MenuItem => kind === "keys"
+      ? { label: "Folder → Keys multisample", run: async () => set({ status: (await folderToMulti(path, trackId)) ? `${path.split("/").pop()} is the Keys multisample` : "No note-named samples (Piano_C4) in that folder" }) }
+      : { label: "Folder → pads", run: () => folderToPads(path) };
     if (row.root) {
       const r = row.root;
       return [
         ...(r.access === "prompt" ? [{ label: "Reconnect", run: () => reconnectFolder(r.name) }] : []),
         { label: "Rescan", run: () => (refreshFolder(r.name), scanFolder(r.name)) },
         { label: "Rename…", run: edit("rename", r.name) },
-        { label: "Folder → pads", run: () => folderToPads(rootPath(r.name)) },
+        folderTo(rootPath(r.name)),
         { label: "Disconnect", run: () => disconnectFolder(r.name), danger: true },
       ];
     }
     if (e.kind === "folder" && isDiskFolder(e)) {
       return [
-        { label: "Folder → pads", run: () => folderToPads(e.path) },
+        folderTo(e.path),
         {
           label: "Copy folder to library",
           run: async () => {
@@ -252,7 +261,7 @@ function Drawer() {
     }
     if (e.kind === "folder" && isLibFolder(e)) {
       return [
-        { label: "Folder → pads", run: () => folderToPads(e.path) },
+        folderTo(e.path),
         { label: "Rename…", run: edit("rename", e.path.slice(SAMPLES.length + 1)) },
         { label: "Delete folder…", run: () => confirmDeleteLibraryFolder(e.path), danger: true },
       ];

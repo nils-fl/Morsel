@@ -1,9 +1,12 @@
 // Encoder pages: what each of the 8 encoders edits, with formatting.
 import { DECAY_MAX, cutoffHz, padQDb, synthQDb } from "./audio/dsp";
+import { eqMidHz, fxChain } from "./audio/fxUnits";
+import { reverbSeconds } from "./audio/reverb";
+import { crushHold } from "./audio/worklet/crushCore";
 import type { Visual } from "./modes/notify";
 import { BAR_TICKS, GRID_OPTIONS, MAX_BARS, PPQN, QUANTIZE_OPTIONS, REPEAT_OPTIONS, STEP_TICKS, gridLabel, pageSteps } from "./seq/timing";
-import { clipStep, defaultDuck, doubleClip, drumPads, get, setClipGrid, stepPages, inputOf, keysTrack, padDucks, parseInput, setDuckPad, setTrackBars, setTrackDuck, toggleSidechainInput, trackBars, selectedTrack, set, trackById, updateKeys, updatePad, updateProject, updateTrack } from "./state/store";
-import { MAX_TRACKS, type KeysLfo, type Pad, type SampleInfo, type SidechainInput, type SynthParams, type TrackDuck, type TrackFx, type TrackKind, type Wave } from "./state/types";
+import { clipStep, defaultDuck, doubleClip, drumPads, get, keysStepNote, quantizeToGrid, setFxOn, setFxParams, setClipGrid, stepPages, inputOf, keysTrack, padDucks, parseInput, setDuckPad, setTrackBars, setTrackDuck, toggleSidechainInput, trackBars, selectedTrack, set, trackById, updateKeys, updatePad, updateProject, updateTrack } from "./state/store";
+import { FX_KINDS, MAX_TRACKS, PAD_COUNT, type FxKind, type KeysLfo, type Pad, type SampleInfo, type SidechainInput, type SynthParams, type TrackDuck, type TrackFx, type TrackKind, type Wave } from "./state/types";
 import { allPresets, applyPreset, currentKit, kitNames, stepKit } from "./actions";
 import { jumpFolder, presetEdited } from "./audio/synthPresets";
 import { noteName } from "./ui/notes";
@@ -127,6 +130,8 @@ export interface Page {
   kind?: TrackKind;
   /** Only in Step mode, where it comes first. */
   stepOnly?: boolean;
+  /** An effect's settings: only shown while the track has it on, right after the FX page, in chain order. */
+  fx?: FxKind;
 }
 
 const panText = (v: number) => (Math.abs(v) < 0.01 ? "C" : v < 0 ? `L${Math.round(-v * 100)}` : `R${Math.round(v * 100)}`);
@@ -198,25 +203,129 @@ function duckParam(name: string, key: "depth" | "attack" | "hold" | "release", l
 /** Inputs a keys track can pick, in encoder order: none, then Input 1, 2, … */
 const duckInputs = (): (SidechainInput | null)[] => [null, ...get().project.sidechain];
 
-// ---------- track FX (selected track) ----------
+// ---------- the FX rack (selected track) ----------
 
-const FX_FILTERS: TrackFx["filter"][] = ["off", "lp", "hp", "bp"];
-export const FX_FILTER_NAMES: Record<TrackFx["filter"], string> = { off: "Off", lp: "Lowpass", hp: "Highpass", bp: "Bandpass" };
-const fxNow = () => selectedTrack().fx;
-export const setFx = (patch: Partial<TrackFx>, trackId = selectedTrack().id) => updateTrack(trackId, (t) => ({ ...t, fx: { ...t.fx, ...patch } }));
+export const FX_NAMES: Record<FxKind, string> = {
+  filter: "Filter", eq: "EQ", drive: "Drive", comp: "Comp", chorus: "Chorus", delay: "Delay", reverb: "Reverb", crush: "Crush",
+};
+const FX_SHORT: Record<FxKind, string> = { filter: "Flt", eq: "EQ", drive: "Drv", comp: "Cmp", chorus: "Cho", delay: "Dly", reverb: "Rev", crush: "Cr" };
+const FX_TAGS: Record<FxKind, string> = { filter: "FLT", eq: "EQ", drive: "DRV", comp: "COMP", chorus: "CHOR", delay: "DLY", reverb: "VERB", crush: "CRSH" };
+export const FX_FILTER_NAMES: Record<TrackFx["filter"]["type"], string> = { lp: "Lowpass", hp: "Highpass", bp: "Bandpass" };
+/** Delay times in 16ths, for the track delay and the send. */
+export const DELAY_TIMES = [1, 2, 3, 4, 6, 8, 12, 16];
+export const delayName = (n: number) => ({ 1: "1/16", 2: "1/8", 3: "1/8 dot", 4: "1/4", 6: "1/4 dot", 8: "1/2", 12: "1/2 dot", 16: "1 bar" })[n] ?? `${n}/16`;
 const db = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)} dB`;
+const hzText = (f: number) => (f >= 1000 ? `${(f / 1000).toFixed(f >= 10000 ? 1 : 2)} kHz` : `${Math.round(f)} Hz`);
+const toneWord = (v: number) => (v < 0.34 ? "Dark" : v < 0.67 ? "Warm" : "Bright");
 
-type FxNumKey = Exclude<keyof TrackFx, "filter">;
-function fxParam(name: string, key: FxNumKey, lo: number, hi: number, step: number, fmt: (v: number) => string): Param {
-  const cur = () => fxNow()[key];
-  return {
-    name,
-    value: cur,
-    range: [lo, hi],
-    nudge: (d, fine) => setFx({ [key]: clamp(cur() + d * step * (fine ? 0.1 : 1), lo, hi) }),
-    format: () => fmt(cur()),
-  };
+/** One setting of an effect: a number, one of a few values, or a switch. The encoder pages and the Mixer use them. */
+export type FxSetting =
+  | { type: "num"; name: string; key: string; lo: number; hi: number; step: number; fmt: (v: number) => string; whole?: boolean }
+  | { type: "pick"; name: string; key: string; options: readonly (string | number)[]; fmt: (v: string | number) => string }
+  | { type: "switch"; name: string; key: string };
+const num = (name: string, key: string, lo: number, hi: number, step: number, fmt: (v: number) => string, whole = false): FxSetting =>
+  ({ type: "num", name, key, lo, hi, step, fmt, whole });
+const pick = (name: string, key: string, options: readonly (string | number)[], fmt: (v: string | number) => string): FxSetting =>
+  ({ type: "pick", name, key, options, fmt });
+
+/** Each effect's settings, in encoder order on its page. */
+export const FX_SETTINGS: Record<FxKind, FxSetting[]> = {
+  filter: [
+    pick("Type", "type", ["lp", "hp", "bp"], (v) => FX_FILTER_NAMES[v as TrackFx["filter"]["type"]]),
+    num("Cutoff", "cutoff", 0, 1, 0.01, hz),
+    num("Reso", "resonance", 0, 1, 0.01, pct),
+  ],
+  eq: [num("Low", "low", -15, 15, 0.5, db), num("Mid", "mid", -15, 15, 0.5, db), num("High", "high", -15, 15, 0.5, db), num("Mid Hz", "midFreq", 0, 1, 0.01, (v) => hzText(eqMidHz(v)))],
+  drive: [num("Amount", "amount", 0, 1, 0.01, pct), num("Tone", "tone", 0, 1, 0.01, (v) => (v >= 1 ? "Open" : pct(v))), num("Mix", "mix", 0, 1, 0.01, pct)],
+  comp: [
+    num("Thresh", "threshold", -60, 0, 0.5, (v) => `${v.toFixed(1)} dB`),
+    num("Ratio", "ratio", 1, 20, 0.1, (v) => `${v.toFixed(1)}:1`),
+    num("Attack", "attack", 0.001, 0.2, 0.001, ms),
+    num("Release", "release", 0.02, 1, 0.01, ms),
+    num("Makeup", "makeup", 0, 24, 0.5, db),
+  ],
+  chorus: [num("Rate", "rate", 0.05, 5, 0.05, rateHz), num("Depth", "depth", 0, 1, 0.01, pct), num("Mix", "mix", 0, 1, 0.01, pct)],
+  delay: [
+    pick("Time", "time", DELAY_TIMES, (v) => delayName(v as number)),
+    num("Feedback", "feedback", 0, 0.95, 0.01, pct),
+    num("Tone", "tone", 0, 1, 0.01, pct),
+    num("Mix", "mix", 0, 1, 0.01, pct),
+    { type: "switch", name: "Ping-pong", key: "pingpong" },
+  ],
+  reverb: [num("Size", "size", 0, 1, 0.01, (v) => `${reverbSeconds(v).toFixed(1)} s`), num("Decay", "decay", 0, 1, 0.01, pct), num("Tone", "tone", 0, 1, 0.01, toneWord), num("Mix", "mix", 0, 1, 0.01, pct)],
+  crush: [num("Bits", "bits", 1, 16, 1, (v) => `${v} bit`, true), num("Rate", "rate", 0, 1, 0.01, (v) => `1/${crushHold(v)}`), num("Mix", "mix", 0, 1, 0.01, pct)],
+};
+
+/** A setting's value on a track. */
+export const fxValue = (fx: TrackFx, kind: FxKind, key: string) => (fx[kind] as unknown as Record<string, number | string | boolean>)[key];
+/** Set one of an effect's settings (not an undo step, like other tweaks). */
+export const setFxValue = (kind: FxKind, key: string, v: number | string | boolean, trackId?: string) =>
+  setFxParams(kind, { [key]: v } as never, trackId);
+/** A setting's value shown as text. */
+export function fxText(s: FxSetting, v: number | string | boolean) {
+  if (s.type === "switch") return v ? "On" : "Off";
+  return s.type === "num" ? s.fmt(v as number) : s.fmt(v as string | number);
 }
+
+const fxNow = () => selectedTrack().fx;
+
+/** An effect's setting on the selected track as an encoder. */
+function fxSettingParam(kind: FxKind, s: FxSetting): Param {
+  const cur = () => fxValue(fxNow(), kind, s.key);
+  const base = { name: s.name, format: () => fxText(s, cur()) };
+  if (s.type === "num") {
+    return {
+      ...base,
+      value: () => cur() as number,
+      range: [s.lo, s.hi],
+      ...(s.whole && { detents: STEPPED }),
+      nudge: (d, fine) => {
+        const v = cur() as number;
+        setFxValue(kind, s.key, s.whole ? clamp(Math.round(v) + Math.sign(d), s.lo, s.hi) : clamp(v + d * s.step * (fine ? 0.1 : 1), s.lo, s.hi));
+      },
+    };
+  }
+  if (s.type === "pick") {
+    const i = () => Math.max(0, s.options.indexOf(cur() as string | number));
+    return {
+      ...base,
+      value: i,
+      range: [0, s.options.length - 1],
+      detents: STEPPED,
+      nudge: (d) => setFxValue(kind, s.key, s.options[clamp(i() + Math.sign(d), 0, s.options.length - 1)]),
+    };
+  }
+  return { ...base, value: () => (cur() ? 1 : 0), range: [0, 1], detents: STEPPED, nudge: (d) => setFxValue(kind, s.key, d > 0) };
+}
+
+/** The FX page's encoders, one per effect (kept, so a turn's detents add up across redraws): right on, left off. */
+const FX_SWITCHES = Object.fromEntries(FX_KINDS.map((k): [FxKind, Param] => [k, {
+  name: FX_NAMES[k],
+  value: () => (fxNow().on[k] ? 1 : 0),
+  range: [0, 1],
+  detents: STEPPED,
+  nudge: (d) => setFxOn(k, d > 0),
+  format: () => (fxNow().on[k] ? "On" : "Off"),
+}])) as Record<FxKind, Param>;
+
+/** The FX rack: encoders 1-8 switch the effects on and off, in the chain's order (drag them in the app to change it). */
+const FX_PAGE: Page = {
+  name: "Track FX",
+  tag: "FX",
+  summary: () => fxChain(fxNow()).map((k) => FX_SHORT[k]).join(">") || "All off",
+  get params() {
+    return fxNow().order.map((k) => FX_SWITCHES[k]);
+  },
+};
+
+/** A page per effect, with its settings; the screen footer sums up the first two. */
+const FX_PAGES: Page[] = FX_KINDS.map((k) => ({
+  name: FX_NAMES[k],
+  tag: FX_TAGS[k],
+  fx: k,
+  summary: () => FX_SETTINGS[k].slice(0, 2).map((s) => fxText(s, fxValue(fxNow(), k, s.key))).join(" "),
+  params: FX_SETTINGS[k].map((s) => fxSettingParam(k, s)),
+}));
 
 // ---------- keys page, per sound source ----------
 
@@ -390,6 +499,49 @@ const DOUBLE: Param = {
   format: () => barsText(curBars()),
 };
 
+/** Turn right: the selected track's notes onto its step grid (a turn is one go, like Double). */
+let lastQuantTurn = -Infinity;
+const SNAP: Param = {
+  name: "Quant",
+  value: () => 0,
+  range: [0, 1],
+  nudge: (d) => {
+    const now = performance.now();
+    const first = now - lastQuantTurn > 400;
+    lastQuantTurn = now;
+    if (first && d > 0) quantizeToGrid();
+  },
+  format: () => `> ${gridLabel(curGrid())}`,
+};
+
+const STEP_VEL: Param = {
+  name: "Vel",
+  value: () => get().stepVel,
+  range: [1, 127],
+  nudge: (d, fine) => set({ stepVel: clamp(get().stepVel + d * (fine ? 1 : 2), 1, 127) }),
+  format: () => String(get().stepVel),
+};
+
+/** What the step pads write: the selected pad (drum track) or the step note (keys track), without playing it first. */
+const STEP_SOUND: Param = {
+  get name() {
+    return selectedTrack().kind === "drum" ? "Pad" : "Note";
+  },
+  value: () => (selectedTrack().kind === "drum" ? get().selectedPad : keysStepNote(selectedTrack())),
+  get range(): [number, number] {
+    return selectedTrack().kind === "drum" ? [0, PAD_COUNT - 1] : [0, 127];
+  },
+  get detents() {
+    return selectedTrack().kind === "drum" ? STEPPED : 1;
+  },
+  nudge: (d) => {
+    const t = selectedTrack();
+    if (t.kind === "drum") set({ selectedPad: clamp(get().selectedPad + Math.sign(d), 0, PAD_COUNT - 1) });
+    else set({ stepNote: clamp(keysStepNote(t) + Math.sign(d), 0, 127) });
+  },
+  format: () => (selectedTrack().kind === "drum" ? padLabel(get().selectedTrack, get().selectedPad) : noteName(keysStepNote(selectedTrack()))),
+};
+
 const GRID: Param = {
   name: "Grid",
   value: () => Math.max(0, GRID_OPTIONS.findIndex((g) => g.ticks === curGrid())),
@@ -402,12 +554,15 @@ const GRID: Param = {
   format: () => gridLabel(curGrid()),
 };
 
-/** Step mode's own page: the selected track's length and the page on the pads, swing, quantize, the step grid and Double. */
+/**
+ * Step mode's own page: the selected track's length and the page on the pads, swing, quantizing its notes, the step
+ * grid, Double, the velocity of new steps and what they write (pad or note).
+ */
 const STEP_PAGE_DEF: Page = {
   name: "Step",
   tag: "STEP",
   stepOnly: true,
-  summary: () => `${curBars()}bar${curBars() === 1 ? "" : "s"} Sw${get().project.swing} Q${QUANTIZE.format()}${curGrid() === STEP_TICKS ? "" : ` ${gridLabel(curGrid())}`}`,
+  summary: () => `${curBars()}bar${curBars() === 1 ? "" : "s"} Sw${get().project.swing} V${get().stepVel}${curGrid() === STEP_TICKS ? "" : ` ${gridLabel(curGrid())}`}`,
   params: [
     {
       name: "Bars",
@@ -435,9 +590,11 @@ const STEP_PAGE_DEF: Page = {
       format: () => `${stepPageLabel()}/${curBars()}`,
     },
     SWING,
-    QUANTIZE,
+    SNAP,
     GRID,
     DOUBLE,
+    STEP_VEL,
+    STEP_SOUND,
   ],
 };
 
@@ -577,31 +734,7 @@ export const PAGES: Page[] = [
       },
     ],
   },
-  {
-    name: "Track FX",
-    tag: "FX",
-    summary: () => {
-      const t = selectedTrack();
-      return `${t.name} ${t.fx.filter === "off" ? "" : t.fx.filter.toUpperCase() + " "}Dr${pct(t.fx.drive)}`;
-    },
-    params: [
-      {
-        name: "Filter",
-        value: () => FX_FILTERS.indexOf(fxNow().filter),
-        range: [0, FX_FILTERS.length - 1],
-        detents: STEPPED,
-        nudge: (d) => setFx({ filter: FX_FILTERS[clamp(FX_FILTERS.indexOf(fxNow().filter) + Math.sign(d), 0, FX_FILTERS.length - 1)] }),
-        format: () => FX_FILTER_NAMES[fxNow().filter],
-      },
-      fxParam("Cutoff", "cutoff", 0, 1, 0.01, hz),
-      fxParam("Reso", "resonance", 0, 1, 0.01, pct),
-      fxParam("Low", "eqLow", -15, 15, 0.5, db),
-      fxParam("Mid", "eqMid", -15, 15, 0.5, db),
-      fxParam("High", "eqHigh", -15, 15, 0.5, db),
-      fxParam("Drive", "drive", 0, 1, 0.01, pct),
-      fxParam("Comp", "comp", 0, 1, 0.01, (v) => (v <= 0 ? "Off" : pct(v))),
-    ],
-  },
+  FX_PAGE,
   {
     name: "Mix",
     tag: "MIX",
@@ -678,6 +811,8 @@ export const PAGES: Page[] = [
     },
   },
   STEP_PAGE_DEF,
+  // The effects' own pages (pagesFor puts them after FX, in chain order, while they are on).
+  ...FX_PAGES,
 ];
 
 export const DUCK_PAGE = PAGES.findIndex((p) => p.tag === "DUCK");
@@ -685,8 +820,16 @@ export const SIDECHAIN_PAGE = PAGES.findIndex((p) => p.tag === "SIDE");
 export const STEP_PAGE = PAGES.findIndex((p) => p.tag === "STEP");
 
 /** Indexes of the encoder pages a track of this kind shows, in order; in Step mode the Step page comes first. */
+export const FX_PAGE_INDEX = PAGES.indexOf(FX_PAGE);
+
+/**
+ * Indexes of the encoder pages a track of this kind shows, in order; in Step mode the Step page comes first. The
+ * selected track's effects that are on follow the FX page, in chain order.
+ */
 export function pagesFor(kind: TrackKind, step = get().hwMode === "step") {
-  const fits = PAGES.flatMap((p, i) => (!p.kind || p.kind === kind ? [i] : []));
+  const fits = PAGES.flatMap((p, i) => ((!p.kind || p.kind === kind) && !p.fx ? [i] : []));
+  const effects = fxChain(selectedTrack().fx).map((k) => PAGES.findIndex((p) => p.fx === k));
+  fits.splice(fits.indexOf(FX_PAGE_INDEX) + 1, 0, ...effects);
   return [...fits.filter((i) => step && PAGES[i].stepOnly), ...fits.filter((i) => !PAGES[i].stepOnly)];
 }
 
@@ -706,6 +849,8 @@ export function fixPage() {
   const s = get();
   const list = pagesFor(selectedTrack(s).kind);
   if (list.includes(s.encPage)) return;
+  // An effect switched off: back to the rack.
+  if (PAGES[s.encPage]?.fx) return set({ encPage: FX_PAGE_INDEX });
   const pair = PAGES.findIndex((p) => p.tag === PAGE_PAIRS[PAGES[s.encPage]?.tag]);
   set({ encPage: list.includes(pair) ? pair : list[0] });
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DRUMS_ID, KEYS_ID, addEvent, addTrack, clipOf, editStep, markUndo, canRemoveTrack, copyClip, copyPattern, defaultPad, doubleClip, setClipGrid, setTrackBars, clipStep, stepPages, setTrackDuck, setDuckPad, padDucks, toggleSidechainInput, trackBars, trackLength, updateKeys, defaultProject, fixSelection, get, migrateV1, normalizeProject, removeTrack, resetSession, selectTrack, set, stepTrack, undo, redo, updateProject, undoTrack, trackUndoSteps,
+  DRUMS_ID, KEYS_ID, addEvent, addTrack, clipOf, editStep, markUndo, canRemoveTrack, copyClip, copyPattern, defaultPad, doubleClip, setClipGrid, setTrackBars, clipStep, stepPages, setTrackDuck, setDuckPad, padDucks, toggleSidechainInput, trackBars, trackLength, updateKeys, setFxOn, moveFx, normalizeFx, defaultProject, fixSelection, get, migrateV1, normalizeProject, removeTrack, resetSession, selectTrack, set, stepTrack, undo, redo, updateProject, undoTrack, trackUndoSteps,
 } from "./store";
 import { MAX_TRACKS, PATTERN_COUNT, type NoteEvent, type Project } from "./types";
 import { DECAY_MAX } from "../audio/dsp";
@@ -36,7 +36,8 @@ describe("normalizeProject", () => {
   it("round-trips a v2 project", () => {
     const p = defaultProject();
     p.patterns[2] = { bars: 2, clips: { [DRUMS_ID]: { events: [ev("a", 0, 3)] }, [KEYS_ID]: { events: [ev("b", 96, 64)] } } };
-    p.tracks[0].fx.drive = 0.4;
+    p.tracks[0].fx.on.drive = true;
+    p.tracks[0].fx.drive.amount = 0.4;
     p.tracks[1].sendA = 0.5;
     expect(normalizeProject(JSON.parse(JSON.stringify(p)))).toEqual(p);
   });
@@ -461,6 +462,39 @@ describe("recorded takes", () => {
     expect(clipOf(get().project.patterns[0], DRUMS_ID).events).toHaveLength(2);
     undo();
     expect(clipOf(get().project.patterns[0], DRUMS_ID).events).toHaveLength(0);
+  });
+});
+
+describe("the FX rack", () => {
+  it("brings a project from before the rack over: filter, EQ, drive and comp on as they were, in the old order", () => {
+    const fx = normalizeFx({ filter: "hp", cutoff: 0.3, resonance: 0.4, eqLow: 3, eqMid: 0, eqHigh: -2, drive: 0.5, comp: 0.25 });
+    expect(fx.order).toEqual(["filter", "eq", "drive", "comp", "chorus", "delay", "reverb", "crush"]);
+    expect(fx.on).toMatchObject({ filter: true, eq: true, drive: true, comp: true, delay: false, reverb: false });
+    expect(fx.filter).toEqual({ type: "hp", cutoff: 0.3, resonance: 0.4 });
+    expect(fx.eq).toMatchObject({ low: 3, mid: 0, high: -2 });
+    expect(fx.drive.amount).toBe(0.5);
+    expect(fx.comp).toMatchObject({ threshold: -10, ratio: 3.75 });
+    // All off before: nothing on.
+    expect(Object.values(normalizeFx({ filter: "off", cutoff: 1, resonance: 0, eqLow: 0, eqMid: 0, eqHigh: 0, drive: 0, comp: 0 }).on).some(Boolean)).toBe(false);
+  });
+
+  it("keeps a saved chain order, and fills in kinds it lacks", () => {
+    const fx = normalizeFx({ order: ["reverb", "delay", "bogus", "delay"], on: { reverb: true } });
+    expect(fx.order).toEqual(["reverb", "delay", "filter", "eq", "drive", "comp", "chorus", "crush"]);
+    expect(fx.on.reverb).toBe(true);
+  });
+
+  it("switching an effect and moving it are undo steps", () => {
+    reset();
+    const fx = () => get().project.tracks[0].fx;
+    setFxOn("delay", true);
+    moveFx(5, 0); // delay to the front
+    expect(fx().order.slice(0, 2)).toEqual(["delay", "filter"]);
+    expect(fx().on.delay).toBe(true);
+    undo();
+    expect(fx().order[0]).toBe("filter");
+    undo();
+    expect(fx().on.delay).toBe(false);
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { DUCK_PAGE, PAGES, SIDECHAIN_PAGE, fixPage, pagesFor, turnEncoder } from "./params";
-import { defaultProject, get, set, updateKeys } from "./state/store";
+import { DUCK_PAGE, FX_PAGE_INDEX, PAGES, SIDECHAIN_PAGE, fixPage, pagesFor, turnEncoder } from "./params";
+import { defaultProject, get, moveFx, set, setFxOn, updateKeys } from "./state/store";
 
 // The actions pull in the sequencer's worker clock; the pages only need the preset list.
 vi.mock("./actions", () => ({ allPresets: () => [], applyPreset: () => {}, currentKit: () => "", kitNames: () => [], stepKit: () => "" }));
@@ -157,6 +157,42 @@ describe("Step page", () => {
     expect(get().stepPage).toBe(1);
     expect(page.format()).toBe("2/2");
   });
+
+  it("quantizes the selected track's notes onto its grid on encoder 4, once per turn, right only", () => {
+    const p = defaultProject();
+    p.patterns[0] = { bars: 1, clips: { drums: { events: [{ id: "a", tick: 26, note: 0, vel: 100, len: 10 }, { id: "b", tick: 48, note: 1, vel: 100, len: 10, nudge: -5 }] } } };
+    set({ project: p, currentPattern: 0, selectedTrack: "drums", undo: [] });
+    const quant = PAGES.find((pg) => pg.tag === "STEP")!.params[3];
+    expect([quant.name, quant.format()]).toEqual(["Quant", "> 1/16"]);
+    let now = 10_000;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+    quant.nudge(-1, false);
+    expect(get().project.patterns[0].clips.drums.events.map((e) => e.tick)).toEqual([26, 48]);
+    now += 1000;
+    quant.nudge(1, false);
+    const events = get().project.patterns[0].clips.drums.events;
+    expect(events.map((e) => [e.id, e.tick, e.nudge])).toEqual([["a", 24, undefined], ["b", 48, undefined]]);
+    expect(get().undo).toHaveLength(1);
+    clock.mockRestore();
+  });
+
+  it("sets the velocity of new steps, and what they write: the pad, or on a keys track the note", () => {
+    set({ project: defaultProject(), selectedTrack: "drums", selectedPad: 0, stepVel: 100, stepNote: null });
+    const params = PAGES.find((pg) => pg.tag === "STEP")!.params;
+    const vel = params[6], sound = params[7];
+    vel.nudge(-3, false);
+    expect(vel.format()).toBe("94");
+    vel.nudge(100, false);
+    expect(get().stepVel).toBe(127);
+    expect(sound.name).toBe("Pad");
+    sound.nudge(1, false);
+    expect(get().selectedPad).toBe(1);
+    expect(sound.format()).toMatch(/^P2 /);
+    set({ selectedTrack: "keys" });
+    expect(sound.name).toBe("Note");
+    sound.nudge(1, false);
+    expect(get().stepNote).toBe(49); // from the synth's home note, C3 (48)
+  });
 });
 
 describe("screen text", () => {
@@ -165,8 +201,8 @@ describe("screen text", () => {
     const p = defaultProject();
     p.patterns[0] = { bars: 2, clips: {} };
     p.swing = 54;
-    set({ project: p, currentPattern: 0, quantize: 24, undo: [] });
-    expect(PAGES.find((pg) => pg.tag === "STEP")!.summary()).toBe("2bars Sw54 Q1/16");
+    set({ project: p, currentPattern: 0, quantize: 24, stepVel: 100, undo: [] });
+    expect(PAGES.find((pg) => pg.tag === "STEP")!.summary()).toBe("2bars Sw54 V100");
     set({ selectedTrack: "drums", selectedPad: 2 });
     const side = PAGES.find((pg) => pg.tag === "SIDE")!;
     expect(side.summary()).toBe("P3 Off (0 in)");
@@ -213,3 +249,41 @@ describe("Pad 2 page", () => {
     expect(get().project.tracks[0].pads[2].choke).toBe(3);
   });
 });
+
+describe("FX rack pages", () => {
+  const tagsNow = () => pagesFor("drum", false).map((i) => PAGES[i].tag);
+
+  it("switches the effects on the FX page's encoders, in chain order, and adds a page after FX for each one on", () => {
+    set({ project: defaultProject(), selectedTrack: "drums", hwMode: "play" });
+    const rack = PAGES[FX_PAGE_INDEX];
+    expect(rack.params.map((p) => p.name)).toEqual(["Filter", "EQ", "Drive", "Comp", "Chorus", "Delay", "Reverb", "Crush"]);
+    expect(tagsNow()).toEqual(["KIT", "PAD", "PAD2", "FX", "MIX", "GLB", "SIDE", "DUCK"]);
+    rack.params[6].nudge(1, false); // Reverb on
+    rack.params[5].nudge(1, false); // Delay on
+    expect(rack.summary()).toBe("Dly>Rev");
+    expect(tagsNow()).toEqual(["KIT", "PAD", "PAD2", "FX", "DLY", "VERB", "MIX", "GLB", "SIDE", "DUCK"]);
+    // Reverb before Delay: the encoders and the pages follow.
+    moveFx(6, 5);
+    expect(rack.params[5].name).toBe("Reverb");
+    expect(tagsNow()).toEqual(["KIT", "PAD", "PAD2", "FX", "VERB", "DLY", "MIX", "GLB", "SIDE", "DUCK"]);
+  });
+
+  it("edits an effect on its page, and leaves for the FX page when it's switched off", () => {
+    set({ project: defaultProject(), selectedTrack: "drums", hwMode: "play" });
+    setFxOn("delay", true);
+    const page = PAGES.findIndex((p) => p.fx === "delay");
+    const [time, feedback, , , ping] = PAGES[page].params;
+    expect(time.format()).toBe("1/8 dot");
+    time.nudge(1, false);
+    expect(time.format()).toBe("1/4");
+    feedback.nudge(5, false);
+    expect(feedback.format()).toBe("40%");
+    ping.nudge(-1, false);
+    expect(get().project.tracks[0].fx.delay.pingpong).toBe(false);
+    set({ encPage: page });
+    setFxOn("delay", false);
+    fixPage();
+    expect(get().encPage).toBe(FX_PAGE_INDEX);
+  });
+});
+

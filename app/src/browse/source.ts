@@ -1,15 +1,32 @@
 // What Browse (Launchkey) and the on-screen sample picker list: the library tree, saved kits and connected folders.
 import { engine } from "../audio/engine";
 import { get, updateKeys } from "../state/store";
-import type { Zone } from "../state/types";
+import type { TrackKind, Zone } from "../state/types";
 import { rootFromName } from "../ui/notes";
-import { DISK, fileSample, isDiskPath, listDisk, listDiskNow, previewFile, rootPath, stopFilePreview } from "./disk";
+import { DISK, fileSample, isDiskPath, listDisk, listDiskNow, liveSection, previewFile, rootPath, stopFilePreview } from "./disk";
 import { FAVORITES, KITS, ROOT, SAMPLES, favoriteEntries, listDir, type Entry } from "./tree";
 
 export interface Listing { entries: Entry[]; note?: string }
 
-/** Entries at `path`. `kits` null leaves the Kits folder out (the sample picker). */
-export function listAt(path: string, kits: string[] | null): Listing {
+/**
+ * Whether a track of `kind` can use an entry: Live kits (and their folders) go on drum tracks, Live instruments on keys
+ * tracks; samples, files and other folders on both.
+ */
+export function fitsTrack(e: Entry, kind: TrackKind) {
+  const holds = e.kind === "preset" ? e.preset : e.kind === "folder" ? liveSection(e.path) : null;
+  return !holds || (holds === "kit") === (kind === "drum");
+}
+
+/** Entries at `path`, only those a track of `kind` can use when it's given. `kits` null leaves the Kits folder out (the
+ *  sample picker). */
+export function listAt(path: string, kits: string[] | null, kind?: TrackKind): Listing {
+  const all = listAll(path, kits);
+  if (!kind) return all;
+  const entries = all.entries.filter((e) => fitsTrack(e, kind));
+  return entries.length || !all.entries.length ? { ...all, entries } : { entries, note: kind === "drum" ? "Keys tracks only" : "Drum tracks only" };
+}
+
+function listAll(path: string, kits: string[] | null): Listing {
   const { folders, favorites, samples } = get();
   if (path === ROOT) {
     const top = listDir(ROOT, [], []).filter((e) => kits || e.name !== KITS);

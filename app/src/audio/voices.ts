@@ -36,11 +36,14 @@ export class Voices {
   private buffer: BufferLookup;
   /** Voices play in the strips' voice processors (the worklet engine) instead of as node graphs. */
   readonly worklet: boolean;
+  /** Live playback (not a bounce): settings changes are smoothed over time. */
+  private live: boolean;
 
   /** `worklet`: the context must have the voice worklet loaded (loadVoiceWorklet). */
   constructor(ctx: BaseAudioContext, out: AudioNode, getProject: () => Project, buffer: BufferLookup, live = false, worklet = false) {
     this.ctx = ctx;
     this.worklet = worklet;
+    this.live = live;
     this.getProject = getProject;
     this.buffer = buffer;
     this.masterBus = new MasterBus(ctx, out, worklet, live);
@@ -58,7 +61,7 @@ export class Voices {
         this.strips.delete(id);
       }
     }
-    for (const t of p.tracks) this.strip(t).update(t, trackAudible(p, t.id), (i) => padAudible(t, i));
+    for (const t of p.tracks) this.strip(t).update(t, trackAudible(p, t.id), (i) => padAudible(t, i), p.bpm);
     this.returns.update(p.returns, p.bpm);
     this.masterBus.update(p.masterLevel, p.masterGlue);
   }
@@ -66,8 +69,9 @@ export class Voices {
   private strip(t: Track): TrackStrip {
     let s = this.strips.get(t.id);
     if (!s) {
-      s = new TrackStrip(this.ctx, t.kind, this.master, this.returns.reverbIn, this.returns.delayIn, this.worklet);
-      s.update(t, trackAudible(this.getProject(), t.id), (i) => padAudible(t, i));
+      s = new TrackStrip(this.ctx, t.kind, this.master, this.returns.reverbIn, this.returns.delayIn, this.worklet, this.live);
+      const p = this.getProject();
+      s.update(t, trackAudible(p, t.id), (i) => padAudible(t, i), p.bpm);
       this.strips.set(t.id, s);
     }
     return s;

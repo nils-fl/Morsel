@@ -1,11 +1,13 @@
 // The 8 encoders of the current page as small knobs: arc = value, name and formatted value beside it. They turn like
 // the Launchkey's: drag up or down, scroll, or the arrow keys, Shift for fine steps. In Chop mode they are the Chop or
-// Chop page's encoders, as on the Launchkey.
-import { useEffect, useRef, useState } from "react";
+// Chop page's encoders, as on the Launchkey. On the FX page, an effect's name drags it to another slot, changing the
+// chain's order.
+import { useEffect, useRef, useState, type HTMLAttributes } from "react";
 import { chopPageInfo, chopParams, chopSetPage } from "../modes/chop";
 import { turnPageEncoder } from "../modes/controller";
-import { PAGES, pagesFor, type Param } from "../params";
+import { FX_PAGE_INDEX, PAGES, pagesFor, type Param } from "../params";
 import { selectedTrack, set, useApp } from "../state/store";
+import { fxDragSource, fxDropTarget } from "./fxDrag";
 
 const SWEEP = 135; // degrees either side of 12 o'clock
 /** Pixels of drag, and of scroll, per encoder detent. */
@@ -65,23 +67,35 @@ export function EncoderStrip() {
 function PageStrip() {
   const encPage = useApp((s) => s.encPage);
   // Only the pages of the selected track's kind (no Pad pages on a keys track, no Keys page on a drum track).
-  const pages = pagesFor(useApp(selectedTrack).kind);
+  const track = useApp(selectedTrack);
+  const pages = pagesFor(track.kind);
   const at = Math.max(0, pages.indexOf(encPage));
   const page = PAGES[pages[at]];
+  const rack = pages[at] === FX_PAGE_INDEX;
+  const [over, setOver] = useState<number | null>(null);
   return (
     <div className="enc-strip">
       <button className="enc-tag" onClick={() => set({ encPage: pages[(at + 1) % pages.length] })} title="Encoder page (click for next)">
         <b>ENC {at + 1}/{pages.length}</b><span>{page.name}</span>
       </button>
       <div className="enc-knobs">
-        {Array.from({ length: 8 }, (_, i) => <EncoderCell key={i} index={i} p={page.params[i]} turn={(j, d, fine, whole) => turnPageEncoder(pages[at], j, d, fine, whole)} />)}
+        {Array.from({ length: 8 }, (_, i) => (
+          <EncoderCell key={i} index={i} p={page.params[i]} turn={(j, d, fine, whole) => turnPageEncoder(pages[at], j, d, fine, whole)}
+            drop={rack ? { ...fxDropTarget(track.id, i, setOver), className: over === i ? "drop" : "" } : undefined}
+            grab={rack ? fxDragSource(track.id, i) : undefined} />
+        ))}
       </div>
     </div>
   );
 }
 
-/** One encoder: turned as on the Launchkey, so the screen shows the value too. */
-function EncoderCell({ index, p, turn: turnOne }: { index: number; p: Param | undefined; turn: Turn }) {
+/**
+ * One encoder: turned as on the Launchkey, so the screen shows the value too. `grab`: its name can be dragged (the FX
+ * page's effects); `drop`: something can be dropped on it.
+ */
+function EncoderCell({ index, p, turn: turnOne, grab, drop }: {
+  index: number; p: Param | undefined; turn: Turn; grab?: HTMLAttributes<HTMLSpanElement>; drop?: HTMLAttributes<HTMLDivElement>;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const drag = useRef<number | null>(null); // the pointer's y at the last detent
   const [turning, setTurning] = useState(false);
@@ -127,12 +141,14 @@ function EncoderCell({ index, p, turn: turnOne }: { index: number; p: Param | un
   return (
     <div
       ref={ref}
-      className={`enc-knob ${turning ? "turning" : ""}`}
+      {...drop}
+      className={`enc-knob ${turning ? "turning" : ""} ${drop?.className ?? ""}`}
       title={`Encoder ${index + 1}: ${p.name} = ${p.format()} (drag, scroll or arrow keys; Shift for fine)`}
       role="slider" tabIndex={0} aria-label={`Encoder ${index + 1}: ${p.name}`}
       aria-valuemin={lo} aria-valuemax={hi} aria-valuenow={p.value()} aria-valuetext={p.format()}
       onPointerDown={(e) => {
-        if (e.button !== 0) return;
+        // The name of a draggable effect: a drag to move it, not a turn.
+        if (e.button !== 0 || (grab && (e.target as HTMLElement).closest(".enc-name"))) return;
         e.preventDefault(); // no text selection while dragging
         e.currentTarget.focus();
         e.currentTarget.setPointerCapture(e.pointerId);
@@ -157,7 +173,7 @@ function EncoderCell({ index, p, turn: turnOne }: { index: number; p: Param | un
     >
       <Knob value={p.value()} range={[lo, hi]} />
       <span className="enc-text">
-        <span className="enc-name">{p.name}</span>
+        <span className="enc-name" {...grab} title={grab ? `Drag ${p.name} onto another encoder to move it in the chain` : undefined}>{p.name}</span>
         <span className="enc-val">{p.format()}</span>
       </span>
     </div>

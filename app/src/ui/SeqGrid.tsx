@@ -71,15 +71,18 @@ export function SeqGrid() {
       <Section title={`Pattern ${patIndex + 1} · ${track.name}`}>
       {/* The clip's tools in labelled groups. Timing is last and only there once the clip has notes, so nothing moves when it appears. */}
       <div className="seq-toolbar">
-        {/* Two lines, each ending on the grid's right edge: the clip (length, grid, view, edit), then copying and timing. */}
+        {/* Two lines on one grid, each ending on the grid's right edge: the clip (length, grid, view, edit), then copying
+            and timing. On the left the labels, the first controls and the second ones (Grid, Pattern to…) each take a column,
+            so both lines start and end together; the right groups share the last column. */}
         <div className="tool-line">
-          <div className="tool-group">
+          <div className="tool-start">
+          <div className="tool-group lead">
             <span className="tool-label">Length</span>
             <select value={bars} title={`${track.name}'s loop length; each track loops on its own, the pattern runs as long as its longest (${pat.bars} bar${pat.bars > 1 ? "s" : ""}). Launchkey: Step mode, encoder 1`} onChange={(e) => setTrackBars(patIndex, track.id, Number(e.target.value))}>
               {Array.from({ length: MAX_BARS }, (_, i) => i + 1).map((b) => <option key={b} value={b}>{b} bar{b > 1 ? "s" : ""}</option>)}
             </select>
           </div>
-          <div className="tool-group">
+          <div className="tool-group fill">
             <span className="tool-label">Grid</span>
             <select value={span} aria-label="Step grid" title={`The steps ${track.name}'s clip is edited on: 16ths, 32nds for rolls, or triplets. Notes stay where they are when it changes. Launchkey: Step mode, encoder 5`} onChange={(e) => setClipGrid(patIndex, track.id, Number(e.target.value))}>
               {GRID_OPTIONS.map((g) => <option key={g.ticks} value={g.ticks}>{g.label}</option>)}
@@ -93,6 +96,7 @@ export function SeqGrid() {
               <button disabled={shown >= windows - 1} onClick={() => setView(shown + 1)} aria-label="Later bars">›</button>
             </div>
           )}
+          </div>
           <div className="tool-group end">
             <span className="tool-label">Edit</span>
             <button disabled={bars * 2 > MAX_BARS} onClick={() => doubleClip(patIndex, track.id)} title={`Repeat ${track.name}'s notes after its end, doubling its length (up to ${MAX_BARS} bars)`}>Double</button>
@@ -101,7 +105,8 @@ export function SeqGrid() {
           </div>
         </div>
         <div className="tool-line">
-          <div className="tool-group">
+          <div className="tool-start">
+          <div className="tool-group lead">
             <span className="tool-label">Copy</span>
             <select value="" title={`Copy only ${track.name}'s clip into another pattern`} onChange={(e) => {
               const to = Number(e.target.value);
@@ -119,6 +124,7 @@ export function SeqGrid() {
               <option value="" disabled>Pattern to…</option>
               {patterns.map((p, i) => i !== patIndex && <option key={i} value={i}>Pattern {i + 1}{patternHasNotes(p) ? " (overwrite)" : ""}</option>)}
             </select>
+          </div>
           </div>
           {!empty && (
             <div className="tool-group end">

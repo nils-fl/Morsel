@@ -474,10 +474,11 @@ main .panels > .section + .section::before { content: ""; position: absolute; le
 html { overflow-anchor: none; }
 .tabs button {
   border: none; border-bottom: 3px solid transparent; border-radius: 0; margin-bottom: -1px; background: none; color: var(--muted);
-  padding: 13px 14px 11px 26px; position: relative;
+  padding: 13px 14px 11px 12px; display: inline-flex; align-items: center; gap: 8px;
   text-transform: uppercase; letter-spacing: .08em; font-weight: 600; font-size: 11px;
 }
-.tabs button::before { content: ""; position: absolute; left: 12px; top: 50%; width: 6px; height: 6px; margin-top: -4px; border-radius: 50%; background: var(--tab); opacity: .5; }
+/* The tab's dot, in line with its name (as the section titles' dots). */
+.tabs button::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--tab); opacity: .5; }
 .tabs button:hover:not(:disabled) { color: var(--text); background: none; }
 .tabs button.on, .tabs button.on:hover { background: none; color: var(--text); border-bottom-color: var(--tab); font-weight: 700; }
 .tabs button.on::before { opacity: 1; }
@@ -605,8 +606,20 @@ html { overflow-anchor: none; }
 /* Sequencer tools over the grid: small labelled groups divided by hairlines. */
 .seq-toolbar { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
 .tool-line { display: flex; flex-wrap: wrap; align-items: center; row-gap: 10px; }
+.tool-start { display: flex; flex-wrap: wrap; align-items: center; row-gap: 10px; }
 /* The last group of a line sits on the right edge. */
 .tool-group.end { margin-left: auto; padding-right: 0; border-left: none; }
+/* The sequencer's two lines share one grid, every label and control a column, so both lines start and end together.
+   Left: the labels (Length, Copy), the first controls, the second ones (the Grid group, Pattern to…), then View; a
+   gap; right: the labels (Edit, Timing) and their three controls (Double / Quantize, Clear clip / strength, Clear
+   pattern / Humanize). Controls fill their column. */
+.seq-toolbar { display: grid; grid-template-columns: repeat(4, auto) 1fr repeat(4, auto); column-gap: 6px; align-items: center; }
+.seq-toolbar .tool-line, .seq-toolbar .tool-start, .seq-toolbar .tool-group.lead, .seq-toolbar .tool-group.end { display: contents; }
+.seq-toolbar .tool-group.lead > select, .seq-toolbar .tool-group.end > :not(.tool-label) { width: 100%; min-width: 0; }
+.seq-toolbar .tool-group.end > .tool-label { grid-column: 6; }
+.seq-toolbar .tool-group.fill { grid-column: 3; padding-right: 0; }
+.seq-toolbar .tool-group.fill select { flex: 1; }
+.seq-toolbar .tool-label { min-width: 48px; }
 .tool-group { display: flex; align-items: center; gap: 6px; padding: 0 14px; border-left: 1px solid var(--line); }
 .tool-group:first-child { padding-left: 0; border-left: none; }
 .tool-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; margin-right: 2px; }
@@ -940,6 +953,13 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
 .channel .row select { flex: 1; min-width: 0; }
 .channel .row .ms { width: var(--ctl-h); }
 .channel h4 { margin: 6px 0 0; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+.channel h5 { margin: 4px 0 0; font-size: 9px; font-weight: 700; color: var(--text); }
+/* The FX rack: a chip per effect, in chain order; on = filled. Dragged over: a bar where it will land. */
+.fx-chips { display: flex; flex-wrap: wrap; gap: 3px; }
+.fx-chip { padding: 2px 6px; font-size: 10px; color: var(--muted); cursor: grab; }
+.fx-chip.on, .fx-chip.on:hover { background: var(--page); border-color: var(--page); color: var(--on-pad); }
+.fx-chip.drop, .enc-knob.drop { box-shadow: inset 3px 0 0 var(--page); }
+.enc-name[draggable="true"] { cursor: grab; }
 .channel .slider { grid-template-columns: 54px 1fr 48px; gap: 6px; }
 /* Master is the sum of every track: neutral, not in any track's colour. */
 .channel.master { border-top-color: var(--text); --page: var(--muted); }
@@ -1013,7 +1033,10 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
   .section > header { margin: 0 -12px 10px; padding: 0 8px 0 12px; flex-wrap: wrap; }
   .slider { grid-template-columns: 70px 1fr 56px; gap: 8px; }
   /* Sequencer tools: one group per line, no dividers. */
-  .seq-toolbar { flex-direction: column; align-items: flex-start; row-gap: 8px; }
+  .seq-toolbar { display: flex; flex-direction: column; align-items: flex-start; row-gap: 8px; }
+  .seq-toolbar .tool-line, .seq-toolbar .tool-start { display: flex; flex-direction: column; align-items: flex-start; row-gap: 8px; }
+  .seq-toolbar .tool-group.lead, .seq-toolbar .tool-group.end { display: flex; }
+  .seq-toolbar .tool-group.lead > select, .seq-toolbar .tool-group.end > :not(.tool-label) { width: auto; }
   .tool-group { padding: 0; border-left: none; }
   .tool-label { width: 56px; }
   .tool-group button { white-space: nowrap; }

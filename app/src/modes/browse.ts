@@ -32,7 +32,7 @@ function listing(): Listing {
   const keys = forKeys();
   if (!cache || cache.path !== cursor.path || cache.samples !== samples || cache.kits !== kits || cache.keys !== keys || cache.disk !== disk ||
     cache.folders !== folders || cache.favorites !== favorites) {
-    cache = { path: cursor.path, samples, kits, keys, disk, folders, favorites, listing: listAt(cursor.path, keys ? null : kits) };
+    cache = { path: cursor.path, samples, kits, keys, disk, folders, favorites, listing: listAt(cursor.path, keys ? null : kits, keys ? "keys" : "drum") };
   }
   return cache.listing;
 }

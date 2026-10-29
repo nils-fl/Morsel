@@ -9,7 +9,7 @@ import { stretchAsync } from "./audio/stretch";
 import { showTemp } from "./modes/notify";
 import { launchkey } from "./midi/launchkey";
 import { sequencer } from "./seq/sequencer";
-import { addTrack, defaultPad, drumPads, drumTrack, get, keysTrack, selectTrack, set, updateKeys, updateProject, updateTrack, usedSampleIds } from "./state/store";
+import { addTrack, defaultPad, drumPads, drumTrack, get, keysTrack, selectTrack, set, trackById, updateKeys, updateProject, updateTrack, usedSampleIds } from "./state/store";
 import { deleteKit, deleteSynthPreset, listKits, loadKit, loadSample, renameKit, saveKit, saveSample, saveSynthPreset } from "./state/persist";
 import { dropSampleFavorites, moveFavorites } from "./browse/favorites";
 import { entrySample, folderLabel, folderSamples } from "./browse/source";
@@ -17,6 +17,7 @@ import { SAMPLES, type Entry } from "./browse/tree";
 import { freeChokeGroup, padsFromNotes, padsFromSamples, slicePads } from "./state/pads";
 import { fileSample, livePreset, liveSamplePath } from "./browse/disk";
 import { ask } from "./state/confirm";
+import { rootFromName } from "./ui/notes";
 import { oneOf, pref } from "./state/prefs";
 import { FACTORY_PRESETS, USER_FOLDER, type SynthPreset } from "./audio/synthPresets";
 import { FACTORY_KIT, MAX_TRACKS, PAD_COUNT, STOCK_KITS, stockFolder, type Pad, type Project, type SampleInfo, type SampleSource, type SliceOpts } from "./state/types";
@@ -575,6 +576,18 @@ export async function confirmDeleteLibraryFolder(path: string) {
  * Something dropped on a pad from the library drawer: a sample or file goes on that pad, a folder's samples on the
  * pads from there on. One undo step.
  */
+/** A sample or file as a keys track's sound (the track switches to Sample); a note in its name ("Bass_C2") is the
+ *  root. Undoable. */
+export async function entryToKeys(e: Entry, trackId = keysTrack().id) {
+  try {
+    const sampleId = await entrySample(e);
+    const keys = trackById(get().project, trackId)?.keys;
+    if (keys) updateKeys({ type: "sample", sample: { ...keys.sample, sampleId, root: rootFromName(e.name) ?? keys.sample.root } }, trackId, true);
+  } catch (err) {
+    set({ status: `${e.name}: ${(err as Error).message}` });
+  }
+}
+
 export async function entryToPads(e: Entry, firstPad: number) {
   if (e.kind === "preset") return void (await loadLivePreset(e.path)); // a whole kit (or the keys' instrument)
   try {

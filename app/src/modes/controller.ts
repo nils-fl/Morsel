@@ -8,7 +8,7 @@ import { DUCK_PAGE, PAGES, STEP_PAGE, fixPage, inputLabel, keysSampleList, padLa
 import { makeTicker, sequencer } from "../seq/sequencer";
 import { PPQN, REPEAT_OPTIONS, maxNudge, pageSteps, rowSteps } from "../seq/timing";
 import {
-  type AppState, addTrack, clearTrack, clipOf, copyClip, copyPattern, drumPads, drumTrack, editStep, get, keysTrack, markUndo, padDucks, patternHasNotes, selectTrack,
+  type AppState, addTrack, clearTrack, clipOf, copyClip, copyPattern, drumPads, drumTrack, editStep, get, keysStepNote, keysTrack, markUndo, padDucks, patternHasNotes, selectTrack,
   selectedTrack, set, stepEvents, stepTrack, store, trackById, togglePadFlag, toggleStep, toggleTrackFlag, trackAudible, trackBars, trackLength, trackUndoSteps, clipStep, stepPages, undoTrack, updateProject, PAD_COLORS,
 } from "../state/store";
 import type { HwMode, KeysInstrument, NoteEvent, Track, TrackKind } from "../state/types";
@@ -312,13 +312,10 @@ const selectKeys = new Map<number, number>();
 const drumKeys = new Map<number, { track: string; pad: number }>();
 /** Keys held in Browse on a keys track, auditioning the highlighted sound: the track they play on. */
 const auditionKeys = new Map<number, string>();
-/** Step mode on a keys track: the note the step pads write (the last key pressed). */
-let stepNote: number | null = null;
 
 /** "Kick" for the selected pad on a drum track, the track name for a keys track. */
 const trackItemName = (s: AppState, t: Track) => (t.kind === "drum" ? t.pads[s.selectedPad].name : t.name);
 /** The note the step pads write on a keys track: the last key played, else the instrument's home note. */
-const keysStepNote = (t: Track) => stepNote ?? (t.keys?.type === "synth" ? 48 : t.keys?.type === "sample" ? t.keys.sample.root : 60);
 
 /** Step mode: key -> pad, repeating every 16 keys. At the default octave the lowest key (C3 = 48) is pad 1. */
 export const padForKey = (note: number) => ((note % 16) + 16) % 16;
@@ -369,7 +366,7 @@ function onKey(note: number, vel: number, on: boolean) {
   }
   if (s.hwMode === "step") {
     // Keys track: the key you play is the note the step pads write.
-    stepNote = note;
+    set({ stepNote: note });
     instrumentKeys.set(note, keyOn(note, vel, sel.id));
     return;
   }
@@ -481,7 +478,7 @@ function onPad(pad: number, vel: number) {
       // A lit step goes on release, so it can be held and edited first.
       const lit = stepEvents(clipOf(pat, t.id).events, t.kind === "drum", tick, g.span, note).length > 0;
       if (!lit) {
-        toggleStep(s.currentPattern, t.id, tick, g.span, note);
+        toggleStep(s.currentPattern, t.id, tick, g.span, note, s.stepVel);
         heldStepsUndo = true;
       }
       heldSteps.set(pad, { pattern: s.currentPattern, track: t.id, tick, span: g.span, note, remove: lit, since: performance.now() });

@@ -3,9 +3,9 @@ import { DECAY_MAX } from "../audio/dsp";
 import type { SynthPreset } from "../audio/synthPresets";
 import { useStore } from "zustand";
 import { COLOR } from "../midi/protocol";
-import { BAR_TICKS, GRID_OPTIONS, MAX_BARS, STEP_TICKS, maxNudge, pageSteps } from "../seq/timing";
-import type { ChopSession, Clip, HwMode, KeysInstrument, KeysLfo, KeysSample, NoteEvent, Pad, Pattern, Project, Returns, SampleInfo, SampleSource, SampleTarget, SidechainInput, SynthParams, Tab, Track, TrackDuck, TrackFx, TrackKind, Wave, Zone } from "./types";
-import { DEFAULT_MASTER_LEVEL, MAX_TRACKS, PAD_COUNT, PATTERN_COUNT } from "./types";
+import { BAR_TICKS, GRID_OPTIONS, MAX_BARS, STEP_TICKS, maxNudge, pageSteps, quantizeEvents } from "../seq/timing";
+import type { ChopSession, Clip, FxKind, HwMode, KeysInstrument, KeysLfo, KeysSample, NoteEvent, Pad, Pattern, Project, Returns, SampleInfo, SampleSource, SampleTarget, SidechainInput, SynthParams, Tab, Track, TrackDuck, TrackFx, TrackKind, Wave, Zone } from "./types";
+import { DEFAULT_MASTER_LEVEL, FX_KINDS, MAX_TRACKS, PAD_COUNT, PATTERN_COUNT } from "./types";
 
 export const PAD_COLORS = [
   COLOR.red, COLOR.orange, COLOR.yellow, COLOR.lime, COLOR.green, COLOR.mint, COLOR.cyan, COLOR.sky,
@@ -123,7 +123,18 @@ export const defaultKeys = (): KeysInstrument => ({
   lfo: { vibRate: 5, vibDepth: 0, filterRate: 2, filterDepth: 0 },
 });
 
-export const defaultFx = (): TrackFx => ({ filter: "off", cutoff: 1, resonance: 0, eqLow: 0, eqMid: 0, eqHigh: 0, drive: 0, comp: 0 });
+export const defaultFx = (): TrackFx => ({
+  order: [...FX_KINDS],
+  on: Object.fromEntries(FX_KINDS.map((k) => [k, false])) as Record<FxKind, boolean>,
+  filter: { type: "lp", cutoff: 0.5, resonance: 0.2 },
+  eq: { low: 0, mid: 0, high: 0, midFreq: 0.5 },
+  drive: { amount: 0.3, tone: 1, mix: 1 },
+  comp: { threshold: -20, ratio: 4, attack: 0.005, release: 0.12, makeup: 0 },
+  chorus: { rate: 0.6, depth: 0.5, mix: 0.5 },
+  delay: { time: 3, feedback: 0.35, tone: 0.6, mix: 0.3, pingpong: true },
+  reverb: { size: 0.5, decay: 0.6, tone: 0.5, mix: 0.3 },
+  crush: { bits: 8, rate: 0.6, mix: 1 },
+});
 
 /** Colours of tracks 1-8 (track strip, Track mode pads). */
 export const TRACK_COLORS = [COLOR.red, COLOR.purple, COLOR.orange, COLOR.cyan, COLOR.yellow, COLOR.blue, COLOR.green, COLOR.pink];
@@ -267,18 +278,45 @@ function normalizeLfo(raw: unknown, d: KeysLfo): KeysLfo {
   };
 }
 
-function normalizeFx(raw: unknown): TrackFx {
+export function normalizeFx(raw: unknown): TrackFx {
   const d = defaultFx();
   if (!isObj(raw)) return d;
+  if (!Array.isArray(raw.order)) {
+    // Before the rack: a fixed filter > EQ > drive > comp, each off at its neutral value.
+    const filter = raw.filter === "lp" || raw.filter === "hp" || raw.filter === "bp" ? raw.filter : null;
+    const eq = { low: num(raw.eqLow, -15, 15, 0), mid: num(raw.eqMid, -15, 15, 0), high: num(raw.eqHigh, -15, 15, 0), midFreq: d.eq.midFreq };
+    const drive = num(raw.drive, 0, 1, 0), comp = num(raw.comp, 0, 1, 0);
+    return {
+      ...d,
+      on: { ...d.on, filter: !!filter, eq: !!(eq.low || eq.mid || eq.high), drive: drive > 0, comp: comp > 0 },
+      filter: { type: filter ?? d.filter.type, cutoff: num(raw.cutoff, 0, 1, d.filter.cutoff), resonance: num(raw.resonance, 0, 1, d.filter.resonance) },
+      eq,
+      drive: drive > 0 ? { ...d.drive, amount: drive } : d.drive,
+      // The old Comp knob's own threshold and ratio.
+      comp: comp > 0 ? { ...d.comp, threshold: -40 * comp, ratio: 1 + 11 * comp } : d.comp,
+    };
+  }
+  const order = raw.order.filter((k): k is FxKind => FX_KINDS.includes(k as FxKind)).filter((k, i, a) => a.indexOf(k) === i);
+  const on = isObj(raw.on) ? raw.on : {};
+  const part = (key: FxKind) => (isObj(raw[key]) ? (raw[key] as Record<string, unknown>) : {});
+  const [f, eq, dr, c, ch, dl, rv, cr] = FX_KINDS.map(part);
   return {
-    filter: raw.filter === "lp" || raw.filter === "hp" || raw.filter === "bp" ? raw.filter : "off",
-    cutoff: num(raw.cutoff, 0, 1, d.cutoff),
-    resonance: num(raw.resonance, 0, 1, d.resonance),
-    eqLow: num(raw.eqLow, -15, 15, 0),
-    eqMid: num(raw.eqMid, -15, 15, 0),
-    eqHigh: num(raw.eqHigh, -15, 15, 0),
-    drive: num(raw.drive, 0, 1, 0),
-    comp: num(raw.comp, 0, 1, 0),
+    order: [...order, ...FX_KINDS.filter((k) => !order.includes(k))],
+    on: Object.fromEntries(FX_KINDS.map((k) => [k, on[k] === true])) as Record<FxKind, boolean>,
+    filter: { type: f.type === "hp" || f.type === "bp" ? f.type : "lp", cutoff: num(f.cutoff, 0, 1, d.filter.cutoff), resonance: num(f.resonance, 0, 1, d.filter.resonance) },
+    eq: { low: num(eq.low, -15, 15, 0), mid: num(eq.mid, -15, 15, 0), high: num(eq.high, -15, 15, 0), midFreq: num(eq.midFreq, 0, 1, d.eq.midFreq) },
+    drive: { amount: num(dr.amount, 0, 1, d.drive.amount), tone: num(dr.tone, 0, 1, d.drive.tone), mix: num(dr.mix, 0, 1, d.drive.mix) },
+    comp: {
+      threshold: num(c.threshold, -60, 0, d.comp.threshold), ratio: num(c.ratio, 1, 20, d.comp.ratio), attack: num(c.attack, 0.001, 0.2, d.comp.attack),
+      release: num(c.release, 0.02, 1, d.comp.release), makeup: num(c.makeup, 0, 24, d.comp.makeup),
+    },
+    chorus: { rate: num(ch.rate, 0.05, 5, d.chorus.rate), depth: num(ch.depth, 0, 1, d.chorus.depth), mix: num(ch.mix, 0, 1, d.chorus.mix) },
+    delay: {
+      time: Math.round(num(dl.time, 1, 16, d.delay.time)), feedback: num(dl.feedback, 0, 0.95, d.delay.feedback), tone: num(dl.tone, 0, 1, d.delay.tone),
+      mix: num(dl.mix, 0, 1, d.delay.mix), pingpong: bool(dl.pingpong, d.delay.pingpong),
+    },
+    reverb: { size: num(rv.size, 0, 1, d.reverb.size), decay: num(rv.decay, 0, 1, d.reverb.decay), tone: num(rv.tone, 0, 1, d.reverb.tone), mix: num(rv.mix, 0, 1, d.reverb.mix) },
+    crush: { bits: Math.round(num(cr.bits, 1, 16, d.crush.bits)), rate: num(cr.rate, 0, 1, d.crush.rate), mix: num(cr.mix, 0, 1, d.crush.mix) },
   };
 }
 
@@ -480,6 +518,10 @@ export interface AppState {
   prevHwMode: HwMode;
   encPage: number;
   stepPage: number;
+  /** Velocity of the steps Step mode adds. */
+  stepVel: number;
+  /** Step mode on a keys track: the note the step pads write (the last key played); null = the instrument's home note. */
+  stepNote: number | null;
   shift: boolean;
   connected: boolean;
   status: string;
@@ -537,6 +579,8 @@ export const store = createStore<AppState>(() => ({
   prevHwMode: "play",
   encPage: 0,
   stepPage: 0,
+  stepVel: 100,
+  stepNote: null,
   shift: false,
   connected: false,
   status: "",
@@ -762,6 +806,26 @@ export function updatePads(fn: (pads: Pad[]) => Pad[], undoable = true, trackId 
   updateTrack(trackId, (t) => ({ ...t, pads: fn(t.pads) }), undoable);
 }
 
+/** Switch an effect of a track's FX rack on or off (an undo step). */
+export function setFxOn(kind: FxKind, on: boolean, trackId = get().selectedTrack) {
+  updateTrack(trackId, (t) => (t.fx.on[kind] === on ? t : { ...t, fx: { ...t.fx, on: { ...t.fx.on, [kind]: on } } }), true);
+}
+
+/** Move the effect at chain position `from` to position `to` (an undo step): the sound goes through it there. */
+export function moveFx(from: number, to: number, trackId = get().selectedTrack) {
+  updateTrack(trackId, (t) => {
+    const order = [...t.fx.order];
+    if (from === to || !order[from] || to < 0 || to >= order.length) return t;
+    order.splice(to, 0, order.splice(from, 1)[0]);
+    return { ...t, fx: { ...t.fx, order } };
+  }, true);
+}
+
+/** Change an effect's settings (a tweak, not an undo step). */
+export function setFxParams<K extends FxKind>(kind: K, patch: Partial<TrackFx[K]>, trackId = get().selectedTrack) {
+  updateTrack(trackId, (t) => ({ ...t, fx: { ...t.fx, [kind]: { ...t.fx[kind], ...patch } } }));
+}
+
 /** Change a keys track's instrument; `undoable` for a new sound (a preset, a sample, a multisample), not a tweak. */
 export function updateKeys(patch: Partial<KeysInstrument>, trackId = keysTrack().id, undoable = false) {
   updateTrack(trackId, (t) => (t.keys ? { ...t, keys: { ...t.keys, ...patch } } : t), undoable);
@@ -938,6 +1002,16 @@ export function toggleStep(patternIndex: number, trackId: string, tick: number, 
     }
     return [...events, { id: newId(), tick, note, vel, len: span }];
   });
+}
+
+/** The note the step pads write on a keys track: the last key played, else the instrument's home note. */
+export const keysStepNote = (t: Track) => get().stepNote ?? (t.keys?.type === "synth" ? 48 : t.keys?.type === "sample" ? t.keys.sample.root : 60);
+
+/** Move the selected track's notes in the current pattern onto its step grid (nudges dropped). Undoable. */
+export function quantizeToGrid() {
+  const { currentPattern: i, selectedTrack: id } = get();
+  const pat = get().project.patterns[i];
+  updateClip(i, id, (events) => quantizeEvents(events, clipStep(pat, id), 1, trackLength(pat, id)));
 }
 
 /** The notes inside [tick, tick+span) that a step edits: on a drum track only pad `note`'s, on a keys track all. */
