@@ -657,16 +657,6 @@ def test_drums_kit_found_through_a_new_wrapper():
         b.drums = drums
 
 
-def test_static_rgb_after_a_pulse_stops_the_pulse_first(monkeypatch):
-    monkeypatch.setattr("Morsel.controller.RGB_PADS", True)
-    host, c = setup()
-    c.set_mode("track")
-    c.set_pad(3, ("rgb", 0x112233), "pulse")
-    host.sent.clear()
-    c.set_pad(3, ("rgb", 0x112233), "static")
-    assert host.sent == [P.pad_led_message("daw", 3, 0), P.pad_rgb_sysex("daw", 3, 0x08, 0x11, 0x19)]
-
-
 def test_scale_echo_shows_no_popup():
     host, c = setup()
     c.overlay = None

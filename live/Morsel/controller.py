@@ -6,7 +6,7 @@
 from . import pages as PG
 from . import protocol as P
 from . import scale as SC
-from .colors import is_rgb, nearest_color, rgb, rgb7
+from .colors import is_rgb, nearest_color, rgb
 from .display import screens as S
 from .display.sender import BitmapSender
 from .display.widgets import overlay_bar
@@ -27,17 +27,14 @@ LAYOUT_FIX_INTERVAL = 1.0  # s between layout resends, so a device that keeps re
 LED_RESEND_DELAY = 0.15  # s after a layout switch: the device drops LED messages while it switches
 TEMP_TIMEOUT_TENTHS = 10  # the device's temporary display: 1 s
 # The shift map is drawn on the screen while Shift is held. The device still draws its own "Plugin | Drum" over it
-# (DISABLE_DAW_LABEL doesn't stop that, tested 2026-10-28), so SHIFT_COVER sends the map to the temporary target too,
-# which covers it (as Morsel's "bitmap" shift cover does; protocol_notes.md).
-SHIFT_COVER = True
+# (DISABLE_DAW_LABEL doesn't stop that, tested 2026-10-28), so the map goes to the temporary target too, which covers
+# it (as Morsel's "bitmap" shift cover does; protocol_notes.md): at once, then again at these times.
 SHIFT_COVER_AT = (0.0, 0.1, 0.25, 0.5)  # s after Shift goes down
 SHIFT_COVER_EVERY = 0.7  # s, then, while held
 MAX_TRACKS = 8
 MAX_SCENES = 16
 ERASE_AHEAD = 0.1  # beats: erase a little ahead of the playhead, so a note about to sound goes too
 AUTO_ARM = True  # the selected track is armed (implicitly, like Push), so the keybed and Record follow it
-RGB_PADS = False  # True: Live's colours as RGB SysEx. It doesn't light the pads in DAW mode (tested 2026-10-28),
-# and Live's own script uses the palette too; so the nearest palette colour.
 
 
 def layout_for(mode):
@@ -565,21 +562,19 @@ class Controller(object):
     def on_button(self, button, down):
         if button == "shift":
             self.shift = down
-            self.shift_since = self.host.now() if down and SHIFT_COVER else None
+            self.shift_since = self.host.now() if down else None
             self.shift_cover_next = 0
-            if down and SHIFT_COVER:
+            if down:
                 # The device draws its own "Plugin | Drum" the moment Shift goes down: cover it right away, without
                 # waiting for the next tick or for the ack of a frame in flight (as Morsel does). The retries follow.
                 self.send(P.bitmap_sysex(P.DISPLAY_TEMPORARY, S.shift_screen(self.shift_rows(), "MORSEL").pack()))
                 self.shift_cover_next = 1
-            if not down and SHIFT_COVER:
+                self.shift_pick = None
+            else:
                 # Close the shift map on the temporary target and show our screen again.
                 self.send(P.display_config_sysex(P.DISPLAY_TEMPORARY, 0))
                 self.sender.forget(P.DISPLAY_TEMPORARY)
                 self.sender.forget(P.DISPLAY_STATIONARY)
-            if down:
-                self.shift_pick = None
-            else:
                 self.on_shift_up_layout()
             return
         if down and self.shift and button in ("encPageUp", "encPageDown"):
@@ -1057,19 +1052,13 @@ class Controller(object):
                 self.send(P.button_led_message(cc, value))
 
     def set_pad(self, pad, color, mode="static"):
-        """`color`: a palette index, or a Live colour (colors.rgb). The device animates only palette colours, so
-        a flashing or pulsing Live colour goes as its nearest palette colour."""
+        """`color`: a palette index, or a Live colour (colors.rgb), which goes as its nearest palette colour: RGB
+        SysEx doesn't light the pads in DAW mode (tested 2026-10-28), and Live's own script uses the palette too."""
         key = (self.layout, pad)
         sig = (color, mode)
-        prev = self.sent_pads.get(key)
-        if prev == sig:
+        if self.sent_pads.get(key) == sig:
             return
         self.sent_pads[key] = sig
-        if is_rgb(color) and mode == "static" and RGB_PADS:
-            if prev is None or prev[1] != "static":
-                self.send(P.pad_led_message(self.layout, pad, 0))  # stop a flash / pulse first
-            self.send(P.pad_rgb_sysex(self.layout, pad, *rgb7(color[1])))
-            return
         if is_rgb(color):
             color = nearest_color(color[1])
         # Flash / pulse alternate with the static colour, so set static first.

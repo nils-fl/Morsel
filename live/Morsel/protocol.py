@@ -73,10 +73,6 @@ def button_led_message(cc, brightness):
     return (0xB3, cc, brightness & 0x7F)
 
 
-def pad_rgb_sysex(layout, pad, r, g, b):
-    return SYSEX_HEADER + (0x01, 0x43, note_for_pad(layout, pad), r & 0x7F, g & 0x7F, b & 0x7F, 0xF7)
-
-
 DAW_MODE_ON = (0x9F, 0x0C, 0x7F)
 DAW_MODE_OFF = (0x9F, 0x0C, 0x00)
 

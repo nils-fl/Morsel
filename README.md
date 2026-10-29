@@ -94,6 +94,10 @@ Load samples by dropping audio files onto an on-screen pad, or use **Import fold
 
 **Preferences** (⚙ in the top bar): theme, tips, audio output device, live-note budget, voice engine, which Launchkey to use, the **velocity response** of the pads and of the keys (Full, Medium, Light or Fixed: Medium, the default, lifts soft hits so the level varies less; it applies as you play, so recordings keep what you heard) and how its Shift popup is covered. In a browser they're kept per browser.
 
+## Ableton Live
+
+The repo also holds **Morsel for Live** (`live/`), a control surface script for Ableton Live 12 that makes the Launchkey work in Live the way it does in Morsel: the same pad modes, encoder pages, Shift layer and screen, with Live's tracks, clips, Drum Racks, browser and Simpler underneath, and chopping with the wave on the Launchkey's screen. It doesn't need the app. Setup and controls are in [live/README.md](live/README.md).
+
 ## Desktop app (macOS)
 
 The same app in its own window ([Electron](https://www.electronjs.org/), so it runs on Chromium as in Chrome). It adds what a browser can't do:
@@ -151,6 +155,7 @@ app/src/
   platform/  Desktop app or browser, and the desktop app's bridge
   params.ts  Encoder pages and parameters
 app/electron/  Desktop app: main process (window, menu, files, settings), preload bridge, packaging
+live/        Morsel for Live: the Ableton Live control surface script (Python), its tests and README
 kits/        Saved kit files (*.morsel-kit, git-ignored: they embed samples)
 reference/   Measurements of third-party sounds and the tuning report (git-ignored, see npm run measure)
 protocol_notes.md  DAW-mode protocol details measured on the hardware

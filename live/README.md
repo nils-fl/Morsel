@@ -37,6 +37,13 @@ Func cycles the pad modes: **Play → Step → Track → Clips**. In Play and Cl
 
 Holding Shift shows what it does with each button on the screen.
 
+### Chop a sample → pads
+1. **Find the sample.** On a drum track open Browse (Shift + Encoder page ⌃) and highlight a loop or a break in Samples (or Drums → Drum Hits). Or select a pad whose sound plays in a Simpler.
+2. **Shift + Encoder page ⌄.** The sample goes into a Simpler on a new "Chop …" track, cut into 16 equal chops, and the screen shows its wave. The pads and keys play the chops (C3 = chop 1).
+3. **The region**, on the SAMPLE page (Encoder page ⌄): encoders 3 and 4 set its Start and End; Func keeps only the region. To fit it to the tempo, set Beats (encoder 5, Live's guess to start with) and press Scene.
+4. **The chops**, on the CHOP page (Encoder page ⌃): Mode and Count (encoders 5 and 6) place them, equal steps or at the hits. To move one, hit its pad, zoom in (encoder 2) and turn Start or End (encoders 3 and 4); Split (encoder 7) cuts it in two or removes it.
+5. **Shift + Encoder page ⌄** again: Live's Slice to Drum Rack puts a chop on each pad, and the Launchkey goes back to Play mode on the new drum track.
+
 **Encoder pages** follow the selected track.
 - **CHOP** and **SAMPLE** (Chop mode only, first): on both, encoder 1 scrolls, 2 zooms (around the selected chop; a pad or key you play is brought into view), and 3 and 4 are Start and End: on SAMPLE the region's, on CHOP the selected chop's (its end is the next chop's start; on the last chop, the region's end). They move a screen pixel per detent, so zooming in makes them finer, and moving a chop makes the slicing Manual. CHOP also has Mode (Equal, Hits, Beat or Manual: Simpler's Region, Transient, Beat and Manual slicing), Count (Equal), Sens (Hits) or Div (Beat) and Split (right splits the selected chop in two, left removes it). Chops past 16 are picked with Pad ⌃/⌄ or the keys. SAMPLE also has Beats: the region's length (Live's guess at first, as a musical length), and Scene warps the sample to it, so it plays in time with Live's tempo (Simpler's Warp as). Func keeps only the region.
 - **STEP** (Step mode only, first): Bars, Grid (1/16, 1/32, 1/8T, 1/16T), Double (right doubles the loop with its notes, left halves it), Vel for new steps, Quant (turn right: quantize the clip to the grid), and Pad (drum track) or Note (keys track).
