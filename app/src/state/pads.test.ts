@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DECAY_MAX } from "../audio/dsp";
-import { padsFromSamples, slicePads } from "./pads";
+import { padsFromNotes, padsFromSamples, slicePads } from "./pads";
 import { defaultPad } from "./store";
 import { PAD_COUNT } from "./types";
 
@@ -43,5 +43,23 @@ describe("padsFromSamples", () => {
     expect(pads.map((p) => p.choke).slice(0, 4)).toEqual([0, 1, 1, 0]);
     expect(padsFromSamples(lib("CH", "OH")).map((p) => p.choke).slice(0, 2)).toEqual([1, 1]);
     expect(padsFromSamples(lib("Kick", "Open Hat")).every((p) => p.choke === 0)).toBe(true);
+  });
+});
+
+
+describe("padsFromNotes", () => {
+  it("puts a Drum Rack's sounds on the pads that play their notes, hats choked, other notes left out", () => {
+    const pads = padsFromNotes([
+      { note: 36, id: "k", name: "Bassdrum" },
+      { note: 44, id: "t", name: "Tom Lo" },
+      { note: 42, id: "c", name: "Closed Hi Hat" },
+      { note: 46, id: "o", name: "Open Hi Hat" },
+      { note: 60, id: "x", name: "Too high" },
+    ]);
+    expect(pads[0]).toMatchObject({ sampleId: "k", name: "Bassdrum" });
+    expect(pads[4]).toMatchObject({ sampleId: "t", name: "Tom Lo" }); // note 44: pad 5, as the Launchkey's drum pads
+    const hats = pads.filter((p) => p.sampleId === "c" || p.sampleId === "o");
+    expect(hats.map((p) => p.choke)).toEqual([1, 1]);
+    expect(pads.some((p) => p.sampleId === "x")).toBe(false);
   });
 });

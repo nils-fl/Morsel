@@ -1,5 +1,6 @@
 // How sample audio is stored: 16-bit, half the size of the 32-bit float the browser decodes to and plenty for samples
-// (96 dB of range). Stereo whose two sides are the same is stored once.
+// (96 dB of range), with its channels as they are: stereo stays stereo, even with two identical sides (stored once,
+// it came back as mono, which a centred pan plays 3 dB quieter than the stereo it was).
 
 export function toInt16(data: Float32Array): Int16Array<ArrayBuffer> {
   const out = new Int16Array(data.length);
@@ -28,16 +29,9 @@ export function toFloat(data: Int16Array | Float32Array): Float32Array<ArrayBuff
   return out;
 }
 
-const same = (a: Int16Array, b: Int16Array) => {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
-  return true;
-};
-
-/** Channels as stored: 16-bit, and a single channel when every channel is identical. */
+/** Channels as stored: 16-bit, every channel kept. */
 export function encodeChannels(channels: Float32Array[]): Int16Array<ArrayBuffer>[] {
-  const pcm = channels.map(toInt16);
-  return pcm.length > 1 && pcm.every((c) => same(c, pcm[0])) ? [pcm[0]] : pcm;
+  return channels.map(toInt16);
 }
 
 /**

@@ -14,7 +14,8 @@ import { deleteKit, deleteSynthPreset, listKits, loadKit, loadSample, renameKit,
 import { dropSampleFavorites, moveFavorites } from "./browse/favorites";
 import { entrySample, folderLabel, folderSamples } from "./browse/source";
 import { SAMPLES, type Entry } from "./browse/tree";
-import { freeChokeGroup, padsFromSamples, slicePads } from "./state/pads";
+import { freeChokeGroup, padsFromNotes, padsFromSamples, slicePads } from "./state/pads";
+import { fileSample, livePreset, liveSamplePath } from "./browse/disk";
 import { ask } from "./state/confirm";
 import { oneOf, pref } from "./state/prefs";
 import { FACTORY_PRESETS, USER_FOLDER, type SynthPreset } from "./audio/synthPresets";
@@ -575,6 +576,7 @@ export async function confirmDeleteLibraryFolder(path: string) {
  * pads from there on. One undo step.
  */
 export async function entryToPads(e: Entry, firstPad: number) {
+  if (e.kind === "preset") return void (await loadLivePreset(e.path)); // a whole kit (or the keys' instrument)
   try {
     const loaded = e.kind === "folder" ? await folderSamples(e.path, PAD_COUNT - firstPad) : [{ id: await entrySample(e), name: e.name }];
     if (!loaded.length) return set({ status: "No samples in that folder" });
@@ -710,6 +712,48 @@ export const currentKit = () => (pendingKit?.track === drumTrack().id ? pendingK
 export function cancelKitLoad() {
   kitRequest++;
   pendingKit = null;
+}
+
+/**
+ * An Ableton Live preset from the connected Live library: a Drum Rack onto a drum track's pads (in Live's layout, its
+ * pad names kept), a sampled instrument onto a keys track as a multisample (its zones and key ranges). The samples are
+ * read from Live's library and stored in Morsel's (this browser's or app's) library as they're used: nothing more.
+ * `trackId`: the track to load onto (default: the drum track for a kit, the keys track for an instrument). Returns the
+ * popup for the Launchkey, or null when it couldn't load.
+ */
+export async function loadLivePreset(path: string, trackId?: string): Promise<[string, string] | null> {
+  const preset = await livePreset(path);
+  if (!preset) {
+    set({ status: "That preset has no sounds Morsel can play (a synth, or Live's library isn't connected)." });
+    return null;
+  }
+  const sounds = preset.kind === "kit" ? preset.pads : preset.zones;
+  const loaded = new Map<string, string>();
+  let i = 0;
+  for (const s of sounds) {
+    set({ status: `Loading ${preset.name}… ${++i}/${sounds.length}` });
+    if (loaded.has(s.sample)) continue;
+    try {
+      loaded.set(s.sample, await fileSample(liveSamplePath(path, s.sample)));
+    } catch (err) {
+      console.warn(`${s.sample} couldn't be loaded`, err);
+    }
+  }
+  if (preset.kind === "kit") {
+    const pads = padsFromNotes(preset.pads.flatMap((p) => (loaded.has(p.sample) ? [{ note: p.note, id: loaded.get(p.sample)!, name: p.name }] : [])));
+    const track = trackId ?? drumTrack().id;
+    updateTrack(track, (t) => ({ ...t, pads, kit: preset.name }), true);
+    set({ status: `Loaded ${preset.name} from Ableton Live` });
+    return ["KIT LOADED", preset.name];
+  }
+  const zones = preset.zones.flatMap((z) => (loaded.has(z.sample) ? [{ sampleId: loaded.get(z.sample)!, root: z.root, lo: z.lo, hi: z.hi }] : []));
+  if (!zones.length) {
+    set({ status: `${preset.name}: its samples couldn't be read` });
+    return null;
+  }
+  updateKeys({ type: "multi", zones, multiName: preset.name }, trackId);
+  set({ status: `Loaded ${preset.name} from Ableton Live: ${zones.length} zones` });
+  return ["MULTI LOADED", preset.name];
 }
 
 /** Load a stock kit or a saved kit onto the pads' drum track and remember it there. */

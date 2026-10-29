@@ -309,17 +309,25 @@ main .panels > .section + .section::before { content: ""; position: absolute; le
 /* ---------- top bar: the "device" ---------- */
 /* A header strip (brand, transport, message, app buttons) over the deck: labelled rows and the encoders on the left,
    the screen preview on the right. */
-.topbar {
+.topbar, .bar-sticky {
   --bar-label: 110px; /* the label column (and the brand's width), so every row's controls start on one line */
   --bar-gap: 10px; /* between a label and its controls */
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "head head" "deck screen";
+}
+.topbar {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "deck screen";
   gap: 12px 24px; align-items: start;
-  padding: 20px var(--gutter); border-bottom: 1px solid var(--line);
+  padding: 16px var(--gutter) 20px; border-bottom: 1px solid var(--line);
+}
+/* The header line (brand, transport, message, app buttons) stays at the top of the window while the page scrolls, so
+   Play and Rec are always at hand; the deck under it scrolls away. */
+.bar-sticky {
+  position: sticky; top: 0; z-index: 30; background: var(--panel); padding: 20px var(--gutter) 0;
+  border-radius: var(--r-shell) var(--r-shell) 0 0;
 }
 /* Header line: as much space under its controls as over them, then the hairline, then the same again to the deck. */
 .bar-head {
-  grid-area: head; display: flex; align-items: center; gap: var(--bar-gap); min-width: 0;
-  margin-bottom: 4px; padding-bottom: 16px; border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: var(--bar-gap); min-width: 0;
+  padding-bottom: 16px; border-bottom: 1px solid var(--line);
 }
 /* The deck is as tall as the screen; the encoders take what the rows leave, so both end on one line. */
 .bar-deck { grid-area: deck; align-self: stretch; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
@@ -899,7 +907,8 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
 @media (max-width: 1180px) {
   /* The brand has its own line here, so the label column only needs to fit the labels. */
   /* The 2x screen sits beside the rows, which spread to its height; the encoders run under both. */
-  .topbar { --bar-label: 84px; grid-template-areas: "head head" "rows screen" "enc enc"; }
+  .topbar, .bar-sticky { --bar-label: 84px; }
+  .topbar { grid-template-areas: "rows screen" "enc enc"; }
   .bar-deck { display: contents; }
   .bar-rows { align-self: stretch; justify-content: space-between; }
   .brand { width: auto; }
@@ -911,7 +920,8 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
 /* Narrow windows (an iPad held upright): the screen sits right of the patterns and tracks;
    the encoder strip gets the full width below. */
 @media (max-width: 900px) {
-  .topbar { --bar-label: 76px; grid-template-areas: "head head" "rows screen" "enc enc"; gap: 10px 14px; }
+  .topbar, .bar-sticky { --bar-label: 76px; }
+  .topbar { grid-template-areas: "rows screen" "enc enc"; gap: 10px 14px; }
   .bar-enc { padding-left: 0; }
   .status { flex-basis: 100%; padding-left: calc(var(--bar-label) + var(--bar-gap)); text-align: left; }
   /* Two even rows of 8, like the pads, rather than 10 and 6. */
@@ -966,7 +976,8 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
   .audio-banner { border-radius: 0; }
 
   /* Top bar: one column, the screen centred, every row full width. */
-  .topbar { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "rows" "enc"; padding: 12px var(--gutter); gap: 8px; }
+  .topbar { grid-template-columns: minmax(0, 1fr); grid-template-areas: "rows" "enc"; padding: 8px var(--gutter) 12px; gap: 8px; }
+  .bar-sticky { padding: 12px var(--gutter) 0; border-radius: 0; }
   .bar-head { margin: 0; padding-bottom: 8px; }
   .bar-label { display: none; }
   .transport { flex: 1 1 100%; flex-wrap: wrap; margin-left: 0; }
@@ -1013,7 +1024,7 @@ kbd { font-family: var(--mono); font-size: 10px; text-transform: uppercase; lett
 
 /* Phone held sideways (short touch screen): the encoder strip gets its own line so the knobs aren't squeezed. */
 @media (max-height: 500px) and (pointer: coarse) {
-  .topbar { grid-template-areas: "head head" "rows screen" "enc enc"; }
+  .topbar { grid-template-areas: "rows screen" "enc enc"; }
   .bar-deck { display: contents; }
   .bar-enc { padding-left: 0; }
 }

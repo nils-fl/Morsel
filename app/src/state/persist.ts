@@ -49,7 +49,8 @@ export async function loadSampleIndex(): Promise<Record<string, SampleInfo> | un
 }
 
 // Connected folders: a browser keeps the handle (the permission is asked again after a restart), the desktop app the path.
-export interface StoredFolder { name: string; handle?: FileSystemDirectoryHandle; path?: string }
+/** A connected folder; `live`: Ableton Live's library (its Core Library), whose presets Morsel reads. */
+export interface StoredFolder { name: string; handle?: FileSystemDirectoryHandle; path?: string; live?: boolean }
 
 export async function saveFolders(folders: StoredFolder[]) {
   await idbSet("folders", folders);

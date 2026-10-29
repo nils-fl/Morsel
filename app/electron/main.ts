@@ -105,6 +105,21 @@ function bridge() {
     if (!folders.get().includes(path)) folders.set([...folders.get(), path]);
     return { name: basename(path) || path, path };
   });
+  // Ableton Live's library (Live Lite comes with the Launchkey): found, not picked, and then readable like a picked
+  // folder. The newest Live in /Applications (or ~/Applications) that has a Core Library.
+  ipcMain.handle("live:find", async (e) => {
+    if (!trusted(e)) return undefined;
+    for (const apps of ["/Applications", join(app.getPath("home"), "Applications")]) {
+      const lives = (await readdir(apps).catch(() => [] as string[])).filter((n) => /^Ableton Live 1\d.*\.app$/.test(n)).sort().reverse();
+      for (const live of lives) {
+        const path = join(apps, live, "Contents/App-Resources/Core Library");
+        if (!(await stat(path).then((s) => s.isDirectory(), () => false))) continue;
+        if (!folders.get().includes(path)) folders.set([...folders.get(), path]);
+        return { name: "Ableton Live", path };
+      }
+    }
+    return undefined;
+  });
   ipcMain.on("folder:forget", (e, path: unknown) => {
     if (trusted(e)) folders.set(folders.get().filter((p) => p !== path));
   });

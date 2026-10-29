@@ -2,6 +2,7 @@
 // File System Access API (Chrome/Edge), in the desktop app from the file system.
 // Paths look like "disk:Sample Packs/Drums/Kick 1.wav"; the first part is the connected folder's name.
 import { engine } from "../audio/engine";
+import { isPresetFile, presetName, presetXml, readPreset, type LivePreset } from "../ableton/presets";
 import { native } from "../platform/native";
 import type { MorselNative, NativeResult } from "../platform/nativeApi";
 import { deleteFolderIndex, loadFolderIndex, loadFolders, saveFolderIndex, saveFolders, type StoredFolder } from "../state/persist";
@@ -125,7 +126,7 @@ const rootOf = (path: string) => roots.find((r) => r.name === path.slice(DISK.le
 const partsOf = (path: string) => path.slice(DISK.length).split("/").slice(1);
 const publish = () => set({ folders: roots.map((r) => ({ name: r.name, access: r.access })) });
 const bump = () => set({ diskTick: get().diskTick + 1 });
-const persist = () => saveFolders(roots.map(({ name, handle, path }) => ({ name, handle, path })));
+const persist = () => saveFolders(roots.map(({ name, handle, path, live }) => ({ name, handle, path, ...(live && { live }) })));
 
 /** Drop cached listings of a folder and everything below it. */
 function forget(path: string) {
@@ -189,6 +190,82 @@ export async function connectFolder(): Promise<string | undefined> {
   publish();
   set({ status: `Connected ${name}. Nothing is copied until you use a sample.` });
   return name;
+}
+
+// ---------- Ableton Live's library ----------
+
+/** Where Live Lite keeps its library (the Launchkey comes with Live Lite); other editions only differ in the name. */
+export const LIVE_LIBRARY = "/Applications/Ableton Live 12 Lite.app/Contents/App-Resources/Core Library";
+const LIVE_NAME = "Ableton Live";
+
+/** The connected Live library's root, if there is one. */
+export const liveRoot = () => roots.find((r) => r.live)?.name;
+
+/**
+ * Connect Ableton Live's library. The desktop app finds it itself; a browser can't open the app bundle by itself, so
+ * the picker opens for the person to paste its path (copied, with how, in the status line). Its presets show up as
+ * kits and instruments, read in place: nothing is copied until a sound is used.
+ */
+export async function connectLiveLibrary(): Promise<string | undefined> {
+  const have = roots.find((r) => r.live);
+  if (have && have.access === "granted") return have.name;
+  let picked: StoredFolder | undefined;
+  if (native) {
+    const found = await native.findLiveLibrary();
+    if (!found) {
+      set({ status: "Ableton Live wasn't found in Applications." });
+      return;
+    }
+    picked = found;
+  } else {
+    await navigator.clipboard?.writeText(LIVE_LIBRARY).catch(() => undefined);
+    set({ status: `In the folder picker, press ⌘⇧G, paste (the path is copied: ${LIVE_LIBRARY}) and choose "Core Library".` });
+    picked = await backend.pick();
+    if (!picked) return;
+    const top = await backend.list(picked, []).catch(() => []);
+    if (!["Racks", "Samples"].every((n) => top.some((t) => t.dir && t.name === n))) {
+      set({ status: `That isn't Live's library: choose the "Core Library" folder (${LIVE_LIBRARY}).` });
+      return;
+    }
+  }
+  if (have) roots = roots.filter((r) => r !== have);
+  roots.push({ ...picked, name: LIVE_NAME, live: true, access: "granted" });
+  forget(rootPath(LIVE_NAME));
+  await persist();
+  publish();
+  bump();
+  set({ status: "Connected Ableton Live's library: its kits and sampled instruments are under Ableton Live. For your own use." });
+  return LIVE_NAME;
+}
+
+/** The Live library's root, shown as what's in it for Morsel (the real folders underneath). */
+const LIVE_SECTIONS: [string, string][] = [
+  ["Live Kits", "Racks/Drum Racks"],
+  ["Live Instruments", "Racks/Instrument Racks"],
+  ["Simpler Instruments", "Devices/Instruments/Simpler"],
+  ["Samples", "Samples"],
+];
+
+const presets = new Map<string, LivePreset | null>();
+
+/** A preset in the Live library, read once (null: no sounds Morsel can play, e.g. a synth). */
+export async function livePreset(path: string): Promise<LivePreset | null> {
+  if (presets.has(path)) return presets.get(path)!;
+  let preset: LivePreset | null = null;
+  try {
+    const file = await fileOf(path);
+    preset = readPreset(await presetXml(await file.arrayBuffer()), presetName(file.name));
+  } catch {
+    preset = null;
+  }
+  presets.set(path, preset);
+  return preset;
+}
+
+/** A preset's sample, as a disk path in the Live library it's from. */
+export function liveSamplePath(presetPath: string, relative: string) {
+  const root = rootOf(presetPath);
+  return `${rootPath(root ? root.name : LIVE_NAME)}/${relative}`;
 }
 
 /** Ask for read access again; browsers forget it when they restart. Needs a click. */
@@ -294,10 +371,22 @@ function loadListing(path: string): Promise<void> {
       const folders: Entry[] = [], files: Entry[] = [];
       const root = rootOf(path);
       if (!root) throw new Error("Not connected");
+      if (root.live && path === rootPath(root.name)) {
+        // Live's library at the top: just what Morsel can use, named for it.
+        const there = await backend.list(root, []);
+        const has = (dir: string) => there.some((t) => t.dir && t.name === dir.split("/")[0]);
+        listings.set(path, LIVE_SECTIONS.filter(([, dir]) => has(dir)).map(([name, dir]) => ({ kind: "folder", name, path: `${path}/${dir}` })));
+        return;
+      }
       for (const h of await backend.list(root, partsOf(path))) {
         if (h.name.startsWith(".")) continue;
         if (h.dir) folders.push({ kind: "folder", name: h.name, path: `${path}/${h.name}` });
         else if (AUDIO.test(h.name)) files.push({ kind: "file", name: h.name.replace(/\.[^.]+$/, ""), path: `${path}/${h.name}` });
+        else if (root.live && isPresetFile(h.name)) {
+          // Read now, so only kits and sampled instruments show (most instrument racks are synths).
+          const p = await livePreset(`${path}/${h.name}`);
+          if (p) files.push({ kind: "preset", name: p.name, path: `${path}/${h.name}`, preset: p.kind });
+        }
       }
       listings.set(path, [...folders.sort(byName), ...files.sort(byName)]);
     } catch (err) {
@@ -377,6 +466,8 @@ export function previewFile(path: string) {
   engine.stopPreview();
   const have = decoded.get(path);
   if (have) return void engine.previewBuffer(have);
+  // The browser can't stream AIFF (Live's library): decoded first instead.
+  if (/\.aiff?$/i.test(path)) return void decodeFile(path).then((b) => req === previewReq && engine.previewBuffer(b), () => undefined);
   fileOf(path).then((f) => req === previewReq && engine.previewFile(f), () => undefined);
 }
 

@@ -82,7 +82,9 @@ function PickerPanel({ anchor, start, allowNone, folderAction, onPick, onClose }
   const folders = useApp((s) => s.folders);
   const listing = listAt(path, null);
   const q = filter.trim().toLowerCase();
-  const items = q ? listing.entries.filter((e) => e.name.toLowerCase().includes(q)) : listing.entries;
+  // A pad takes one sample: Ableton Live's kits and instruments load from the library panel or the Launchkey instead.
+  const entries = listing.entries.filter((e) => e.kind !== "preset");
+  const items = q ? entries.filter((e) => e.name.toLowerCase().includes(q)) : entries;
   const current = items[sel] as Entry | undefined;
 
   // A click outside closes it; closing stops the preview. (onClose is a new function every render.)

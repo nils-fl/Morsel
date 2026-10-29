@@ -55,15 +55,29 @@ describe("master limiter", () => {
     expect(core.takeMeter()).toEqual({ peak: 0, gain: 1 });
   });
 
-  it("recovers after a loud hit", () => {
+  it("recovers after a loud hit, slowly enough not to move within a bass cycle", () => {
     const core = new MasterCore(SR);
     run(core, sine(3, 100, 0.05));
-    const after = sine(0.3, 220, 1);
+    const after = sine(0.3, 220, 2);
     const [y] = run(core, after);
-    // A second later the gain is back to (almost) 1.
-    const tail = y.subarray(y.length - 2000);
-    const src = after.subarray(after.length - 2000 - core.latency, after.length - core.latency);
-    const ratio = Math.max(...tail.map(Math.abs)) / Math.max(...src.map(Math.abs));
-    expect(ratio).toBeGreaterThan(0.99);
+    const gainAt = (s: number) => {
+      const end = Math.round(s * SR);
+      const tail = y.subarray(end - 1000, end);
+      const src = after.subarray(end - 1000 - core.latency, end - core.latency);
+      return Math.max(...tail.map(Math.abs)) / Math.max(...src.map(Math.abs));
+    };
+    // About 63% of the way back after the 250 ms release, and back to (almost) 1 two seconds later.
+    const start = 1 / 3;
+    const at = (gainAt(0.27) - start) / (1 - start);
+    expect(at).toBeGreaterThan(0.5);
+    expect(at).toBeLessThan(0.8);
+    expect(gainAt(2)).toBeGreaterThan(0.99);
+  });
+
+  it("leaves a loud signal under the ceiling untouched: no saturation on the way", () => {
+    const core = new MasterCore(SR);
+    const x = sine(0.89, 110, 0.2); // −1 dBFS: the old soft clip bent everything above −3 dBFS
+    const [y] = run(core, x);
+    for (let i = core.latency; i < x.length; i++) expect(y[i]).toBeCloseTo(x[i - core.latency], 6);
   });
 });

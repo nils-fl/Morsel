@@ -3,7 +3,7 @@
 // timeline, the biquad formulas, the built-in oscillators' band-limited tables and the stereo panner law. Each voice
 // makes the same automation calls as its dsp.ts builder, so both engines play the same envelopes.
 import type { KeysLfo, Pad, SynthParams, Wave } from "../../state/types";
-import { DECAY_MAX, FILTER_LFO_CENTS, MOD_VIB_CENTS, REGION_FADE, KEY_TRACK_PIVOT, VIB_CENTS, cutoffHz, driveCurve, padQDb, synthQDb, velGain } from "../dsp";
+import { DECAY_MAX, FILTER_LFO_CENTS, RELEASE_TAIL, minAttack, MOD_VIB_CENTS, REGION_FADE, KEY_TRACK_PIVOT, VIB_CENTS, cutoffHz, driveCurve, padQDb, synthQDb, velGain } from "../dsp";
 
 // ---------- messages between the main thread and the processor ----------
 
@@ -279,6 +279,52 @@ function shape(curve: Float32Array, x: number) {
   return curve[k] + (curve[k + 1] - curve[k]) * (v - k);
 }
 
+/** Half-band low-pass taps (windowed sinc, cut-off at a quarter of the 2x rate), for Oversampler2x. */
+const HALF_BAND = (() => {
+  const n = 15;
+  const m = (n - 1) / 2;
+  const taps = Array.from({ length: n }, (_, i) => {
+    const k = i - m;
+    const sinc = k === 0 ? 0.5 : Math.sin((Math.PI * k) / 2) / (Math.PI * k);
+    return sinc * (0.42 - 0.5 * Math.cos((2 * Math.PI * i) / (n - 1)) + 0.08 * Math.cos((4 * Math.PI * i) / (n - 1)));
+  });
+  const sum = taps.reduce((a, b) => a + b, 0);
+  return Float32Array.from(taps, (t) => t / sum);
+})();
+
+/**
+ * A waveshaper at twice the sample rate: up (zero-stuffed, half-band filtered), shaped, then half-band filtered and
+ * back down. The harmonics the curve adds above the original Nyquist are filtered out instead of folding back as
+ * aliasing (a plain shaper, or averaging with a shaped midpoint, leaves most of it). About 7 frames of delay.
+ */
+export class Oversampler2x {
+  private up = new Float32Array(HALF_BAND.length);
+  private down = new Float32Array(HALF_BAND.length);
+  private ui = 0;
+  private di = 0;
+
+  private static fir(buf: Float32Array, pos: number) {
+    let y = 0;
+    const n = buf.length;
+    for (let k = 0; k < n; k++) y += HALF_BAND[k] * buf[(pos - k + n) % n];
+    return y;
+  }
+
+  private push(buf: Float32Array, which: "up" | "down", x: number) {
+    const i = which === "up" ? (this.ui = (this.ui + 1) % buf.length) : (this.di = (this.di + 1) % buf.length);
+    buf[i] = x;
+    return Oversampler2x.fir(buf, i);
+  }
+
+  run(curve: Float32Array, x: number) {
+    // Zero-stuffing halves the level; the 2 brings it back.
+    const a = shape(curve, this.push(this.up, "up", 2 * x));
+    const b = shape(curve, this.push(this.up, "up", 0));
+    this.push(this.down, "down", a);
+    return this.push(this.down, "down", b);
+  }
+}
+
 // ---------- expression (the Launchkey's pitch and mod strips) ----------
 
 /** How fast bend and mod follow the strips: smooth enough not to step, quick enough to feel direct. */
@@ -414,7 +460,7 @@ export class SampleVoice implements Voice {
     this.pan = panGains(pad.pan, data.channels.length > 1);
 
     const peak = velGain(vel) * pad.volume;
-    const attack = Math.max(0.001, pad.attack);
+    const attack = Math.max(minAttack(pad), pad.attack);
     this.amp.set(0, when);
     this.amp.linear(peak, when + attack);
     let end = when + regionDur;
@@ -523,7 +569,7 @@ export class SynthVoice implements Voice {
   private f1 = new Biquad("lowpass");
   private f2: Biquad | null;
   private curve: Float32Array | null;
-  private lastIn = 0;
+  private over = new Oversampler2x();
   private freq: number;
   private q: number;
   private startFrame: number;
@@ -575,7 +621,7 @@ export class SynthVoice implements Voice {
     this.amp.hold(t);
     this.amp.target(0, t, rel / 4);
     this.cutoff.hold(t);
-    this.stopTime = t + rel + 0.05;
+    this.stopTime = t + rel * RELEASE_TAIL + 0.01;
   }
 
   render(out: Float32Array[], frame: number, n: number, expr?: Expression) {
@@ -606,12 +652,7 @@ export class SynthVoice implements Voice {
         this.f2.set(hz, 0, sr);
         x = this.f2.run(x, 0);
       }
-      if (this.curve) {
-        // 2x oversampling, simply: shape the midpoint too and average, which keeps the aliasing down.
-        const mid = shape(this.curve, (x + this.lastIn) / 2);
-        this.lastIn = x;
-        x = (mid + shape(this.curve, x)) / 2;
-      }
+      if (this.curve) x = this.over.run(this.curve, x);
       out[0][i] += x * this.amp.at(t);
     }
     return true;

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { allPresets, applyPreset, deleteUserPreset, keyOff, keyOn, saveUserPreset } from "../actions";
+import { allPresets, applyPreset, deleteUserPreset, keyOff, keyOn, loadLivePreset, saveUserPreset } from "../actions";
 import { presetFolders } from "../audio/synthPresets";
 import { hz, presetLabel } from "../params";
 import { engine } from "../audio/engine";
@@ -36,6 +36,7 @@ export function KeysPanel() {
   /** A library drawer row dropped on the Keys panel: a sample or file as the keys sound, a folder as the multisample. */
   async function loadEntry(e: Entry) {
     if (e.kind === "folder") return loadMulti(e.path);
+    if (e.kind === "preset") return void (await loadLivePreset(e.path)); // an Ableton Live instrument (or kit)
     try {
       upSample({ sampleId: await entrySample(e), root: rootFromName(e.name) ?? keys.sample.root });
     } catch (err) {

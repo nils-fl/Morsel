@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { defaultKeys, defaultPad } from "../../state/store";
-import { DECAY_MAX } from "../dsp";
-import { Expression, Param, SampleVoice, SynthVoice, biquadCoefficients, hermite, tablesFor, type SampleData } from "./voiceCore";
+import { DECAY_MAX, RELEASE_TAIL, driveCurve } from "../dsp";
+import { Expression, Oversampler2x, Param, SampleVoice, SynthVoice, biquadCoefficients, hermite, tablesFor, type SampleData } from "./voiceCore";
 
 const SR = 48000;
 
@@ -168,15 +168,19 @@ describe("sample voice", () => {
 });
 
 describe("synth voice", () => {
-  it("sounds from its start and ends 50 ms after the release, like its node graph", () => {
+  it("sounds from its start and ends once its release has faded 90 dB, like its node graph", () => {
     const synth = { ...defaultKeys().synth, attack: 0.002, release: 0.05 };
     const v = new SynthVoice({ kind: "synth", synth, note: 60, vel: 100 }, 0, SR);
     v.stop(0.1, false);
     const { out, ended } = render(v, 0.5, 1);
     const peak = Math.max(...out[0].subarray(0, 4800).map(Math.abs));
     expect(peak).toBeGreaterThan(0.05);
-    expect(ended).toBeGreaterThan(0.2 * SR - 128);
-    expect(ended).toBeLessThanOrEqual(0.2 * SR);
+    const end = 0.1 + 0.05 * RELEASE_TAIL + 0.01; // stop + release x RELEASE_TAIL, not release + 50 ms
+    expect(ended).toBeGreaterThan(end * SR - 128);
+    expect(ended).toBeLessThanOrEqual(end * SR + 128);
+    // Just before it ends it's (nearly) silent: no tick when it stops.
+    const last = Math.max(...out[0].subarray(ended - 256, ended - 128).map(Math.abs));
+    expect(last / peak).toBeLessThan(Math.pow(10, -80 / 20));
   });
 });
 
@@ -243,5 +247,59 @@ describe("expression (the Launchkey's strips)", () => {
     }
     expect(Math.max(...cents)).toBeGreaterThan(45);
     expect(Math.min(...cents)).toBeLessThan(-45);
+  });
+});
+
+describe("Oversampler2x", () => {
+  const N = 16384; // frequencies on exact DFT bins, measured over the second N frames with a Hann window
+  const sine = (bin: number, amp: number) => Float32Array.from({ length: 2 * N }, (_, i) => amp * Math.sin((2 * Math.PI * bin * i) / N));
+  const mag = (x: Float32Array, bin: number) => {
+    let re = 0, im = 0;
+    for (let i = 0; i < N; i++) {
+      const v = x[N + i] * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N));
+      re += v * Math.cos((2 * Math.PI * bin * i) / N);
+      im -= v * Math.sin((2 * Math.PI * bin * i) / N);
+    }
+    return Math.hypot(re, im) / (N / 4);
+  };
+  const plainShape = (c: Float32Array, v: number) => {
+    const p = ((c.length - 1) / 2) * (v + 1);
+    const k = Math.min(c.length - 2, Math.max(0, Math.floor(p)));
+    return c[k] + (c[k + 1] - c[k]) * (p - k);
+  };
+  /** The odd harmonics 3..15 of `bin` that fold back below Nyquist, as their combined level. */
+  const aliases = (y: Float32Array, bin: number) => {
+    const folded = new Set<number>();
+    for (let h = 3; h <= 15; h += 2) {
+      let f = (h * bin) % N;
+      if (f > N / 2) f = N - f;
+      if (h * bin > N / 2 && f % bin !== 0) folded.add(f);
+    }
+    return Math.sqrt([...folded].reduce((a, f) => a + mag(y, f) ** 2, 0));
+  };
+
+  it("passes a low tone through at the same level (a straight curve)", () => {
+    const o = new Oversampler2x();
+    const x = sine(150, 0.5);
+    const y = x.map((v) => o.run(Float32Array.from([-1, 1]), v));
+    expect(mag(y, 150) / mag(x, 150)).toBeCloseTo(1, 2);
+  });
+
+  it("folds less of a driven high tone back down, and keeps its top end", () => {
+    const curve = driveCurve(0.3);
+    const bin = 3072; // 9 kHz at 48 kHz
+    const x = sine(bin, 0.9);
+    const o = new Oversampler2x();
+    const over = x.map((v) => o.run(curve, v));
+    const plain = x.map((v) => plainShape(curve, v));
+    let last = 0;
+    const averaged = x.map((v) => { // what it replaces: a shaped midpoint, averaged in
+      const m = plainShape(curve, (v + last) / 2);
+      last = v;
+      return (m + plainShape(curve, v)) / 2;
+    });
+    expect(aliases(over, bin)).toBeLessThan(aliases(plain, bin) / 2.5); // about 10 dB less
+    expect(aliases(over, bin)).toBeLessThan(aliases(averaged, bin) / 1.5);
+    expect(mag(over, bin)).toBeGreaterThan(mag(averaged, bin)); // averaging dulled the highs
   });
 });

@@ -6,7 +6,9 @@ export type Entry =
   | { kind: "sample"; id: string; name: string }
   /** An audio file in a connected folder (browse/disk.ts). */
   | { kind: "file"; name: string; path: string }
-  | { kind: "kit"; name: string };
+  | { kind: "kit"; name: string }
+  /** An Ableton Live preset in the connected Live library: a Drum Rack (kit) or a sampled instrument (ableton/). */
+  | { kind: "preset"; name: string; path: string; preset: "kit" | "instrument" };
 
 export const ROOT = "";
 export const SAMPLES = "Samples";

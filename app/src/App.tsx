@@ -212,77 +212,82 @@ function TopBar({ onGuide, onPrefs }: { onGuide: () => void; onPrefs: () => void
   // A header strip (brand, transport, last message, app buttons) over the deck: labelled rows for patterns, tracks and
   // the Launchkey's mode and encoders, beside the screen preview.
   return (
-    <header className="topbar">
-      <div className="bar-head">
-        <div className="brand">
-          <strong>Morsel</strong>
-          <span className={`dot ${s.connected ? "ok" : ""}`} title={s.connected ? "Launchkey connected" : "Launchkey not found"} />
-        </div>
-        <div className="transport">
-          <button className={s.playing ? "on" : ""} onClick={togglePlay} title="Play / stop (Space)">{s.playing ? "■ Stop" : "▶ Play"}</button>
-          <button className={`rec ${s.recording ? "on" : ""}`} onClick={toggleRecord} title="Record (R)">{s.countIn ? "Count-in…" : "● Rec"}</button>
-          <button className={s.metronome ? "on" : ""} onClick={() => set({ metronome: !s.metronome })} title="Metronome">Click</button>
-          <span className="bar-sep" />
-          <label className="field inline">
-            <span>BPM</span>
-            <NumberField min={40} max={240} step={0.1} value={p.bpm} onCommit={(bpm) => updateProject((pr) => ({ ...pr, bpm: Math.round(bpm * 10) / 10 }), false)} />
-          </label>
-          <label className="field inline">
-            <span>Swing</span>
-            <NumberField min={50} max={75} value={p.swing} onCommit={(swing) => updateProject((pr) => ({ ...pr, swing: Math.round(swing) }), false)} />
-          </label>
-          <label className="field inline">
-            <span>Quant</span>
-            <select value={s.quantize} onChange={(e) => set({ quantize: Number(e.target.value) })} title="Quantize recorded notes to">
-              {QUANTIZE_OPTIONS.map((q) => <option key={q.label} value={q.ticks}>{q.label}</option>)}
-            </select>
-          </label>
-          <span className="bar-sep" />
-          <button className="icon-btn" onClick={undo} disabled={!s.undoLength} title="Undo (⌘Z)" aria-label="Undo">↶</button>
-          <button className="icon-btn" onClick={redo} disabled={!s.redoLength} title="Redo (⇧⌘Z)" aria-label="Redo">↷</button>
-        </div>
-        <div className="status" role="status" title={s.status}>{s.status}</div>
-        <div className="utils">
-          <ProjectMenu />
-          <button className={s.library ? "on" : ""} onClick={toggleLibrary} title={native ? "Connected folders and the sample library (B, ⌘L)" : "Connected folders and the sample library (B)"}>Library</button>
-          <button className={s.tips ? "on" : ""} onClick={toggleTips} title={s.tips ? "Hide the explanations in the panels" : "Show explanations in the panels"}>Tips</button>
-          <button onClick={onGuide} title="Controls, modes and shortcuts (?)">Guide</button>
-          <button className="icon-btn" onClick={toggleTheme} title={s.theme === "light" ? "Switch to the dark theme" : "Switch to the light theme"} aria-label="Toggle light / dark theme">
-            {s.theme === "light" ? "☾" : "☀"}
-          </button>
-          <button className="icon-btn" onClick={onPrefs} title={native ? "Preferences (⌘,)" : "Preferences"} aria-label="Preferences">⚙</button>
+    <>
+      {/* The header line stays at the top while the page scrolls: play, record and the rest of the transport. */}
+      <div className="bar-sticky">
+        <div className="bar-head">
+          <div className="brand">
+            <strong>Morsel</strong>
+            <span className={`dot ${s.connected ? "ok" : ""}`} title={s.connected ? "Launchkey connected" : "Launchkey not found"} />
+          </div>
+          <div className="transport">
+            <button className={s.playing ? "on" : ""} onClick={togglePlay} title="Play / stop (Space)">{s.playing ? "■ Stop" : "▶ Play"}</button>
+            <button className={`rec ${s.recording ? "on" : ""}`} onClick={toggleRecord} title="Record (R)">{s.countIn ? "Count-in…" : "● Rec"}</button>
+            <button className={s.metronome ? "on" : ""} onClick={() => set({ metronome: !s.metronome })} title="Metronome">Click</button>
+            <span className="bar-sep" />
+            <label className="field inline">
+              <span>BPM</span>
+              <NumberField min={40} max={240} step={0.1} value={p.bpm} onCommit={(bpm) => updateProject((pr) => ({ ...pr, bpm: Math.round(bpm * 10) / 10 }), false)} />
+            </label>
+            <label className="field inline">
+              <span>Swing</span>
+              <NumberField min={50} max={75} value={p.swing} onCommit={(swing) => updateProject((pr) => ({ ...pr, swing: Math.round(swing) }), false)} />
+            </label>
+            <label className="field inline">
+              <span>Quant</span>
+              <select value={s.quantize} onChange={(e) => set({ quantize: Number(e.target.value) })} title="Quantize recorded notes to">
+                {QUANTIZE_OPTIONS.map((q) => <option key={q.label} value={q.ticks}>{q.label}</option>)}
+              </select>
+            </label>
+            <span className="bar-sep" />
+            <button className="icon-btn" onClick={undo} disabled={!s.undoLength} title="Undo (⌘Z)" aria-label="Undo">↶</button>
+            <button className="icon-btn" onClick={redo} disabled={!s.redoLength} title="Redo (⇧⌘Z)" aria-label="Redo">↷</button>
+          </div>
+          <div className="status" role="status" title={s.status}>{s.status}</div>
+          <div className="utils">
+            <ProjectMenu />
+            <button className={s.library ? "on" : ""} onClick={toggleLibrary} title={native ? "Connected folders and the sample library (B, ⌘L)" : "Connected folders and the sample library (B)"}>Library</button>
+            <button className={s.tips ? "on" : ""} onClick={toggleTips} title={s.tips ? "Hide the explanations in the panels" : "Show explanations in the panels"}>Tips</button>
+            <button onClick={onGuide} title="Controls, modes and shortcuts (?)">Guide</button>
+            <button className="icon-btn" onClick={toggleTheme} title={s.theme === "light" ? "Switch to the dark theme" : "Switch to the light theme"} aria-label="Toggle light / dark theme">
+              {s.theme === "light" ? "☾" : "☀"}
+            </button>
+            <button className="icon-btn" onClick={onPrefs} title={native ? "Preferences (⌘,)" : "Preferences"} aria-label="Preferences">⚙</button>
+          </div>
         </div>
       </div>
-      <div className="bar-deck">
-        <div className="bar-rows">
-          <div className="bar-row">
-            <span className="bar-label">Pattern</span>
-            <div className="patterns">
-              {p.patterns.map((pat, i) => (
-                <button
-                  key={i}
-                  className={`pat ${i === s.currentPattern ? "on" : ""} ${i === s.queuedPattern ? "queued" : ""} ${patternHasNotes(pat) ? "used" : ""}`}
-                  onClick={() => sequencer.selectPattern(i)}
-                >{i + 1}</button>
-              ))}
+      <header className="topbar">
+        <div className="bar-deck">
+          <div className="bar-rows">
+            <div className="bar-row">
+              <span className="bar-label">Pattern</span>
+              <div className="patterns">
+                {p.patterns.map((pat, i) => (
+                  <button
+                    key={i}
+                    className={`pat ${i === s.currentPattern ? "on" : ""} ${i === s.queuedPattern ? "queued" : ""} ${patternHasNotes(pat) ? "used" : ""}`}
+                    onClick={() => sequencer.selectPattern(i)}
+                  >{i + 1}</button>
+                ))}
+              </div>
+            </div>
+            <div className="bar-row">
+              <span className="bar-label">Track</span>
+              <TrackStrip />
+            </div>
+            <div className="bar-row hw">
+              <span className="bar-label" title="What the Launchkey's pads and encoders do right now">Launchkey</span>
+              <div className="hw-modes">
+                {(["play", "step", "track", "mute", "pattern", "browse"] as HwMode[]).map((m) => (
+                  <button key={m} className={s.hwMode === m ? "on" : ""} onClick={() => setHwMode(m)}>{m}</button>
+                ))}
+              </div>
             </div>
           </div>
-          <div className="bar-row">
-            <span className="bar-label">Track</span>
-            <TrackStrip />
-          </div>
-          <div className="bar-row hw">
-            <span className="bar-label" title="What the Launchkey's pads and encoders do right now">Launchkey</span>
-            <div className="hw-modes">
-              {(["play", "step", "track", "mute", "pattern", "browse"] as HwMode[]).map((m) => (
-                <button key={m} className={s.hwMode === m ? "on" : ""} onClick={() => setHwMode(m)}>{m}</button>
-              ))}
-            </div>
-          </div>
+          <div className="bar-enc"><EncoderStrip /></div>
         </div>
-        <div className="bar-enc"><EncoderStrip /></div>
-      </div>
-      <div className="screen-slot"><ScreenPreview source={currentFrame} scale={wide ? 3 : 2} /></div>
-    </header>
+        <div className="screen-slot"><ScreenPreview source={currentFrame} scale={wide ? 3 : 2} /></div>
+      </header>
+    </>
   );
 }

@@ -12,14 +12,17 @@ const EXPRESSION_TC = 0.01; // the strips: as the worklet engine's Expression
 /** How the insert FX knobs map to node settings (kept here so the mixer UI can show the same numbers). */
 export const fxFilterHz = (c: number) => cutoffHz(c);
 const DRIVE_CURVES = new Map<number, Float32Array<ArrayBuffer>>();
+/** The drive's input range: its gain goes up to 4x, and a WaveShaper only shapes -1..1 (beyond, it clips flat). So the
+ *  input is scaled down by this first and the curve covers ±4, where tanh keeps bending smoothly. */
+const DRIVE_RANGE = 4;
 function driveCurve(drive: number) {
   const k = Math.round(drive * 50) / 50;
   let c = DRIVE_CURVES.get(k);
   if (!c) {
     const amount = 1 + k * 12;
-    c = new Float32Array(1024);
+    c = new Float32Array(4096);
     for (let i = 0; i < c.length; i++) {
-      const x = (i / (c.length - 1)) * 2 - 1;
+      const x = ((i / (c.length - 1)) * 2 - 1) * DRIVE_RANGE;
       c[i] = Math.tanh(x * amount) / Math.tanh(amount);
     }
     DRIVE_CURVES.set(k, c);
@@ -76,7 +79,7 @@ export class TrackStrip {
     });
     this.driveIn = g();
     this.shaper = ctx.createWaveShaper();
-    this.shaper.oversample = "2x";
+    this.shaper.oversample = "4x"; // less aliasing from the harmonics the curve adds
     this.driveOut = g();
     this.comp = ctx.createDynamicsCompressor();
     this.pan = ctx.createStereoPanner();
@@ -154,11 +157,19 @@ export class TrackStrip {
     const gains = fx ? [fx.eqLow, fx.eqMid, fx.eqHigh] : [0, 0, 0];
     this.eq.forEach((e, i) => e.gain.setTargetAtTime(gains[i], now, TC));
     const drive = fx?.drive ?? 0;
+    // Scaled into the curve's -1..1 (see DRIVE_RANGE); with no curve the shaper passes it as is, so unscaled.
+    const driveGain = (1 + drive * 3) / (drive > 0 ? DRIVE_RANGE : 1);
     if (drive !== this.lastDrive) {
+      const switching = (drive > 0) !== (this.lastDrive > 0);
       this.lastDrive = drive;
       this.shaper.curve = drive > 0 ? driveCurve(drive) : null;
+      if (switching) {
+        // The scale jumps with the curve: at once, not gliding (it would drive the curve 4x too hard for a moment).
+        this.driveIn.gain.cancelScheduledValues(now);
+        this.driveIn.gain.setValueAtTime(driveGain, now);
+      }
     }
-    this.driveIn.gain.setTargetAtTime(1 + drive * 3, now, TC);
+    this.driveIn.gain.setTargetAtTime(driveGain, now, TC);
     this.driveOut.gain.setTargetAtTime(1 / (1 + drive * 1.5), now, TC);
     const comp = fx?.comp ?? 0;
     this.comp.threshold.setTargetAtTime(-comp * 40, now, TC);
@@ -183,12 +194,15 @@ export class TrackStrip {
   }
 }
 
-let softClipCurve: Float32Array<ArrayBuffer> | undefined;
+/** The glue compressor's own makeup gain: Web Audio's DynamicsCompressor raises its output by (its gain at 0 dBFS)
+ *  ^ -0.6, here 0 dBFS → −7 dB (threshold −14, ratio 2), so +4.2 dB. Cancelled, so switching Glue on doesn't make
+ *  the mix louder (and hotter into the limiter). */
+const GLUE_MAKEUP_DB = 4.2;
 
 /**
- * The master bus: level, a gentle glue compressor, then the limiter (a soft clip and a look-ahead peak limiter at
- * −0.3 dBFS). The limiter runs in the master worklet when the context has it, else on nodes (a WaveShaper and a
- * hard-set DynamicsCompressor, which can let a peak through in its first millisecond).
+ * The master bus: level, an optional glue compressor (off by default: it pumps), then a look-ahead peak limiter at
+ * −0.3 dBFS that leaves everything below it untouched. The limiter runs in the master worklet when the context has
+ * it, else on a hard-set DynamicsCompressor (which can let a peak through in its first millisecond).
  */
 export class MasterBus {
   /** Tracks and returns connect here. */
@@ -198,17 +212,23 @@ export class MasterBus {
   /** Output peak and deepest limiter gain since the last report (live worklet engine; else stays at rest). */
   meter: MasterMeter = { peak: 0, gain: 1 };
   private ctx: BaseAudioContext;
+  private glue: DynamicsCompressorNode;
+  private glueOut: GainNode;
+  private glueOn: boolean | null = null;
 
   constructor(ctx: BaseAudioContext, out: AudioNode, worklet: boolean, live: boolean) {
     this.ctx = ctx;
     this.input = ctx.createGain();
     this.input.gain.value = DEFAULT_MASTER_LEVEL;
-    const glue = ctx.createDynamicsCompressor();
+    const glue = (this.glue = ctx.createDynamicsCompressor());
     glue.threshold.value = -14;
     glue.knee.value = 6;
     glue.ratio.value = 2;
     glue.attack.value = 0.01;
     glue.release.value = 0.1;
+    this.glueOut = ctx.createGain();
+    this.glueOut.gain.value = Math.pow(10, -GLUE_MAKEUP_DB / 20);
+    glue.connect(this.glueOut);
     if (worklet) {
       const node = new AudioWorkletNode(ctx, MASTER_PROCESSOR_NAME, {
         numberOfInputs: 1,
@@ -221,27 +241,30 @@ export class MasterBus {
       this.limiterIn = node;
       node.connect(out);
     } else {
-      // A WaveShaper only shapes −1..1: halve the signal first, so the curve covers ±2 (+6 dBFS).
-      const half = ctx.createGain();
-      half.gain.value = 0.5;
-      const shaper = ctx.createWaveShaper();
-      softClipCurve ??= Float32Array.from({ length: 2049 }, (_, i) => softClip(((i / 2048) * 2 - 1) * 2));
-      shaper.curve = softClipCurve;
-      half.connect(shaper);
       const limit = ctx.createDynamicsCompressor();
       limit.threshold.value = -1;
       limit.knee.value = 0;
       limit.ratio.value = 20;
       limit.attack.value = 0.001;
-      limit.release.value = 0.08;
-      shaper.connect(limit).connect(out);
-      this.limiterIn = half;
+      limit.release.value = 0.25;
+      limit.connect(out);
+      this.limiterIn = limit;
     }
-    this.input.connect(glue).connect(this.limiterIn);
+    this.glueOut.connect(this.limiterIn);
+    this.setGlue(false);
   }
 
-  update(level: number) {
+  /** Glue on: the level goes through the compressor; off: straight to the limiter. */
+  private setGlue(on: boolean) {
+    if (on === this.glueOn) return;
+    this.glueOn = on;
+    this.input.disconnect();
+    this.input.connect(on ? this.glue : this.limiterIn);
+  }
+
+  update(level: number, glue = false) {
     this.input.gain.setTargetAtTime(level, this.ctx.currentTime, TC);
+    this.setGlue(glue);
   }
 }
 
@@ -310,7 +333,12 @@ export class ReturnFx {
     // reverbImpulse sets the level itself (the convolver's own normalising makes longer rooms louder).
     this.convolver.normalize = false;
     this.reverbOut = g();
-    this.reverbIn.connect(this.convolver).connect(this.reverbOut).connect(master);
+    // A low cut on the return, as a mixing engineer would: a room's low end piles up under the kick and bass.
+    const lowCut = ctx.createBiquadFilter();
+    lowCut.type = "highpass";
+    lowCut.frequency.value = 200;
+    lowCut.Q.value = 0.5;
+    this.reverbIn.connect(this.convolver).connect(lowCut).connect(this.reverbOut).connect(master);
 
     this.delayIn = g();
     this.delayOut = g();

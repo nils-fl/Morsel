@@ -2,6 +2,8 @@ import { get, newId, set } from "../state/store";
 import { deleteSample, deleteSamples, listSampleIds, loadSample, loadSampleIndex, saveSample, saveSampleIndex, type StoredSample } from "../state/persist";
 import { Voices } from "./voices";
 import { encodeChannels, toFloat } from "./pcm";
+import { decodeAiff, isAiff } from "./aiff";
+import { writeWav24 } from "./wav";
 import { buildClick } from "./dsp";
 import { loadVoiceWorklet } from "./worklet/voiceNode";
 import type { SampleInfo } from "../state/types";
@@ -281,8 +283,19 @@ class Engine {
     return this.addBuffer(baseName(file), await this.decode(file), folder ?? fileDir(file), src);
   }
 
+  /** A file as audio at the engine's rate. AIFF (Ableton Live's library) is read here, as Chromium's decoder can't. */
   async decode(file: File) {
-    return this.ctx.decodeAudioData(await file.arrayBuffer());
+    const bytes = await file.arrayBuffer();
+    if (!isAiff(bytes)) return this.ctx.decodeAudioData(bytes);
+    const { sampleRate, channels } = decodeAiff(bytes);
+    if (sampleRate !== this.ctx.sampleRate) {
+      // At another rate: as a 24-bit WAV through decodeAudioData, whose resampler is the browser's best (a buffer
+      // played at another rate is only interpolated linearly, which dulls it).
+      return this.ctx.decodeAudioData(writeWav24(channels, sampleRate).buffer);
+    }
+    const b = new AudioBuffer({ length: Math.max(1, channels[0].length), numberOfChannels: channels.length, sampleRate });
+    channels.forEach((d, c) => b.copyToChannel(d, c));
+    return b;
   }
 
   private previewSrc: AudioBufferSourceNode | null = null;

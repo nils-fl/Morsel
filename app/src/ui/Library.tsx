@@ -3,13 +3,14 @@
 // Search covers every connected folder (indexed once, browse/search.ts) and the library.
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import {
-  cleanFolder, confirmDeleteLibraryFolder, confirmDeleteSample, entryToPads, folderToPads, moveSample, removeUnusedSamples, renameLibraryFolder,
+  cleanFolder, confirmDeleteLibraryFolder, confirmDeleteSample, entryToPads, folderToPads, loadLivePreset, moveSample, removeUnusedSamples,
+  renameLibraryFolder,
   renameSample, sampleUsers,
 } from "../actions";
 import { engine } from "../audio/engine";
 import {
-  connectFolder, diskSupported, disconnectFolder, fileDetails, fileSample, folderNameProblem, isDiskPath, reconnectFolder, refreshFolder, renameFolder,
-  rootPath,
+  connectFolder, connectLiveLibrary, diskSupported, disconnectFolder, fileDetails, fileSample, folderNameProblem, isDiskPath, liveRoot, reconnectFolder,
+  refreshFolder, renameFolder, rootPath,
 } from "../browse/disk";
 import { toggleFavorite } from "../browse/favorites";
 import { scanFolder, search, type SearchResult } from "../browse/search";
@@ -39,7 +40,8 @@ const favRoot: Entry = { kind: "folder", name: FAVORITES, path: FAVORITES };
 const isLibFolder = (e: Entry) => e.kind === "folder" && e.path.startsWith(SAMPLES + "/");
 const isDiskFolder = (e: Entry) => e.kind === "folder" && isDiskPath(e.path);
 const canLoad = (e: Entry) => e.kind === "sample" || e.kind === "file";
-const hasMenu = (row: { entry: Entry; root?: Root }) => !!row.root || canLoad(row.entry) || isDiskFolder(row.entry) || isLibFolder(row.entry);
+const hasMenu = (row: { entry: Entry; root?: Root }) =>
+  !!row.root || canLoad(row.entry) || row.entry.kind === "preset" || isDiskFolder(row.entry) || isLibFolder(row.entry);
 
 /** The rows the tree shows: each section, and the folders opened in it. */
 function treeRows(favorites: boolean, roots: Root[]): Row[] {
@@ -142,7 +144,10 @@ function Drawer() {
     if (listen && canLoad(row.entry)) previewEntry(row.entry);
   };
 
-  const load = (e: Entry) => canLoad(e) && void entryToPads(e, get().selectedPad);
+  const load = (e: Entry) => {
+    if (e.kind === "preset") void loadLivePreset(e.path);
+    else if (canLoad(e)) void entryToPads(e, get().selectedPad);
+  };
 
   function onKey(ev: KeyboardEvent) {
     // Typing in a field, or a row's own buttons.
@@ -224,6 +229,7 @@ function Drawer() {
         },
       ];
     }
+    if (e.kind === "preset") return [{ label: e.preset === "kit" ? "Load as the drum kit" : "Load onto Keys", run: () => load(e) }];
     if (e.kind === "file") {
       return [
         { label: pad, run: () => load(e) },
@@ -272,6 +278,10 @@ function Drawer() {
       <div className="lib-head">
         <strong>Library</strong>
         <span className="picker-spacer" />
+        {diskSupported() && !liveRoot() && (
+          <button title="Ableton Live's library (Live Lite comes with the Launchkey): its drum kits and sampled instruments, read in place, for your own use"
+            onClick={() => void connectLiveLibrary().then((n) => n && setSel(`disk>folder:${rootPath(n)}`))}>Ableton Live</button>
+        )}
         {diskSupported() && (
           <button title="Browse a folder on this computer in place; a sample is copied in only when you use it" onClick={() => void connectFolder().then((n) => {
             if (!n) return;
@@ -350,7 +360,7 @@ function TreeRow({ row, selected, open, favorite, scan, editing, folders, hasMen
       className={`${folder ? "folder" : ""} ${section ? "section-row" : ""}`} style={{ "--depth": row.depth } as CSSProperties}
       draggable={!section && !editing} onDragStart={(ev) => dragEntry(ev.dataTransfer, e)}
       onClick={editing ? undefined : onClick} onDoubleClick={editing ? undefined : onDoubleClick}>
-      <span className="picker-icon" aria-hidden>{folder ? (open ? "▾" : "▸") : "♪"}</span>
+      <span className="picker-icon" aria-hidden>{folder ? (open ? "▾" : "▸") : e.kind === "preset" ? (e.preset === "kit" ? "▦" : "♫") : "♪"}</span>
       {editing ? (
         <>
           <input className="lib-edit" autoFocus value={editing.value} list={editing.mode === "move" || folder ? listId : undefined}

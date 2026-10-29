@@ -17,6 +17,7 @@ const api: MorselNative = {
   prefs: ipcRenderer.sendSync("prefs:load") ?? {},
   setPref: (key, value) => ipcRenderer.send("prefs:set", key, value),
   pickFolder: (defaultPath) => ipcRenderer.invoke("folder:pick", defaultPath),
+  findLiveLibrary: () => ipcRenderer.invoke("live:find"),
   forgetFolder: (path) => ipcRenderer.send("folder:forget", path),
   listFolder: (path) => ipcRenderer.invoke("folder:list", path),
   readFile: (path) => ipcRenderer.invoke("file:read", path),

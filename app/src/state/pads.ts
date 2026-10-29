@@ -1,6 +1,7 @@
 // Building pad sets: slices of one sample, or a folder of samples (pure, no audio).
 import { slicesFromMarkers } from "../audio/chop";
 import { DECAY_MAX } from "../audio/dsp";
+import { DRUM_NOTES } from "../midi/protocol";
 import { defaultPad } from "./store";
 import { PAD_COUNT, type Pad, type SliceOpts } from "./types";
 
@@ -31,9 +32,31 @@ export function padsFromSamples(samples: { id: string; name: string }[]): Pad[] 
     const s = list[i];
     return s ? { ...defaultPad(i), sampleId: s.id, name: s.name.slice(0, 12) } : defaultPad(i);
   });
-  const open = list.findIndex((s) => HAT.test(s.name) && OPEN.test(s.name));
-  const closed = list.findIndex((s) => HAT.test(s.name) && !OPEN.test(s.name));
+  chokeHats(pads, list.map((s) => s.name));
+  return pads;
+}
+
+/** Closed and open hats share choke group 1 when both are there (`names` by pad, undefined for an empty one). */
+function chokeHats(pads: Pad[], names: (string | undefined)[]) {
+  const open = names.findIndex((n) => n !== undefined && HAT.test(n) && OPEN.test(n));
+  const closed = names.findIndex((n) => n !== undefined && HAT.test(n) && !OPEN.test(n));
   if (open >= 0 && closed >= 0) pads[open].choke = pads[closed].choke = 1;
+}
+
+/**
+ * Sounds by MIDI note on the pads that play those notes (a Drum Rack's layout: note 36 on pad 1, as the Launchkey's
+ * drum pads send them), hats choked. Notes the 16 pads don't play are left out.
+ */
+export function padsFromNotes(sounds: { note: number; id: string; name: string }[]): Pad[] {
+  const pads = Array.from({ length: PAD_COUNT }, (_, i) => defaultPad(i));
+  const names: (string | undefined)[] = Array(PAD_COUNT).fill(undefined);
+  for (const s of sounds) {
+    const i = DRUM_NOTES.indexOf(s.note);
+    if (i < 0) continue;
+    pads[i] = { ...defaultPad(i), sampleId: s.id, name: s.name.slice(0, 12) };
+    names[i] = s.name;
+  }
+  chokeHats(pads, names);
   return pads;
 }
 

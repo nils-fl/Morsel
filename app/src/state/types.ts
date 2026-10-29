@@ -49,6 +49,9 @@ export interface SynthParams {
 export interface Zone {
   sampleId: string;
   root: number; // MIDI note
+  /** The keys it plays on (from an Ableton Live instrument); without them, the nearest root plays. */
+  lo?: number;
+  hi?: number;
 }
 
 /** "sample" mode: one sample of its own, played across the keys from its root note. */
@@ -177,6 +180,8 @@ export interface Project {
   returns: Returns;
   /** Master level before the glue compressor and limiter, 0..1. */
   masterLevel: number;
+  /** The master's glue compressor: off by default (it pumps the mix); on for the old, glued sound. */
+  masterGlue: boolean;
 }
 
 /** A sidechain input: one pad of a drum track, as `${trackId}:${pad}`. */

@@ -1,13 +1,15 @@
-// The master bus's last stage: a gentle soft clip, then a look-ahead peak limiter that keeps every sample under the
-// ceiling. Pure code shared by the master worklet and the tests.
+// The master bus's last stage: a look-ahead peak limiter that keeps every sample under the ceiling, and leaves
+// everything below it untouched (no saturation on the way). Pure code shared by the master worklet and the tests.
 
 export const MASTER_PROCESSOR_NAME = "morsel-master";
 
 /** Output ceiling, −0.3 dBFS. */
 export const CEILING = Math.pow(10, -0.3 / 20);
-const LOOKAHEAD = 0.003; // seconds
-const RELEASE = 0.08; // seconds, to recover about 63% of the way
-/** Soft clip knee: samples under −3 dBFS pass untouched. */
+const LOOKAHEAD = 0.005; // seconds
+/** Seconds to recover about 63% of the way: slow enough that the gain doesn't move within a bass cycle (which
+ * distorts the low end and pumps), as a mastering limiter's release. */
+const RELEASE = 0.25;
+/** Soft clip knee, for softClip (the delay's feedback saturation): samples under −3 dBFS pass. */
 const KNEE = 0.7;
 
 /** Unity below the knee, then bends smoothly towards ±1 (it never reaches it). */
@@ -64,10 +66,10 @@ export class MasterCore {
     const chans = delay.length;
     for (let i = 0; i < frames; i++) {
       const p = this.pos;
-      // The needed gain of the newest sample, after the soft clip.
+      // The needed gain of the newest sample.
       let peak = 0;
       for (let c = 0; c < chans; c++) {
-        const x = softClip(input[c]?.[i] ?? 0);
+        const x = input[c]?.[i] ?? 0;
         delay[c][p] = x;
         const a = Math.abs(x);
         if (a > peak) peak = a;

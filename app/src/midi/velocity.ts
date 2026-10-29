@@ -22,8 +22,9 @@ export function velocityThrough(curve: VelocityCurve, vel: number): number {
   return Math.round(floor + (127 - floor) * Math.pow((Math.min(127, vel) - 1) / 126, exp));
 }
 
-export const padVelocityPref = pref<VelocityCurve>("morsel.padVelocity", "medium", oneOf(VELOCITY_CURVES));
-export const keyVelocityPref = pref<VelocityCurve>("morsel.keyVelocity", "medium", oneOf(VELOCITY_CURVES));
+// Full by default: the playing's whole dynamics, as a DAW plays it. A preference already set stays.
+export const padVelocityPref = pref<VelocityCurve>("morsel.padVelocity", "full", oneOf(VELOCITY_CURVES));
+export const keyVelocityPref = pref<VelocityCurve>("morsel.keyVelocity", "full", oneOf(VELOCITY_CURVES));
 
 // The curves in use, so a hit doesn't read the preference (localStorage) every time; set*Velocity keeps them current.
 let padCurve = padVelocityPref.get();

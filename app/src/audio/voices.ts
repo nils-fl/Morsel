@@ -13,6 +13,12 @@ export type BufferLookup = (id: string) => AudioBuffer | undefined;
 // Multisample zones play the whole sample, unfiltered, with a short release.
 const ZONE_VOICE = { ...defaultPad(0), start: 0, end: 1, pitch: 0, attack: 0.002, decay: 0.4, cutoff: 1, hpCutoff: 0, resonance: 0, pan: 0, reverse: false };
 
+/** The zone a note plays: the one whose keys hold it (an Ableton Live instrument's ranges), else the nearest root. */
+export function zoneFor<Z extends { root: number; lo?: number; hi?: number }>(zones: Z[], note: number): Z {
+  const inRange = zones.find((z) => z.lo !== undefined && z.hi !== undefined && z.lo <= note && note <= z.hi);
+  return inRange ?? zones.reduce((best, z) => (Math.abs(z.root - note) < Math.abs(best.root - note) ? z : best));
+}
+
 export class Voices {
   readonly master: GainNode;
   readonly masterBus: MasterBus;
@@ -54,7 +60,7 @@ export class Voices {
     }
     for (const t of p.tracks) this.strip(t).update(t, trackAudible(p, t.id), (i) => padAudible(t, i));
     this.returns.update(p.returns, p.bpm);
-    this.masterBus.update(p.masterLevel);
+    this.masterBus.update(p.masterLevel, p.masterGlue);
   }
 
   private strip(t: Track): TrackStrip {
@@ -193,7 +199,7 @@ export class Voices {
       const voice = { ...ZONE_VOICE, attack: s.attack, decay: s.release, cutoff: s.cutoff, resonance: s.resonance, volume: k.volume };
       v = this.sampleVoice(t, out, s.sampleId, voice, vel, when, note - s.root, true, k.lfo);
     } else if (k.zones.length) {
-      const zone = k.zones.reduce((best, z) => (Math.abs(z.root - note) < Math.abs(best.root - note) ? z : best));
+      const zone = zoneFor(k.zones, note);
       v = this.sampleVoice(t, out, zone.sampleId, { ...ZONE_VOICE, volume: k.volume }, vel, when, note - zone.root, true, k.lfo);
     }
     if (v && lenSec !== undefined) {

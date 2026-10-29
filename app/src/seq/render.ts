@@ -7,7 +7,9 @@ import { clipOf, patternLength, trackLength } from "../state/store";
 import type { NoteEvent, Project, Track } from "../state/types";
 import { secondsPerTick, soundTick, swingOffsetTicks } from "./timing";
 
-const SR = 44100;
+/** The bounce's sample rate: the one the samples are stored at (the device's, decoded once), so they're not
+ *  resampled again on the fly while rendering; 44.1 kHz before the engine has started. */
+const renderRate = () => engine.ctx?.sampleRate || 44100;
 const TAIL = 2; // seconds of release tail
 
 /** Pattern indices to play, in order. */
@@ -48,7 +50,8 @@ export function orderedEvents(p: Project, order: number[]): { track: Track; even
 export async function renderToBuffer(p: Project, order: number[], voiceEngine: VoiceEngine = engine.voices.worklet ? "worklet" : "nodes"): Promise<AudioBuffer> {
   const spt = secondsPerTick(p.bpm);
   const totalTicks = order.reduce((n, i) => n + patternLength(p.patterns[i]), 0);
-  const ctx = new OfflineAudioContext(2, Math.ceil((totalTicks * spt + TAIL) * SR), SR);
+  const sr = renderRate();
+  const ctx = new OfflineAudioContext(2, Math.ceil((totalTicks * spt + TAIL) * sr), sr);
   const worklet = voiceEngine === "worklet";
   if (worklet) await loadVoiceWorklet(ctx);
   const voices = new Voices(ctx, ctx.destination, () => p, engine.bufferLookup, false, worklet);

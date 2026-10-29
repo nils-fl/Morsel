@@ -3,7 +3,7 @@
 import { Cursor, KITS, fitLine, fitName, jumpLetter, type Entry } from "../browse/tree";
 import { entrySample, folderLabel, folderSamples, folderToMulti, isSampleFolder, listAt, previewEntry, stopPreview, type Listing } from "../browse/source";
 import { COLOR, type LedMode } from "../midi/protocol";
-import { loadNamedKit, samplesToPads } from "../actions";
+import { loadLivePreset, loadNamedKit, samplesToPads } from "../actions";
 import { engine } from "../audio/engine";
 import { newChop } from "./chop";
 import { listKits } from "../state/persist";
@@ -89,6 +89,12 @@ export async function browseEnter() {
 /** Load a sample, file or kit onto the selected pad, the keys or the drum track: what the popup says, and whether it loaded. */
 async function loadItem(e: Exclude<Entry, { kind: "folder" }>): Promise<{ popup: [string, string]; loaded: boolean } | null> {
   const pad = get().selectedPad;
+  if (e.kind === "preset") {
+    // An Ableton Live kit or instrument: onto the selected track when it's the right kind, else the first that is.
+    const t = selectedTrack();
+    const popup = await loadLivePreset(e.path, (e.preset === "kit") === (t.kind === "drum") ? t.id : undefined);
+    return popup ? { popup, loaded: true } : { popup: ["Can't load", fitName(e.name)], loaded: false };
+  }
   if (e.kind === "sample" || e.kind === "file") {
     const track = selectedTrack();
     let sampleId: string;

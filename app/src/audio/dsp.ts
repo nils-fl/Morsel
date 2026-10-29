@@ -9,6 +9,15 @@ export interface Voice {
 }
 
 export const DECAY_MAX = 2;
+
+/** A synth voice's release falls with a time constant of release / 4; it's stopped this many releases later, when
+ *  it's 90 dB down (e^-10.4), so long pads fade out instead of ending in a tick (at one release it's only 35 dB down). */
+export const RELEASE_TAIL = 2.6;
+
+/** The shortest fade-in a pad gets: a sample played from its very start begins at its own first sample, so it gets
+ *  none to speak of (a kick keeps its click); one starting mid-file or reversed gets 0.1 ms against a click. */
+export const minAttack = (pad: Pick<Pad, "start" | "end" | "reverse">) =>
+  pad.reverse || Math.min(pad.start, pad.end) > 0 ? 0.0001 : 0.00002;
 /** Fade at the end of a sample region that isn't faded already, so trimmed samples don't click. */
 export const REGION_FADE = 0.002;
 
@@ -114,7 +123,7 @@ export function buildSampleVoice(
 
   const peak = velGain(vel) * pad.volume;
   const g = amp.gain;
-  const attack = Math.max(0.001, pad.attack);
+  const attack = Math.max(minAttack(pad), pad.attack);
   g.value = 0; // see buildSynthVoice
   g.setValueAtTime(0, when);
   g.linearRampToValueAtTime(peak, when + attack);
@@ -289,7 +298,7 @@ export function buildSynthVoice(
       for (const f of filterParams) holdAt(f, t);
       for (const src of sources) {
         try {
-          src.stop(t + rel + 0.05);
+          src.stop(t + rel * RELEASE_TAIL + 0.01);
         } catch { /* already stopped */ }
       }
     },

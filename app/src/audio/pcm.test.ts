@@ -10,9 +10,9 @@ describe("16-bit sample storage", () => {
   it("reads old 32-bit float records unchanged", () => {
     expect([...toFloat(Float32Array.from([0.1, -0.3]))]).toEqual([...Float32Array.from([0.1, -0.3])]);
   });
-  it("stores identical stereo sides once and keeps real stereo", () => {
+  it("keeps stereo stereo, even with identical sides (mono plays 3 dB quieter centred)", () => {
     const l = Float32Array.from([0.1, 0.2, 0.3]);
-    expect(encodeChannels([l, l.slice()])).toHaveLength(1);
+    expect(encodeChannels([l, l.slice()])).toHaveLength(2);
     expect(encodeChannels([l, Float32Array.from([0.1, 0.2, -0.3])])).toHaveLength(2);
   });
   it("matches a sample against its stored 16-bit copy, mono or stereo", () => {

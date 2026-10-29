@@ -15,6 +15,9 @@ export interface MorselNative {
   setPref(key: string, value: unknown): void;
   /** The folder picker. Picked folders are the only ones the app reads. Undefined when cancelled. */
   pickFolder(defaultPath?: string): Promise<{ name: string; path: string } | undefined>;
+  /** Ableton Live's library (its Core Library folder), found in /Applications and then readable; undefined without
+   *  Live. */
+  findLiveLibrary(): Promise<{ name: string; path: string } | undefined>;
   /** Stop reading a folder picked before. */
   forgetFolder(path: string): void;
   listFolder(path: string): Promise<NativeResult<NativeEntry[]>>;

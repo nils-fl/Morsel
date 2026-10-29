@@ -7,6 +7,7 @@ import { engine } from "../audio/engine";
 import { download } from "../seq/render";
 import { KIT_ACCEPT, KIT_EXT } from "../state/fileFormat";
 import { exportKit, importKit } from "../state/projectFile";
+import { okToExport } from "../state/liveExport";
 import { drumPads, drumTrack, set, useApp } from "../state/store";
 import { STOCK_KITS } from "../state/types";
 
@@ -88,7 +89,10 @@ function KitMenu() {
             <button onClick={() => kitInput.current?.click()} title="Import one or more .morsel-kit files">Import…</button>
             <button title="Save the pads as a kit file with their samples, to share or keep (named as typed above, or after the kit)" onClick={() => {
               const file = name.trim() || kit || "Kit";
-              void exportKit(file, drumPads()).then((blob) => download(blob, `${file}${KIT_EXT}`));
+              const pads = drumPads();
+              void okToExport(pads.flatMap((p) => (p.sampleId ? [p.sampleId] : [])), "kit").then(async (ok) => {
+                if (ok) download(await exportKit(file, pads), `${file}${KIT_EXT}`);
+              });
             }}>Export…</button>
           </div>
           {kits.length > 0 && <>

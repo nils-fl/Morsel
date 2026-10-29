@@ -3,12 +3,31 @@ import {
   DRUMS_ID, KEYS_ID, addEvent, addTrack, clipOf, editStep, markUndo, canRemoveTrack, copyClip, copyPattern, defaultPad, doubleClip, setClipGrid, setTrackBars, clipStep, stepPages, setTrackDuck, setDuckPad, padDucks, toggleSidechainInput, trackBars, defaultProject, fixSelection, get, migrateV1, normalizeProject, removeTrack, resetSession, selectTrack, set, stepTrack, undo, redo, updateProject, undoTrack, trackUndoSteps,
 } from "./store";
 import { MAX_TRACKS, PATTERN_COUNT, type NoteEvent, type Project } from "./types";
+import { DECAY_MAX } from "../audio/dsp";
 
 const ev = (id: string, tick: number, note: number): NoteEvent => ({ id, tick, note, vel: 100, len: 10 });
 const reset = (p: Project = defaultProject()) => set({ project: p, undo: [], redo: [], selectedTrack: DRUMS_ID, drumTrack: DRUMS_ID, keysTrack: KEYS_ID });
 const keysOf = (p: Project) => p.tracks.find((t) => t.kind === "keys")!.keys!;
 
 describe("normalizeProject", () => {
+  it("plays loaded pads whole: the old 1.5 s default decay becomes the whole sample, edited ones stay", () => {
+    expect(defaultPad(0).decay).toBe(DECAY_MAX);
+    const p = defaultProject();
+    const drums = p.tracks.find((t) => t.kind === "drum")!;
+    drums.pads[0] = { ...drums.pads[0], decay: 1.5 };
+    drums.pads[1] = { ...drums.pads[1], decay: 0.4 };
+    const q = normalizeProject(JSON.parse(JSON.stringify(p)));
+    const pads = q.tracks.find((t) => t.kind === "drum")!.pads;
+    expect(pads[0].decay).toBe(DECAY_MAX);
+    expect(pads[1].decay).toBe(0.4);
+  });
+
+  it("keeps the master's glue off unless it was switched on", () => {
+    expect(defaultProject().masterGlue).toBe(false);
+    expect(normalizeProject({ masterGlue: true }).masterGlue).toBe(true);
+    expect(normalizeProject({}).masterGlue).toBe(false);
+  });
+
   it("returns the defaults for junk", () => {
     expect(normalizeProject(undefined)).toEqual(defaultProject());
     expect(normalizeProject("nope")).toEqual(defaultProject());

@@ -5,7 +5,8 @@ import { engine } from "../audio/engine";
 import { download } from "../seq/render";
 import { PROJECT_ACCEPT, PROJECT_EXT } from "../state/fileFormat";
 import { exportProject, importProject, newProject } from "../state/projectFile";
-import { get, set, updateProject, useApp } from "../state/store";
+import { okToExport } from "../state/liveExport";
+import { get, set, updateProject, usedSampleIds, useApp } from "../state/store";
 
 export function ProjectMenu() {
   const [open, setOpen] = useState(false);
@@ -36,7 +37,10 @@ export function ProjectMenu() {
             <input value={name} onChange={(e) => updateProject((p) => ({ ...p, name: e.target.value }), false)} />
           </label>
           <div className="menu-actions">
-            <button onClick={async () => download(await exportProject(), `${get().project.name}${PROJECT_EXT}`)} title="One file with the patterns and every sample">Export…</button>
+            <button onClick={async () => {
+              if (!(await okToExport(usedSampleIds(get().project), "project"))) return;
+              download(await exportProject(), `${get().project.name}${PROJECT_EXT}`);
+            }} title="One file with the patterns and every sample">Export…</button>
             <button onClick={() => importInput.current?.click()}>Import…</button>
             <button onClick={() => { setOpen(false); void newProject(); }} title="Start over with the Factory kit (asks first)">New…</button>
           </div>

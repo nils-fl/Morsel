@@ -121,13 +121,15 @@ function useMasterMeter() {
 
 function MasterChannel() {
   const level = useApp((s) => s.project.masterLevel);
+  const glue = useApp((s) => s.project.masterGlue);
   const { peak, gr } = useMasterMeter();
   return (
     <div className="channel master">
       <header><strong>Master</strong></header>
-      <p className="hint tip">A gentle glue compressor and a limiter keep the mix from clipping, live and in bounces.</p>
+      <p className="hint tip">A limiter keeps the mix from clipping, live and in bounces, and leaves it untouched below that. Glue adds a gentle compressor that holds the mix together.</p>
       <h4>Out</h4>
       <Slider label="Level" value={level} min={0} max={1} format={pct} onChange={(v) => updateProject((p) => ({ ...p, masterLevel: v }), false)} />
+      <ToggleRow label="Glue" checked={glue} onChange={(on) => updateProject((p) => ({ ...p, masterGlue: on }), false)} />
       <MeterRow label="Peak" level={meterLevel(peak)} value={peak <= -60 ? "−∞" : peak.toFixed(1)} title="Output peak, dBFS" />
       <MeterRow className="gr-meter" label="Limit" level={gr / 12} value={gr < 0.05 ? "0.0" : `−${gr.toFixed(1)}`} title="Limiter gain reduction, dB" />
     </div>

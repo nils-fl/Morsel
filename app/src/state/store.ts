@@ -1,4 +1,5 @@
 import { createStore } from "zustand/vanilla";
+import { DECAY_MAX } from "../audio/dsp";
 import type { SynthPreset } from "../audio/synthPresets";
 import { useStore } from "zustand";
 import { COLOR } from "../midi/protocol";
@@ -11,6 +12,9 @@ export const PAD_COLORS = [
   COLOR.blue, COLOR.purple, COLOR.magenta, COLOR.pink, COLOR.red, COLOR.orange, COLOR.yellow, COLOR.green,
 ];
 
+/** The pad decay before it defaulted to the whole sample: loaded pads still at it play whole. */
+const OLD_DEFAULT_DECAY = 1.5;
+
 export const defaultPad = (i: number): Pad => ({
   name: `Pad ${i + 1}`,
   sampleId: null,
@@ -19,7 +23,7 @@ export const defaultPad = (i: number): Pad => ({
   end: 1,
   pitch: 0,
   attack: 0,
-  decay: 1.5,
+  decay: DECAY_MAX, // the whole sample: anything shorter fades it out from the start
   cutoff: 1,
   hpCutoff: 0,
   resonance: 0,
@@ -44,7 +48,8 @@ function normalizePad(raw: unknown, d: Pad): Pad {
     end: num(p.end, 0, 1, d.end),
     pitch: num(p.pitch, -24, 24, d.pitch),
     attack: num(p.attack, 0, 1, d.attack),
-    decay: num(p.decay, 0.02, 2, d.decay),
+    // 1.5 was the default before it became the whole sample; pads left at it play whole now.
+    decay: p.decay === OLD_DEFAULT_DECAY ? DECAY_MAX : num(p.decay, 0.02, 2, d.decay),
     cutoff: num(p.cutoff, 0, 1, d.cutoff),
     hpCutoff: num(p.hpCutoff, 0, 1, d.hpCutoff),
     resonance: num(p.resonance, 0, 1, d.resonance),
@@ -165,7 +170,7 @@ export const KEYS_ID = "keys";
 export const emptyPattern = (): Pattern => ({ bars: 1, clips: {} });
 
 export const defaultReturns = (): Returns => ({
-  reverb: { size: 0.5, decay: 0.5, predelay: 0.25, tone: 0.5, level: 0.8 },
+  reverb: { size: 0.5, decay: 0.5, predelay: 0.25, tone: 0.5, level: 0.5 },
   delay: { time: 3, feedback: 0.35, tone: 0.6, level: 0.8, pingpong: true },
 });
 
@@ -179,6 +184,7 @@ export const defaultProject = (): Project => ({
   sidechain: [],
   returns: defaultReturns(),
   masterLevel: DEFAULT_MASTER_LEVEL,
+  masterGlue: false,
 });
 
 /** Bumped when the saved project shape changes (3: keys sample source, LFO, kit names; 4: sidechain inputs, ducks per keys track); files from a newer version are refused, older ones get defaults. */
@@ -225,7 +231,13 @@ function normalizeKeys(raw: unknown, drumIds: string[]): KeysInstrument {
     multiName: typeof keys.multiName === "string" ? keys.multiName : d.multiName,
     volume: num(keys.volume, 0, 1, d.volume),
     zones: Array.isArray(keys.zones)
-      ? keys.zones.flatMap((z): Zone[] => (isObj(z) && typeof z.sampleId === "string" && typeof z.root === "number" && Number.isFinite(z.root) ? [{ sampleId: z.sampleId, root: Math.round(Math.max(0, Math.min(127, z.root))) }] : []))
+      ? keys.zones.flatMap((z): Zone[] => {
+        if (!isObj(z) || typeof z.sampleId !== "string" || typeof z.root !== "number" || !Number.isFinite(z.root)) return [];
+        const note = (v: unknown) => Math.round(Math.max(0, Math.min(127, v as number)));
+        const zone: Zone = { sampleId: z.sampleId, root: note(z.root) };
+        if (typeof z.lo === "number" && typeof z.hi === "number" && z.lo <= z.hi) Object.assign(zone, { lo: note(z.lo), hi: note(z.hi) });
+        return [zone];
+      })
       : [],
     synth: normalizeSynth(keys.synth, d.synth),
     sample: normalizeKeysSample(keys.sample, d.sample),
@@ -408,6 +420,7 @@ export function normalizeProject(input: unknown): Project {
     sidechain,
     returns: normalizeReturns(raw.returns),
     masterLevel: num(raw.masterLevel, 0, 1, DEFAULT_MASTER_LEVEL),
+    masterGlue: raw.masterGlue === true,
   };
 }
 
