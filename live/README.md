@@ -24,6 +24,7 @@ Func cycles the pad modes: **Play → Step → Track → Clips**. In Play and Cl
 | Track | The top row selects tracks 1–8. The bottom row mutes; double-tap solos. |
 | Clips | Live's session view on the pads: 8 tracks (the 8 around the selected one) × 2 scenes (the top row starts on the selected scene, the bottom row is the next; they stay put when a launch selects another scene). Tap launches a clip, records on an armed track, or stops the track on an empty slot. Scene + pad launches that row's scene. Func + pad stops that track. Pad ⌃/⌄ scroll the scenes. Clips light in their colours: playing pulses, queued flashes, recording is red, an empty slot on an armed track is dim red. |
 | Browse | Live's browser on the screen; Shift + Encoder page ⌃ opens and closes it, back to the mode before. Encoders 1 and 8 scroll, 2 and 7 jump to the next or previous letter, and the encoder page arrows move one item. Func or Pad ⌄ opens a folder or loads the item; Scene or Pad ⌃ goes up a folder. Shift + Func loads and leaves Browse; on a sample folder it puts the first 16 samples on pads 1–16. Samples preview as the cursor lands on them. On a track with an instrument, Browse opens on that instrument's presets (all its folders in one list, the cursor on the loaded one); the preset under the cursor loads onto the instrument once the cursor rests, or when you play a key, so the keys play it. Every load is a step in Live's undo. Scene or Pad ⌃ goes up to all instruments. A plug-in instrument lists its own presets instead, and they switch as the cursor lands on them, with nothing to load. In Drums on a drum track, the kits load the same way (the cursor resting a moment, or a key or pad), and the pads play the kit there instead of picking a pad. A pad press picks that pad (drum track) and previews again. On a drum track a sample (or instrument) loads onto the selected pad and a kit from Drums replaces the Drum Rack; on other tracks things load onto the track. |
+| Chop | Morsel's Chop with Live's Simpler. Shift + Encoder page ⌄ chops the selected pad's sample if it plays in a Simpler (the pad stays as it is; Live doesn't let a script read a Drum Sampler's sample, so chop those from Browse) or, in Browse, the highlighted sample: it goes into a Simpler on a new "Chop …" track, sliced into 16 equal steps. The pads play the slices (as on a Drum Rack) and so do the keys (C3 = slice 1, one key each); playing one selects it, as do Pad ⌃/⌄. Func keeps only the region (Simpler's Crop). Shift + Encoder page ⌄ again is done: Live's Slice to Drum Rack puts a chop on each pad, and the Chop track is a drum track. Shift + Encoder page ⌃ leaves Chop with the Simpler still sliced. The screen shows the wave (read from the sample's WAV or AIFF file, as Live doesn't hand a script the audio), the region and the slices, the selected one inverted. |
 
 | Button | Alone | With Shift |
 |---|---|---|
@@ -32,11 +33,12 @@ Func cycles the pad modes: **Play → Step → Track → Clips**. In Play and Cl
 | Func | Next mode | Undo (Live's undo, for the whole set) |
 | Scene | Note repeat (hold, or press twice to latch); in Clips, hold + pad launches a scene | Clear the selected track's clip in the selected scene (Step mode on a drum track: only the selected pad) |
 | Pad ⌃ / ⌄ | Previous / next scene (Step mode: bar page; Clips: scroll) | Previous / next track |
-| Encoder page ⌃ / ⌄ | Previous / next encoder page | ⌃: Browse on / off (⌄: Chop, later) |
+| Encoder page ⌃ / ⌄ | Previous / next encoder page | ⌃: Browse on / off (in Chop: leave it). ⌄: Chop (in Chop: done, the chops onto pads) |
 
 Holding Shift shows what it does with each button on the screen.
 
 **Encoder pages** follow the selected track.
+- **CHOP** and **SAMPLE** (Chop mode only, first): on both, encoder 1 scrolls and 2 zooms (around the selected slice; a pad or key you play is brought into view). CHOP: Slice (pick one), Move (the selected slice's start, a screen pixel per detent, so zooming in makes it finer; the slicing becomes Manual), Mode (Equal, Hits, Beat or Manual: Simpler's Region, Transient, Beat and Manual slicing), Count (Equal), Sens (Hits) or Div (Beat), and Split (right splits the selected slice in two, left removes it). SAMPLE: Start and End of the region (Func keeps only it).
 - **STEP** (Step mode only, first): Bars, Grid (1/16, 1/32, 1/8T, 1/16T), Double (right doubles the loop with its notes, left halves it), Vel for new steps, Quant (turn right: quantize the clip to the grid), and Pad (drum track) or Note (keys track).
 - **PAD** (drum tracks): the selected Drum Rack pad's instrument, usually its Simpler.
 - **Devices**: each device's best 8 parameters, then all of them 8 at a time ("Drift 2/5"). Paging to a device selects it in Live, and clicking a device in Live switches to its page.
@@ -58,7 +60,7 @@ The selected track is armed automatically, so the keybed and Record follow it. P
 - On a keys track the Play-mode pads send notes 36–51 (C1–D#2), not from C3. The pads go straight to Live, so the script can't transpose them.
 - Patterns are Live's scenes, launched from Clips mode; Live Lite allows 8.
 - Morsel's Pattern and Mute modes and adding tracks from the Launchkey are left out: Live has its own clip launching, Drum Rack pad mutes and ⇧⌘T.
-- Not ported yet: Chop.
+- Chop shows no wave for MP3 or FLAC files, has no stretching to a tempo yet, and the chops land on pads in order (no hold-a-key-and-tap-a-pad).
 
 ## Tests
 `python3 -m pytest live/tests` runs the protocol, screens and controller against fake Live objects (`tests/fakes.py`).

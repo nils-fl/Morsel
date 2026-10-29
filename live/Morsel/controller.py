@@ -10,14 +10,15 @@ from .colors import is_rgb, nearest_color, rgb, rgb7
 from .display import screens as S
 from .display.sender import BitmapSender
 from .display.widgets import overlay_bar
-from .browse import BrowseMode
+from .browse import BrowseMode, is_sample
+from .chop import ChopMode
 from .clips import ClipsMode
 from .step import StepMode, note_name, row_steps
 
 MODES = ["play", "step", "track", "clips"]
-MODE_NAMES = {"play": "Play", "step": "Step", "track": "Track", "clips": "Clips", "browse": "Browse"}
+MODE_NAMES = {"play": "Play", "step": "Step", "track": "Track", "clips": "Clips", "browse": "Browse", "chop": "Chop"}
 # Entered on top of another mode (Shift + Encoder page up); leaving goes back to it.
-TEMPORARY = ("browse",)
+TEMPORARY = ("browse", "chop")
 
 LED_FULL, LED_DIM = 127, 16
 DOUBLE_TAP = 0.3  # s
@@ -40,9 +41,9 @@ RGB_PADS = False  # True: Live's colours as RGB SysEx. It doesn't light the pads
 
 
 def layout_for(mode):
-    """Play uses the drum layout (velocity, pressure, straight into the track); the other modes light the pads in
-    DAW layout, and their notes come to the script."""
-    return "drum" if mode == "play" else "daw"
+    """Play and Chop use the drum layout (velocity, pressure, straight into the track: in Chop the pads play the
+    slices); the other modes light the pads in DAW layout, and their notes come to the script."""
+    return "drum" if mode in ("play", "chop") else "daw"
 
 
 def layout_reported(layout, value):
@@ -82,8 +83,10 @@ class Controller(object):
         self.step = StepMode(self)
         self.browse = BrowseMode(self)
         self.clips = ClipsMode(self)
+        self.chop = ChopMode(self)
         self.prev_mode = "play"
         self.page_before_step = None
+        self.page_before_chop = None
         self.erasing = {}  # pad -> [pitch, last playhead position]
         self.scale_sent = None  # (root, scale name) last sent to the device
         self._scale_names = None
@@ -319,6 +322,8 @@ class Controller(object):
             self.set_repeat(False)
         if prev == "browse":
             self.browse.exit()
+        if prev == "chop" and self.page_key == "CHOP":
+            self.page_key = self.page_before_chop
         if prev not in TEMPORARY:
             self.prev_mode = prev
         if prev == "step":
@@ -335,6 +340,11 @@ class Controller(object):
             self.browse.enter()
         elif mode == "clips":
             self.clips.enter()
+        elif mode == "chop":
+            self.page_before_chop = self.page_key
+            self.page_key = "CHOP"
+        if "chop" in (prev, mode):
+            self.host.keys_routing_changed()  # in Chop the keys play the slices
         # The Func cycle shows where you are in it ("Mode 2/5"); Browse sits outside it.
         at = "Mode %d/%d" % (MODES.index(mode) + 1, len(MODES)) if mode in MODES else "Mode"
         self.show_temp(at, MODE_NAMES[mode])
@@ -347,6 +357,8 @@ class Controller(object):
         """What Live does with the keybed's notes (on the DAW port):
         on a drum track every key plays a pad, C3 (48) = pad 1 up to D#4 = pad 16, repeating every 16 keys (Morsel's
         mapping, in the Launchkey's pad order). None: the keys pass as they are."""
+        if self.mode == "chop":
+            return self.chop.key_map()
         if not self.keys_drums:
             return None
         return [P.DRUM_NOTES[n % 16] for n in range(128)]
@@ -354,13 +366,15 @@ class Controller(object):
     def hears_drum_notes(self):
         """Whether ch10 pad notes come to the script (heard, not taken): in DAW layout they can only be keys; in
         Browse's kits the pads play the kit and a pad or key loads the kit under the cursor."""
-        return self.layout == "daw" or (self.mode == "browse" and self.browse.in_kits())
+        return self.layout == "daw" or self.mode == "chop" or (self.mode == "browse" and self.browse.in_kits())
 
     def on_key(self, note, velocity, on):
         """A key, heard while it plays the track (on the DAW port). In Step mode it picks
         what the steps write: on a drum track the Drum Rack pad you hear, on a keys track the note."""
         if on and self.mode == "browse":
             self.browse.on_key()
+        if on and self.mode == "chop":
+            self.chop.on_note(note)
         if not on or self.mode != "step":
             return
         rack = self.drum_rack(self.sel_track())
@@ -565,13 +579,16 @@ class Controller(object):
                 self.on_shift_up_layout()
             return
         if down and self.shift and button in ("encPageUp", "encPageDown"):
-            # Shift + Encoder page up: Browse on / off. Down: Chop (not in Live yet).
+            # Shift + Encoder page up: Browse on / off (in Chop: leave it, the Simpler stays sliced). Down: Chop
+            # (the selected pad's sample, or the sample highlighted in Browse); in Chop: done, the chops onto pads.
             if button == "encPageDown":
-                self.show_temp("Chop", "Not in Live yet")
-            elif self.mode == "browse":
+                self.toggle_chop()
+            elif self.mode in TEMPORARY:
                 self.set_mode(self.prev_mode)
             else:
                 self.set_mode("browse")
+            return
+        if self.mode == "chop" and down and self.chop_button(button):
             return
         if self.mode == "browse" and down and self.browse_button(button):
             return
@@ -645,6 +662,37 @@ class Controller(object):
             at = queued[0] if queued else self.scene_index()
             n = min(len(self.scenes()), MAX_SCENES)
             self.go_to_scene(max(0, min(n - 1, at + d)))
+
+    def toggle_chop(self):
+        """Shift + Encoder page down: chop the sample highlighted in Browse, or the selected pad's; in Chop, done."""
+        if self.mode == "chop":
+            popup = self.chop.done()
+            self.set_mode(self.prev_mode)
+            self.show_temp(*popup)
+            return
+        if self.mode == "browse":
+            item = self.browse.current()
+            if item is None or not is_sample(item):
+                self.show_temp("Chop", "Pick a sample")
+                return
+            ok, popup = self.chop.open_from_item(item)
+        else:
+            ok, popup = self.chop.open_from_pad()
+        if ok:
+            self.set_mode("chop")
+        else:
+            self.show_temp(*popup)
+
+    def chop_button(self, button):
+        """Chop: Func keeps only the region (crop), Pad up / down pick the slice before / after. Returns whether it
+        took the button."""
+        if button == "func" and not self.shift:
+            self.chop.crop()
+            return True
+        if button in ("padUp", "padDown") and not self.shift:
+            self.chop.select(self.chop.selected() + (-1 if button == "padUp" else 1))
+            return True
+        return False
 
     def browse_button(self, button):
         """Browse owns Func / Pad down (open / load), Scene / Pad up (up a folder) and the encoder page arrows (one
@@ -751,6 +799,8 @@ class Controller(object):
         front = []
         if self.mode == "step":
             front.append(self.step.page_params())
+        elif self.mode == "chop":
+            front += [self.chop.page(), self.chop.sample_page()]
         pad = self.pad_page()
         if pad is not None:
             front.append(pad)
@@ -846,6 +896,15 @@ class Controller(object):
             return False
 
     def shift_rows(self):
+        if self.mode == "chop":
+            return [
+                ("Play", "Metronome"),
+                ("Rec", "Capture MIDI"),
+                ("Func", "Undo"),
+                ("Pad ^v", "Track -/+"),
+                ("Enc ^", "Leave chop"),
+                ("Enc v", "Done > pads"),
+            ]
         if self.mode == "browse":
             drums = self.drum_rack(self.sel_track()) is not None
             return [
@@ -854,7 +913,7 @@ class Controller(object):
                 ("Func", "Folder>pads" if self.browse.on_folder() and drums else "Load + exit"),
                 ("Scene", "Up folder"),
                 ("Enc ^", "Exit browse"),
-                ("Enc v", "Chop (later)"),
+                ("Enc v", "Chop sample"),
             ]
         return [
             ("Play", "Metronome"),
@@ -873,6 +932,9 @@ class Controller(object):
             b = self.browse
             items = [(label, folder) for label, _, folder in b.entries()]
             return S.browser_screen(title, b.target_label(), b.folder_label(), b.index, items)
+        if self.mode == "chop":
+            page = self.current_page(pages)
+            return S.chop_screen(title, status, self.chop.name, self.chop.view(), page.tag, page.summary)
         if self.mode == "track":
             ts = self.tracks()
             cells = []
@@ -924,6 +986,8 @@ class Controller(object):
         self.follow_live()
         if self.erasing:
             self.erase_tick()
+        if self.mode == "chop":
+            self.chop.tick(now)
         if self.mode == "browse":
             self.browse.tick(now)
             if self.browse.pad_layout() != self.layout:
@@ -1009,6 +1073,8 @@ class Controller(object):
                 leds = [(P.COLOR["dimWhite"] if P.DRUM_NOTES[i] % 12 == 0 else tc, "static") for i in range(16)]
         elif self.mode == "browse":
             leds = self.browse.leds()
+        elif self.mode == "chop":
+            leds = self.chop.leds()
         elif self.mode == "step":
             t = self.sel_track()
             rack = self.drum_rack(t)
@@ -1046,10 +1112,10 @@ class Controller(object):
         func = LED_FULL
         scene = LED_FULL if self.repeat_on() else LED_DIM
         if self.shift:
-            # Pad arrows: previous / next track. Encoder page up: Browse on / off (Chop isn't in Live yet).
+            # Pad arrows: previous / next track. Encoder page up: Browse on / off; down: Chop.
             many = LED_FULL if len(self.tracks()) > 1 else 0
             pad_up = pad_down = many
-            enc_up, enc_down = LED_FULL, 0
+            enc_up, enc_down = LED_FULL, LED_FULL
         elif self.mode == "browse":
             # Func / Pad down open or load, Scene / Pad up go up a folder, the encoder page arrows step the list.
             enter = LED_FULL if self.browse.can_enter() else 0
@@ -1060,6 +1126,8 @@ class Controller(object):
             pi = pages.index(self.current_page(pages))
             if self.mode == "step":
                 n, at = self.step.pages(), self.step.page
+            elif self.mode == "chop":
+                n, at = len(self.chop.slices()), self.chop.selected()
             elif self.mode == "clips":
                 n, at = len(self.scenes()) - 1, self.scene_index()
             else:

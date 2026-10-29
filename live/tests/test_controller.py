@@ -844,3 +844,142 @@ def test_a_kit_inside_an_instrument_rack_still_counts_as_drums():
     track.devices[0] = wrapper  # a kit that's an Instrument Rack around a Drum Rack
     c.tick()
     assert c.layout == "drum" and c.drum_rack(track) is inner  # the pads still play it
+
+
+def to_chop(c):
+    shift(c, True)
+    tap(c, "encPageDown")
+    shift(c, False)
+
+
+def test_chop_the_selected_pads_sample_and_put_the_chops_on_pads():
+    host, c = setup()
+    song = host.song
+    drums = song.tracks[0]
+    to_chop(c)
+    assert c.mode == "chop" and c.layout == "drum"  # the pads play the slices
+    chop_track = song.tracks[1]
+    assert chop_track.name == "Chop Pad 36" and song.view.selected_track == chop_track
+    assert drums.devices[0].drum_pads[36].chains  # the pad stays as it was
+    c.tick()
+    simpler = chop_track.devices[0]
+    assert simpler.sample.file_path == "/s/Pad 36.wav"
+    assert simpler.playback_mode == 2 and simpler.sample.slicing_style == 2  # Slice mode, equal steps
+    assert len(c.chop.slices()) == 16 and c.page_key == "CHOP"
+    assert c.key_map()[48] == 36 and c.key_map()[49] == 37  # C3 = slice 1, one key each
+    leds = c.pad_leds()
+    assert leds[0][1] == "pulse" and leds[15][0] != P.COLOR["off"]  # 16 slices on the pads, slice 1 selected
+    c.screen(None)  # draws
+    tap(c, "padDown")  # the next slice
+    assert c.chop.selected() == 1 and simpler.view.selected_slice == c.chop.slices()[1]
+    c.handle_midi((0x99, 40, 100))  # a pad (or key) plays slice 5: it's the selected one
+    assert c.chop.selected() == 4
+    tap(c, "func")  # crop to the region
+    assert simpler.cropped == 1
+    to_chop(c)  # done: Slice to Drum Rack
+    assert c.mode == "play" and c.drum_rack(chop_track) is not None
+    assert c.overlay[:2] == ("CHOPS > PADS", "16 on Chop Pad 36")
+
+
+def test_chop_page_edits_the_region_and_the_slices():
+    host, c = setup()
+    to_chop(c)
+    c.tick()
+    smp = host.song.tracks[1].devices[0].sample
+    page = c.current_page()
+    assert [p.name if p else None for p in page.params] == ["Scroll", "Zoom", "Slice", "Move", "Mode", "Count", "Split",
+                                                            None]
+    enc(c, 5, -8)  # Count: 8 equal steps
+    assert smp.slicing_region_count == 8 and len(c.chop.slices()) == 8
+    tap(c, "encPageDown")  # SAMPLE: the region
+    assert [p.name if p else None for p in c.current_page().params][:4] == ["Scroll", "Zoom", "Start", "End"]
+    enc(c, 2, 10)  # Start: a screen pixel per detent
+    assert smp.start_marker == 10 * ((88200 - 1) // 124)
+    enc(c, 3, 50)  # End, past the sample's last frame: stops on it (Live refuses the length itself)
+    assert smp.end_marker == 88200 - 1
+    enc(c, 3, -20)
+    assert smp.end_marker < 88200 - 1
+    c.chop.select(2)
+    c.chop._add_or_remove(1)  # split slice 3
+    assert len(c.chop.slices()) == 9 and smp.slicing_style == 3  # by hand now
+    c.chop._move_slice(1)
+    assert c.chop.slices()[2] > smp.start_marker
+
+
+def test_chop_zooms_on_the_selected_slice_and_moves_it_a_pixel_a_detent():
+    host, c = setup()
+    to_chop(c)
+    c.tick()
+    smp = host.song.tracks[1].devices[0].sample
+    c.handle_midi((0x99, 37, 100))  # pad for slice 2
+    start = c.chop.slices()[1]
+    assert c.chop.selected() == 1 and c.chop.shown() == (0, 88200)
+    enc(c, 1, 10)  # Zoom in, around slice 2's start
+    a, b = c.chop.shown()
+    assert b - a < 88200 / 8 and a <= start <= b
+    enc(c, 3, 3)  # Move: three pixels at this zoom
+    assert c.chop.slices()[1] == start + 3 * ((b - a) // 124)
+    assert host.song.tracks[1].devices[0].view.selected_slice == c.chop.slices()[1]  # still selected in Live
+    enc(c, 1, 100)  # no closer than 512 frames
+    a, b = c.chop.shown()
+    assert b - a == 512
+    c.handle_midi((0x99, 51, 100))  # slice 16, off the screen: brought into view
+    a, b = c.chop.shown()
+    assert a <= c.chop.slices()[15] <= b
+
+
+def test_chop_reads_the_wave_from_the_file(tmp_path):
+    import math
+    import struct
+    import wave
+    path = str(tmp_path / "Break.wav")
+    w = wave.open(path, "wb")
+    w.setnchannels(2)
+    w.setsampwidth(2)
+    w.setframerate(44100)
+    frames = 88200
+    w.writeframes(b"".join(struct.pack("<hh", int(16000 * math.sin(i / 20.0)) if i < frames // 2 else 0, 0)
+                           for i in range(frames)))
+    w.close()
+    host, c = setup()
+    host.song.tracks[0].devices[0].drum_pads[36].chains[0].devices[0].sample.file_path = path
+    to_chop(c)
+    c.tick()
+    host.song.tracks[1].devices[0].sample.length = frames
+    c.tick()  # reads the file
+    view = c.chop.view()
+    wave_cols = view[6]
+    assert len(wave_cols) == 124
+    assert wave_cols[10][1] > 0.4 and abs(wave_cols[120][1]) < 0.01  # loud first half, silent second
+    enc(c, 1, 30)  # zoomed in: read from the file again
+    assert len(c.chop.view()[6]) == 124
+    c.screen(None)  # draws
+
+
+def test_chop_from_browse_and_where_it_cant():
+    host, c = setup()
+    to_browse(c)
+    to_chop(c)  # on a folder: nothing to chop
+    assert c.mode == "browse" and c.overlay[:2] == ("Chop", "Pick a sample")
+    scroll(c, 2)
+    tap(c, "func")  # Samples
+    tap(c, "func")  # Kicks
+    to_chop(c)  # Kick 1.wav onto a new Chop track
+    assert c.mode == "chop" and host.song.view.selected_track.name == "Chop Kick 1"
+    shift(c, True)
+    tap(c, "encPageUp")  # leave Chop without converting
+    shift(c, False)
+    assert c.mode == "play"
+    host.song.view.selected_track = host.song.tracks[-1]  # an empty track: no pad to chop
+    to_chop(c)
+    assert c.mode == "play" and c.overlay[:2] == ("Chop", "Pick a pad with a sample")
+
+
+def test_chop_explains_a_drum_sampler_pad():
+    host, c = setup()
+    dp = host.song.tracks[0].devices[0].drum_pads[36]
+    cell = FakeDevice("Drum Sampler", type=1)
+    cell.class_name = "DrumCell"
+    dp.chains[0].devices = [cell]
+    to_chop(c)
+    assert c.mode == "play" and c.overlay[:2] == ("Drum Sampler", "Chop it from Browse")

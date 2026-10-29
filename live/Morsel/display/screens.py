@@ -136,6 +136,63 @@ def step_screen(track, status, item, bar, bars, steps, playhead, page_tag, page_
     return f
 
 
+def chop_screen(title, status, name, view, tag, info):
+    """Chop: the part of the sample shown (scroll / zoom), with its wave read from the file when it could be.
+    Dotted outside the region, a line at each slice, the selected slice inverted. `view`: (shown from, to, region
+    start, end, slice starts, selected index, wave) in sample frames, the wave a (min, max) per column or None; None
+    while the sample loads."""
+    f = Frame()
+    header(f, title, status)
+    y0, h = HEADER_H + 3, 30
+    x0, w = 1, W - 2
+    if view is None:
+        f.text_fit(2, y0 + 10, "Loading %s..." % name, W - 4)
+        footer(f, tag, info)
+        return f
+    a, b, start, end, slices, sel, wave = view
+    span = max(1, b - a)
+    inner = w - 2  # the columns inside the box
+
+    def x(frame):
+        return x0 + 1 + int(round(float(frame - a) * (inner - 1) / span))
+
+    def visible(xx):
+        return x0 < xx < x0 + w - 1
+
+    f.rect(x0, y0, w, h)
+    mid = y0 + h // 2
+    if wave:
+        half = (h - 4) / 2.0
+        for c, (lo, hi) in enumerate(wave[:inner]):
+            f.vline(x0 + 1 + c, int(round(mid - hi * half)), int(round(mid - lo * half)))
+    else:
+        f.hline(x0 + 1, x0 + w - 2, mid)
+    # Outside the region: every other dot cleared, so the wave there looks faded.
+    for xx in range(x0 + 1, x0 + w - 1):
+        if xx < x(start) or xx > x(end):
+            for yy in range(y0 + 1 + (xx % 2), y0 + h - 1, 2):
+                f.set(xx, yy, 0)
+    for edge in (start, end):
+        if visible(x(edge)):
+            f.vline(x(edge), y0, y0 + h - 1)
+    for i, t in enumerate(slices):
+        xs = x(t)
+        stop = x(slices[i + 1]) if i + 1 < len(slices) else x(end)
+        if visible(xs):
+            for yy in range(y0 + 1, y0 + h - 1, 3):
+                f.set(xs, yy, 1)  # a dotted line, so the wave stays readable
+        if i == sel:
+            lo_x, hi_x = max(x0 + 1, xs), min(x0 + w - 2, stop)
+            if hi_x > lo_x:
+                f.invert(lo_x, y0 + 1, hi_x - lo_x, h - 2)
+    label = "%d/%d" % (sel + 1, len(slices)) if slices else "0/0"
+    lw = text_width(label)
+    f.text(W - 2 - lw, y0 + h + 2, label)
+    f.text_fit(2, y0 + h + 2, name, W - 4 - lw - 6)
+    footer(f, tag, info)
+    return f
+
+
 def shift_screen(rows, hint=""):
     """The shift map: six rows of "button: action" (button at most 6 characters, action at most 13)."""
     f = Frame()

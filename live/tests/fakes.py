@@ -64,7 +64,7 @@ class FakeDrumPad(object):
     def __init__(self, note, loaded):
         self.name = "Pad %d" % note
         self.note = note
-        self.chains = [Obj(color=0xFF0000, devices=[FakeDevice("Simpler")])] if loaded else []
+        self.chains = [Obj(color=0xFF0000, devices=[FakeSimpler(FakeSample("/s/Pad %d.wav" % note))])] if loaded else []
         self.mute = False
         self.solo = False
 
@@ -104,6 +104,84 @@ class FakePlugin(FakeDevice):
         self.class_display_name = "Plug-in"
         self.presets = list(presets)
         self.selected_preset_index = 0
+
+
+class FakeSample(object):
+    """Simpler's sample in Slice mode: equal regions, or slices set by hand (editing one makes it Manual, as in
+    Live)."""
+
+    def __init__(self, path="/s/Break.wav", length=88200):
+        self.file_path = path
+        self.length = length
+        self.sample_rate = 44100
+        self._start, self._end = 0, length - 1
+        self.slicing_style = 0
+        self.slicing_region_count = 8
+        self.slicing_sensitivity = 0.5
+        self.slicing_beat_division = 4
+        self._manual = None
+
+    # Like Live: a marker past the last frame is refused.
+    @property
+    def start_marker(self):
+        return self._start
+
+    @start_marker.setter
+    def start_marker(self, v):
+        if not 0 <= v < self.length:
+            raise RuntimeError("Cannot set marker outside of the sample")
+        self._start = v
+
+    @property
+    def end_marker(self):
+        return self._end
+
+    @end_marker.setter
+    def end_marker(self, v):
+        if not 0 <= v < self.length:
+            raise RuntimeError("Cannot set marker outside of the sample")
+        self._end = v
+
+    @property
+    def slices(self):
+        if self._manual is not None:
+            return tuple(self._manual)
+        n = self.slicing_region_count if self.slicing_style == 2 else 4
+        span = self.end_marker - self.start_marker
+        return tuple(self.start_marker + span * i // n for i in range(n))
+
+    def _edit(self):
+        if self._manual is None:
+            self._manual = list(self.slices)
+        self.slicing_style = 3
+
+    def insert_slice(self, t):
+        self._edit()
+        self._manual = sorted(set(self._manual + [t]))
+
+    def remove_slice(self, t):
+        self._edit()
+        self._manual.remove(t)
+
+    def move_slice(self, old, new):
+        self._edit()
+        self._manual = sorted(new if x == old else x for x in self._manual)
+
+
+class FakeSimpler(FakeDevice):
+    def __init__(self, sample=None):
+        FakeDevice.__init__(self, "Simpler", type=1)
+        self.class_name = "OriginalSimpler"
+        self.sample = sample
+        self.playback_mode = 0
+        self.view = Obj(selected_slice=0)
+        self.cropped = 0
+
+    def replace_sample(self, path):
+        self.sample = FakeSample(path)
+
+    def crop(self):
+        self.cropped += 1
 
 
 class FakeNote(object):
@@ -382,6 +460,35 @@ class FakeHost(object):
 
     def send(self, msg):
         self.sent.append(tuple(msg))
+
+    # Chop: Live's calls, as the controller sees them.
+    def create_midi_track(self, index, name):
+        track = FakeTrack(name, (), len(self.song.scenes))
+        self.song.tracks.insert(index, track)
+        return track
+
+    def insert_simpler(self, track, path):
+        if not getattr(self, "can_insert", True):
+            return False
+        simpler = FakeSimpler()
+        simpler.replace_sample(path)
+        track.devices.append(simpler)
+        return True
+
+    def load_onto_track(self, track, item):
+        self.song.view.selected_track = track
+        track.devices.append(FakeSimpler(FakeSample("/s/" + item.name)))
+
+    def set_enum(self, obj, prop, index):
+        setattr(obj, prop, index)
+
+    def slice_to_drum_rack(self, simpler):
+        for track in self.song.tracks:
+            if simpler in track.devices:
+                n = len(simpler.sample.slices)
+                track.devices[track.devices.index(simpler)] = FakeRack(loaded=range(36, 36 + n))
+                return True
+        return False
 
     def log(self, msg):
         self.logs.append(msg)

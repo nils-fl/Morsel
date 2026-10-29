@@ -85,6 +85,55 @@ class LiveHost(object):
             pass
         return list(device.parameters)[1:9]
 
+    # ---- Chop (chop.py) -----------------------------------------------------------------------------------------
+
+    def create_midi_track(self, index, name):
+        song = self.song
+        song.create_midi_track(index)
+        track = list(song.tracks)[index]
+        track.name = name
+        return track
+
+    def insert_simpler(self, track, path):
+        """A Simpler on `track` holding the sample file at `path` (Live 12: Track.insert_device and
+        SimplerDevice.replace_sample). False when Live can't."""
+        try:
+            device = track.insert_device("Simpler")
+            if device is None:
+                device = next(d for d in track.devices if getattr(d, "class_name", "") == "OriginalSimpler")
+            device.replace_sample(path)
+            return True
+        except Exception as e:
+            self.log("Morsel Chop: no Simpler with %s: %r" % (path, e))
+            return False
+
+    def load_onto_track(self, track, item):
+        """A browser item onto `track` (a sample onto an empty MIDI track: Live puts it in a Simpler)."""
+        self.song.view.selected_track = track
+        browser = self.browser
+        try:
+            browser.hotswap_target = None
+        except Exception:
+            pass
+        browser.load_item(item)
+
+    def set_enum(self, obj, prop, index):
+        """Set one of Live's enum properties (Simpler's playback mode, slicing style, ...) by index: Live may want
+        its own enum type, which is the type of the current value."""
+        try:
+            setattr(obj, prop, index)
+        except Exception:
+            setattr(obj, prop, type(getattr(obj, prop))(index))
+
+    def slice_to_drum_rack(self, simpler):
+        """Live's Slice to Drum Rack (Live.Conversions, as Push 2 does): a pad per slice. False when Live can't."""
+        try:
+            Live.Conversions.sliced_simpler_to_drum_rack(self.song, simpler)
+            return True
+        except Exception as e:
+            self.log("Morsel Chop: Slice to Drum Rack failed: %r" % (e,))
+            return False
+
     def device_banks(self, device):
         """All of a device's parameters, 8 at a time: Live's own banks for its devices, else in order."""
         try:
