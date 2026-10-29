@@ -762,8 +762,9 @@ export function updatePads(fn: (pads: Pad[]) => Pad[], undoable = true, trackId 
   updateTrack(trackId, (t) => ({ ...t, pads: fn(t.pads) }), undoable);
 }
 
-export function updateKeys(patch: Partial<KeysInstrument>, trackId = keysTrack().id) {
-  updateTrack(trackId, (t) => (t.keys ? { ...t, keys: { ...t.keys, ...patch } } : t));
+/** Change a keys track's instrument; `undoable` for a new sound (a preset, a sample, a multisample), not a tweak. */
+export function updateKeys(patch: Partial<KeysInstrument>, trackId = keysTrack().id, undoable = false) {
+  updateTrack(trackId, (t) => (t.keys ? { ...t, keys: { ...t.keys, ...patch } } : t), undoable);
 }
 
 export const canAddTrack = (p: Project) => p.tracks.length < MAX_TRACKS;
@@ -945,21 +946,23 @@ export function stepEvents(events: NoteEvent[], drum: boolean, tick: number, spa
 }
 
 /**
- * Change the velocity and nudge of a step's notes by `dVel` / `dNudge` (clamped to 1..127 and the clip's grid's
- * maximum nudge).
+ * Change the velocity, nudge and length of a step's notes by `dVel` / `dNudge` / `dLen` (clamped to 1..127, the clip's
+ * grid's maximum nudge, and a tick to the clip's length).
  * Returns the step's first note as it is now, if there is one.
  */
-export function editStep(patternIndex: number, trackId: string, tick: number, span: number, note: number, dVel: number, dNudge: number, undoable = true) {
+export function editStep(patternIndex: number, trackId: string, tick: number, span: number, note: number, dVel: number, dNudge: number, dLen = 0, undoable = true) {
   const drum = trackById(get().project, trackId)?.kind === "drum";
   const ids = new Set(stepEvents(clipOf(get().project.patterns[patternIndex], trackId).events, drum, tick, span, note).map((e) => e.id));
   if (!ids.size) return undefined;
   const limit = maxNudge(clipStep(get().project.patterns[patternIndex], trackId));
+  const longest = trackLength(get().project.patterns[patternIndex], trackId);
   updateClip(patternIndex, trackId, (events) => events.map((e) => {
     if (!ids.has(e.id)) return e;
     const vel = Math.max(1, Math.min(127, e.vel + dVel));
     const nudge = Math.max(-limit, Math.min(limit, (e.nudge ?? 0) + dNudge));
+    const len = Math.max(1, Math.min(longest, e.len + dLen));
     const { nudge: _old, ...rest } = e;
-    return nudge ? { ...rest, vel, nudge } : { ...rest, vel };
+    return nudge ? { ...rest, vel, len, nudge } : { ...rest, vel, len };
   }), undoable);
   return clipOf(get().project.patterns[patternIndex], trackId).events.find((e) => ids.has(e.id));
 }

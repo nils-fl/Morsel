@@ -4,12 +4,13 @@ import { Cursor, KITS, fitLine, fitName, jumpLetter, type Entry } from "../brows
 import { entrySample, folderLabel, folderSamples, folderToMulti, isSampleFolder, listAt, previewEntry, stopPreview, type Listing } from "../browse/source";
 import { COLOR, type LedMode } from "../midi/protocol";
 import { loadLivePreset, loadNamedKit, samplesToPads } from "../actions";
+import { decodeFile, livePreset, liveSamplePath } from "../browse/disk";
 import { engine } from "../audio/engine";
 import { newChop } from "./chop";
 import { listKits } from "../state/persist";
 import { drumPads, drumTrack, get, selectedTrack, set, updateKeys, updatePad } from "../state/store";
 import { showTemp } from "./notify";
-import { PAD_COUNT } from "../state/types";
+import { PAD_COUNT, type KeysInstrument, type Zone } from "../state/types";
 import { rootFromName } from "../ui/notes";
 
 const PREVIEW_DELAY_MS = 150;
@@ -47,17 +48,83 @@ function schedulePreview() {
   stopPreview();
   const e = current();
   if (e?.kind === "sample" || e?.kind === "file") previewTimer = window.setTimeout(() => previewEntry(e), PREVIEW_DELAY_MS);
+  scheduleAudition();
+}
+
+// Keys track: the keys play the highlighted sound (a sample, a file, a Live instrument) across the keyboard, read
+// into memory when the cursor rests on it and never kept; until it's read, and on a folder, they play the track.
+let audition: { entry: Entry; track: string; keys: KeysInstrument } | null = null;
+let auditionReq = 0;
+let auditionTimer = 0;
+
+function dropAudition() {
+  clearTimeout(auditionTimer);
+  auditionReq++;
+  audition = null;
+  engine.setPassing(new Map());
+}
+
+function scheduleAudition() {
+  dropAudition();
+  const e = current();
+  if (forKeys() && e && e.kind !== "folder") auditionTimer = window.setTimeout(() => void prepareAudition(e), PREVIEW_DELAY_MS);
+}
+
+/** Read the sound `e` and make it the keys' audition instrument, with the track's own settings (volume, filter, LFO). */
+async function prepareAudition(e: Entry) {
+  const req = auditionReq;
+  const t = selectedTrack();
+  if (!t.keys) return;
+  const buffers = new Map<string, AudioBuffer>();
+  const read = async (path: string) => {
+    const id = `browse:${path}`;
+    if (!buffers.has(id)) buffers.set(id, await decodeFile(path));
+    return id;
+  };
+  let keys: KeysInstrument | null = null;
+  try {
+    if (e.kind === "sample" || e.kind === "file") {
+      let id: string | null = null;
+      if (e.kind === "file") id = await read(e.path);
+      else {
+        const buf = await engine.read(e.id);
+        if (buf) buffers.set((id = `browse:${e.id}`), buf);
+      }
+      if (id) keys = { ...t.keys, type: "sample", sample: { ...t.keys.sample, sampleId: id, root: rootFromName(e.name) ?? t.keys.sample.root } };
+    } else if (e.kind === "preset" && e.preset === "instrument") {
+      const preset = await livePreset(e.path);
+      if (preset?.kind !== "instrument" || req !== auditionReq) return;
+      const zones = await Promise.all(preset.zones.map(async (z): Promise<Zone | null> => {
+        const id = await read(liveSamplePath(e.path, z.sample)).catch(() => null);
+        return id ? { sampleId: id, root: z.root, lo: z.lo, hi: z.hi } : null;
+      }));
+      const playable = zones.filter((z) => z !== null);
+      if (playable.length) keys = { ...t.keys, type: "multi", zones: playable, multiName: preset.name };
+    }
+  } catch {
+    return; // unreadable: the keys stay on the track's own sound
+  }
+  if (req !== auditionReq || !keys) return;
+  engine.setPassing(buffers);
+  audition = { entry: e, track: t.id, keys };
+}
+
+/** What the keys play in Browse: the highlighted sound, once it's read, for the keys track it was read for. */
+export function browseKeys(trackId: string): KeysInstrument | undefined {
+  return audition && audition.entry === current() && audition.track === trackId ? audition.keys : undefined;
 }
 
 export async function enterBrowse() {
   kits = await listKits();
   const list = entries();
   cursor.index = Math.min(cursor.index, Math.max(0, list.length - 1));
+  scheduleAudition();
 }
 
 export function exitBrowse() {
   clearTimeout(previewTimer);
   stopPreview();
+  dropAudition();
 }
 
 /** Encoders 1 and 8 scroll, 2 and 7 jump by letter, so either hand can browse. */
@@ -106,7 +173,7 @@ async function loadItem(e: Exclude<Entry, { kind: "folder" }>): Promise<{ popup:
     }
     if (track.keys) {
       // The keys track becomes a sample one; a note in the name ("Bass_C2") is the root, as in the Keys panel.
-      updateKeys({ type: "sample", sample: { ...track.keys.sample, sampleId, root: rootFromName(e.name) ?? track.keys.sample.root } }, track.id);
+      updateKeys({ type: "sample", sample: { ...track.keys.sample, sampleId, root: rootFromName(e.name) ?? track.keys.sample.root } }, track.id, true);
       return { popup: ["LOADED > KEYS", fitName(e.name)], loaded: true };
     }
     updatePad(pad, { sampleId, name: fitName(e.name, 12), start: 0, end: 1, reverse: false }, true);

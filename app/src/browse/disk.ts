@@ -437,7 +437,8 @@ async function fileOf(path: string) {
 // The last few decoded originals, so scrolling back and loading what you just heard is instant.
 const decoded = new Map<string, AudioBuffer>();
 
-async function decodeFile(path: string, file?: File) {
+/** A file's audio, decoded (the last few are kept), without copying it into the library. */
+export async function decodeFile(path: string, file?: File) {
   let buf = decoded.get(path);
   if (!buf) {
     buf = await engine.decode(file ?? (await fileOf(path)));

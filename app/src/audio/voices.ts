@@ -1,7 +1,7 @@
 // Instrument layer: turns "pad i / key note on track t" into voices on a context, through that track's
 // mixer strip. Used by the live engine and by the offline renderer.
 import { defaultPad, inputOf, padAudible, padDucks, trackAudible, trackById } from "../state/store";
-import type { KeysLfo, NoteEvent, Pad, Project, SidechainInput, SynthParams, Track } from "../state/types";
+import type { KeysInstrument, KeysLfo, NoteEvent, Pad, Project, SidechainInput, SynthParams, Track } from "../state/types";
 import { PAD_COUNT } from "../state/types";
 import { applyDuck, duckRamp } from "./duck";
 import { buildSampleVoice, buildSynthVoice, reverseBuffer, type Voice } from "./dsp";
@@ -181,11 +181,12 @@ export class Voices {
     this.padVoices.get(`${trackId}:${i}`)?.forEach((v) => v.stop(when));
   }
 
-  /** Start a note on a keys track; returns a voice you must stop (unless lenSec given). */
-  key(trackId: string, note: number, vel: number, when: number, lenSec?: number): Voice | null {
+  /** Start a note on a keys track (on `keys` instead of its own instrument, when given: auditioning); returns a voice
+   *  you must stop (unless lenSec given). */
+  key(trackId: string, note: number, vel: number, when: number, lenSec?: number, keys?: KeysInstrument): Voice | null {
     const p = this.getProject();
     const t = trackById(p, trackId);
-    const k = t?.keys;
+    const k = keys ?? t?.keys;
     if (!t || !k) return null;
     const out = KEYS_STEREO_OUT;
     let v: Voice | null = null;
@@ -215,10 +216,10 @@ export class Voices {
     if (t?.kind === "keys") this.strip(t).setExpression(when, bend, mod);
   }
 
-  keyOn(trackId: string, note: number, vel: number, when: number) {
+  keyOn(trackId: string, note: number, vel: number, when: number, keys?: KeysInstrument) {
     const id = `${trackId}:${note}`;
     this.keyVoices.get(id)?.stop(when, true);
-    const v = this.key(trackId, note, vel, when);
+    const v = this.key(trackId, note, vel, when, undefined, keys);
     if (v) this.keyVoices.set(id, v);
   }
 

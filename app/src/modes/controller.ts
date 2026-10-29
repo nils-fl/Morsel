@@ -6,17 +6,17 @@ import { keyVelocity, padVelocity } from "../midi/velocity";
 import { CC, COLOR, type LedMode, type PadLayout } from "../midi/protocol";
 import { DUCK_PAGE, PAGES, STEP_PAGE, fixPage, inputLabel, keysSampleList, padLabel, pagesFor, presetLabel, stepPage, stepPageLabel, turnEncoder } from "../params";
 import { makeTicker, sequencer } from "../seq/sequencer";
-import { PPQN, REPEAT_OPTIONS, pageSteps, rowSteps } from "../seq/timing";
+import { PPQN, REPEAT_OPTIONS, maxNudge, pageSteps, rowSteps } from "../seq/timing";
 import {
   type AppState, addTrack, clearTrack, clipOf, copyClip, copyPattern, drumPads, drumTrack, editStep, get, keysTrack, markUndo, padDucks, patternHasNotes, selectTrack,
-  selectedTrack, set, stepEvents, stepTrack, store, togglePadFlag, toggleStep, toggleTrackFlag, trackAudible, trackBars, trackLength, trackUndoSteps, clipStep, stepPages, undoTrack, updateProject, PAD_COLORS,
+  selectedTrack, set, stepEvents, stepTrack, store, trackById, togglePadFlag, toggleStep, toggleTrackFlag, trackAudible, trackBars, trackLength, trackUndoSteps, clipStep, stepPages, undoTrack, updateProject, PAD_COLORS,
 } from "../state/store";
 import type { HwMode, KeysInstrument, NoteEvent, Track, TrackKind } from "../state/types";
 import { noteForKeysPad, stepForPad } from "./stepMap";
 import { noteName } from "../ui/notes";
 import { activeOverlay, releaseHold, showTemp, type Overlay } from "./notify";
 import { chopAddMarker, chopEncoder, chopKeyDown, chopKeyUp, chopKeysReleased, chopMarkerArrows, chopPad, chopPadLeds, chopRemoveMarker, chopSetPage, chopStepMarker, chopStop, chopTogglePlay, chopView } from "./chop";
-import { browseCan, browseChop, browseDisplay, browseEncoder, browseEnter, browseLeds, browseOnFolder, browseOnSample, browseShiftEnter, browsePad, browseUp, browseView, enterBrowse, exitBrowse } from "./browse";
+import { browseCan, browseChop, browseKeys, browseDisplay, browseEncoder, browseEnter, browseLeds, browseOnFolder, browseOnSample, browseShiftEnter, browsePad, browseUp, browseView, enterBrowse, exitBrowse } from "./browse";
 import { H, W, type Frame } from "../display/frame";
 import { browserScreen, chopScreen, duckScreen, encoderScreen, gridScreen, keysScreen, padScreen, shiftCoverText, shiftEncHint, shiftRows, shiftScreen, stepScreen } from "../display/screens";
 import { HEADER_H, computePeaks, duckPanel, filterPanel, overlayBar, type Peaks } from "../display/widgets";
@@ -95,10 +95,12 @@ function hwOpenChop() {
 
 const heldPads = new Set<number>();
 /**
- * Step pads held in Step mode, with the step they pressed. Encoders 1 and 2 edit them while held; a lit step is
- * deleted on release, unless they did.
+ * Step pads held in Step mode, with the step they pressed. Encoders 1-3 edit them while held; a lit step is
+ * deleted on release when it was a tap (shorter than TAP_MS, no encoder turned).
  */
-const heldSteps = new Map<number, { pattern: number; track: string; tick: number; span: number; note: number; remove: boolean }>();
+const heldSteps = new Map<number, { pattern: number; track: string; tick: number; span: number; note: number; remove: boolean; since: number }>();
+/** A press shorter than this is a tap: on a lit step, it deletes the step. Longer is a hold, to look or edit. */
+const TAP_MS = 400;
 /** The steps held now already have their undo step (from adding a note, or the first edit). */
 let heldStepsUndo = false;
 /** Pads sounding from Play mode (hit or note repeat), so a release after a mode switch still stops them. */
@@ -139,7 +141,7 @@ function padReleased(pad: number) {
   const step = heldSteps.get(pad);
   if (step) {
     heldSteps.delete(pad);
-    if (step.remove) toggleStep(step.pattern, step.track, step.tick, step.span, step.note);
+    if (step.remove && performance.now() - step.since < TAP_MS) toggleStep(step.pattern, step.track, step.tick, step.span, step.note);
     if (!heldSteps.size) heldStepsUndo = false;
   }
   engine.voices.pressure[pad] = 0;
@@ -272,7 +274,7 @@ export function initController() {
         }
         break;
       case "encoder": {
-        if (s.hwMode === "step" && heldSteps.size && e.index < 2) {
+        if (s.hwMode === "step" && heldSteps.size && e.index < HELD_EDITS.length) {
           editHeldSteps(e.index, e.delta, s.shift);
           break;
         }
@@ -308,6 +310,8 @@ const instrumentKeys = new Map<number, string>();
 const selectKeys = new Map<number, number>();
 /** Keys playing a drum track's pads (selected drum track, any mode but Step and Chop): the track and pad per note. */
 const drumKeys = new Map<number, { track: string; pad: number }>();
+/** Keys held in Browse on a keys track, auditioning the highlighted sound: the track they play on. */
+const auditionKeys = new Map<number, string>();
 /** Step mode on a keys track: the note the step pads write (the last key pressed). */
 let stepNote: number | null = null;
 
@@ -338,6 +342,11 @@ function onKey(note: number, vel: number, on: boolean) {
     if (pad !== undefined) {
       selectKeys.delete(note);
       releasePad(pad);
+    }
+    const heard = auditionKeys.get(note);
+    if (heard !== undefined) {
+      auditionKeys.delete(note);
+      engine.voices.keyOff(heard, note, liveWhen());
     }
     const drum = drumKeys.get(note);
     if (drum) {
@@ -374,6 +383,13 @@ function onKey(note: number, vel: number, on: boolean) {
       set({ selectedPad: pad });
       sequencer.ensureRepeatClock();
     } else playPad(pad, vel);
+    return;
+  }
+  // Browse on a keys track: the keys audition the highlighted sound (not recorded), once it's read.
+  const heard = s.hwMode === "browse" && sel.kind === "keys" ? browseKeys(sel.id) : undefined;
+  if (heard) {
+    engine.voices.keyOn(sel.id, note, vel, liveWhen(), heard);
+    auditionKeys.set(note, sel.id);
     return;
   }
   instrumentKeys.set(note, keyOn(note, vel));
@@ -468,7 +484,7 @@ function onPad(pad: number, vel: number) {
         toggleStep(s.currentPattern, t.id, tick, g.span, note);
         heldStepsUndo = true;
       }
-      heldSteps.set(pad, { pattern: s.currentPattern, track: t.id, tick, span: g.span, note, remove: lit });
+      heldSteps.set(pad, { pattern: s.currentPattern, track: t.id, tick, span: g.span, note, remove: lit, since: performance.now() });
       break;
     }
     case "track": {
@@ -759,26 +775,49 @@ export const statusText = (s: AppState) => `P${s.currentPattern + 1} ${transport
 
 /** Encoder pages whose screen shows the instrument (waveform, list, curve) rather than the 8 encoders. */
 const INSTRUMENT_TAGS = ["KIT", "PAD", "PAD2", "KEYS", "DUCK"];
-const onEncoderScreen = (s: AppState) => s.hwMode === "play" && !INSTRUMENT_TAGS.includes(PAGES[s.encPage].tag);
+const onEncoderScreen = (s: AppState) =>
+  (s.hwMode === "play" && !INSTRUMENT_TAGS.includes(PAGES[s.encPage].tag)) || (s.hwMode === "step" && heldSteps.size > 0);
 
-/** Encoder 1 (velocity, Shift: fine) or 2 (nudge) turned while step pads are held: edit those steps' notes. */
+/** Encoders 1-3 while step pads are held. */
+const HELD_EDITS = ["Velocity", "Nudge", "Length"];
+
+/** What encoder `index` shows for a held step's note: velocity, nudge or length (in ticks, 96 a beat). */
+function heldValue(index: number, e: NoteEvent) {
+  if (index === 0) return String(e.vel);
+  if (index === 2) return String(e.len);
+  const nudge = e.nudge ?? 0;
+  return nudge > 0 ? `+${nudge}` : String(nudge);
+}
+
+/** The first held step's note (what the held screen shows), with its step's span. */
+function heldNote() {
+  const step = heldSteps.values().next().value;
+  if (!step) return undefined;
+  const t = trackById(get().project, step.track);
+  const pat = get().project.patterns[step.pattern];
+  const e = pat && t ? stepEvents(clipOf(pat, t.id).events, t.kind === "drum", step.tick, step.span, step.note)[0] : undefined;
+  return e && { e, span: step.span };
+}
+
+/**
+ * Encoder 1 (velocity, Shift: fine), 2 (nudge) or 3 (length, a quarter step a detent, Shift: a tick) turned while
+ * step pads are held: edit those steps' notes.
+ */
 function editHeldSteps(index: number, delta: number, fine: boolean) {
   if (!heldStepsUndo) {
     markUndo(true);
     heldStepsUndo = true;
   }
-  const dVel = index === 0 ? delta * (fine ? 1 : 2) : 0;
-  const dNudge = index === 1 ? delta : 0;
   let first: NoteEvent | undefined;
   for (const step of heldSteps.values()) {
     step.remove = false;
-    const e = editStep(step.pattern, step.track, step.tick, step.span, step.note, dVel, dNudge, false);
+    const dVel = index === 0 ? delta * (fine ? 1 : 2) : 0;
+    const dNudge = index === 1 ? delta : 0;
+    const dLen = index === 2 ? delta * (fine ? 1 : Math.max(1, step.span / 4)) : 0;
+    const e = editStep(step.pattern, step.track, step.tick, step.span, step.note, dVel, dNudge, dLen, false);
     first ??= e;
   }
-  if (!first) return;
-  const nudge = first.nudge ?? 0;
-  if (index === 0) showTemp("Velocity", String(first.vel), { encoder: 0 });
-  else showTemp("Nudge", nudge > 0 ? `+${nudge}` : String(nudge), { encoder: 1 });
+  if (first) showTemp(HELD_EDITS[index], heldValue(index, first), { encoder: index });
 }
 
 /** The selected track's step grid on the pads: ticks per step, steps per pad row and per page, the page's first step. */
@@ -932,6 +971,17 @@ function screenFor(s: AppState, overlay: Overlay | null): Frame | null {
     }
     case "step": {
       const t = selectedTrack(s);
+      // Holding steps: encoders 1-3 edit them, so the screen shows those three.
+      const held = heldSteps.size ? heldNote() : undefined;
+      if (held) {
+        const { e, span } = held;
+        const levels = [e.vel / 127, 0.5 + (e.nudge ?? 0) / (2 * maxNudge(span)), Math.min(1, e.len / (4 * span))];
+        return encoderScreen({
+          title: trackLabel(s), status, tag: "HOLD", info: t.kind === "drum" ? trackItemName(s, t) : noteName(e.note),
+          active: overlay?.encoder,
+          cells: [...HELD_EDITS.map((name, i) => ({ name, value: heldValue(i, e), level: levels[i] })), null, null, null, null, null],
+        });
+      }
       return stepScreen({
         track: trackLabel(s),
         status,

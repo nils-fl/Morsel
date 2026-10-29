@@ -122,9 +122,9 @@ export function toggleRecord() {
 /** Factory presets, then the user's own. */
 export const allPresets = (): SynthPreset[] => [...FACTORY_PRESETS, ...get().userPresets];
 
-/** Load a preset onto the Keys synth (switching Keys to the synth if it was playing samples). */
-export function applyPreset(p: SynthPreset) {
-  updateKeys({ type: "synth", preset: p.name, synth: { ...p.params } });
+/** Load a preset onto the Keys synth (switching Keys to the synth if it was playing samples). Undoable unless told. */
+export function applyPreset(p: SynthPreset, undoable = true) {
+  updateKeys({ type: "synth", preset: p.name, synth: { ...p.params } }, undefined, undoable);
 }
 
 /** Save the current synth as a user preset (overwrites one with the same name). */
@@ -751,7 +751,7 @@ export async function loadLivePreset(path: string, trackId?: string): Promise<[s
     set({ status: `${preset.name}: its samples couldn't be read` });
     return null;
   }
-  updateKeys({ type: "multi", zones, multiName: preset.name }, trackId);
+  updateKeys({ type: "multi", zones, multiName: preset.name }, trackId, true);
   set({ status: `Loaded ${preset.name} from Ableton Live: ${zones.length} zones` });
   return ["MULTI LOADED", preset.name];
 }

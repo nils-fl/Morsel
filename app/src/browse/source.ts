@@ -56,7 +56,7 @@ export async function folderToMulti(path: string, trackId?: string): Promise<num
   const named = await folderSamples(path, Infinity, (name) => rootFromName(name) !== null);
   if (!named.length) return 0;
   const zones: Zone[] = named.map((s) => ({ sampleId: s.id, root: rootFromName(s.name)! })).sort((a, b) => a.root - b.root);
-  updateKeys({ type: "multi", zones, multiName: folderLabel(path) }, trackId);
+  updateKeys({ type: "multi", zones, multiName: folderLabel(path) }, trackId, true);
   return zones.length;
 }
 

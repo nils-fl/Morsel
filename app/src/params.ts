@@ -231,7 +231,7 @@ const SYNTH_PARAMS: Param[] = [
     // Shift jumps to the next / previous folder (Bass, Lead, Keys…).
     nudge: (d, fine) => {
       const list = allPresets();
-      applyPreset(list[fine ? jumpFolder(list, presetIndex(), d > 0 ? 1 : -1) : clamp(presetIndex() + Math.sign(d), 0, list.length - 1)]);
+      applyPreset(list[fine ? jumpFolder(list, presetIndex(), d > 0 ? 1 : -1) : clamp(presetIndex() + Math.sign(d), 0, list.length - 1)], freshSoundTurn());
     },
     format: presetLabel,
   },
@@ -295,7 +295,7 @@ const SAMPLE_PARAMS: Param[] = [
       const list = keysSampleList();
       if (!list.length) return;
       const i = list.findIndex((x) => x.id === keysNow().sample.sampleId);
-      updateKeys({ sample: { ...keysNow().sample, sampleId: list[clamp(i + Math.sign(d), 0, list.length - 1)].id } });
+      updateKeys({ sample: { ...keysNow().sample, sampleId: list[clamp(i + Math.sign(d), 0, list.length - 1)].id } }, undefined, freshSoundTurn());
     },
     format: keysSampleName,
   },
@@ -332,7 +332,7 @@ const CHROMATIC_PARAMS: Param[] = [
     nudge: (d) => {
       const list = sourcePads();
       const next = list[clamp(sourcePadIndex() + Math.sign(d), 0, list.length - 1)];
-      if (next) updateKeys({ sourceTrack: next.track, sourcePad: next.pad });
+      if (next) updateKeys({ sourceTrack: next.track, sourcePad: next.pad }, undefined, freshSoundTurn());
     },
     format: sourcePadLabel,
   },
@@ -356,6 +356,13 @@ const curPages = () => stepPages(curPattern(), get().selectedTrack);
 const curGrid = () => clipStep(curPattern(), get().selectedTrack);
 const barsText = (n: number) => `${n} bar${n === 1 ? "" : "s"}`;
 let lastBarsTurn = -Infinity;
+/** When an encoder last loaded a sound onto the keys: turns in quick succession share one undo step. */
+let lastSoundTurn = -Infinity;
+function freshSoundTurn() {
+  const now = performance.now(), fresh = now - lastSoundTurn > 2000;
+  lastSoundTurn = now;
+  return fresh;
+}
 let lastDoubleTurn = -Infinity;
 
 /** Where a page of step pads starts: "3" (bar 3), or "3.3" (bar 3, beat 3) when a page is half a bar. */

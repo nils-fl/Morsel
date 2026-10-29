@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DRUMS_ID, KEYS_ID, addEvent, addTrack, clipOf, editStep, markUndo, canRemoveTrack, copyClip, copyPattern, defaultPad, doubleClip, setClipGrid, setTrackBars, clipStep, stepPages, setTrackDuck, setDuckPad, padDucks, toggleSidechainInput, trackBars, defaultProject, fixSelection, get, migrateV1, normalizeProject, removeTrack, resetSession, selectTrack, set, stepTrack, undo, redo, updateProject, undoTrack, trackUndoSteps,
+  DRUMS_ID, KEYS_ID, addEvent, addTrack, clipOf, editStep, markUndo, canRemoveTrack, copyClip, copyPattern, defaultPad, doubleClip, setClipGrid, setTrackBars, clipStep, stepPages, setTrackDuck, setDuckPad, padDucks, toggleSidechainInput, trackBars, trackLength, updateKeys, defaultProject, fixSelection, get, migrateV1, normalizeProject, removeTrack, resetSession, selectTrack, set, stepTrack, undo, redo, updateProject, undoTrack, trackUndoSteps,
 } from "./store";
 import { MAX_TRACKS, PATTERN_COUNT, type NoteEvent, type Project } from "./types";
 import { DECAY_MAX } from "../audio/dsp";
@@ -464,6 +464,22 @@ describe("recorded takes", () => {
   });
 });
 
+describe("the keys' sound", () => {
+  it("a new sound is an undo step (also on the selected track's undo), a tweak isn't", () => {
+    reset();
+    const keys = () => get().project.tracks.find((t) => t.id === KEYS_ID)!.keys!;
+    const before = keys();
+    updateKeys({ type: "multi", zones: [{ sampleId: "s1", root: 60 }], multiName: "Piano" }, KEYS_ID, true);
+    updateKeys({ volume: 0.3 }, KEYS_ID);
+    expect(keys()).toMatchObject({ type: "multi", volume: 0.3 });
+    expect(undoTrack(KEYS_ID)).toBe(true);
+    expect(keys().type).toBe(before.type);
+    updateKeys({ type: "multi", zones: [{ sampleId: "s1", root: 60 }], multiName: "Piano" }, KEYS_ID, true);
+    undo();
+    expect(keys().type).toBe(before.type);
+  });
+});
+
 describe("editing a step", () => {
   const events = () => clipOf(get().project.patterns[0], DRUMS_ID).events;
 
@@ -478,6 +494,16 @@ describe("editing a step", () => {
     editStep(0, DRUMS_ID, 24, 24, 0, 0, 11);
     expect(events().find((e) => e.id === "a")).not.toHaveProperty("nudge");
     expect(editStep(0, DRUMS_ID, 72, 24, 0, 10, 0)).toBeUndefined();
+  });
+
+  it("changes the length of the step's notes, from a tick to the clip's length", () => {
+    reset();
+    set({ project: { ...get().project, patterns: get().project.patterns.map((pat, i) => (i === 0 ? { ...pat, clips: { [DRUMS_ID]: { events: [ev("a", 24, 0), ev("b", 24, 1)] } } } : pat)) } });
+    const len = events().find((e) => e.id === "a")!.len;
+    expect(editStep(0, DRUMS_ID, 24, 24, 0, 0, 0, 6)).toMatchObject({ id: "a", vel: 100, len: len + 6 });
+    expect(editStep(0, DRUMS_ID, 24, 24, 0, 0, 0, -1000)).toMatchObject({ len: 1 });
+    expect(editStep(0, DRUMS_ID, 24, 24, 0, 0, 0, 1e6)?.len).toBe(trackLength(get().project.patterns[0], DRUMS_ID));
+    expect(events().find((e) => e.id === "b")!.len).toBe(len); // the other pad's note
   });
 
   it("keeps a nudge when loading, clamped, and drops a zero one", () => {

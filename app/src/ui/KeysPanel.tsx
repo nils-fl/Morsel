@@ -24,13 +24,14 @@ export function KeysPanel() {
   const drumTracks = useApp((s) => s.project.tracks).filter((t) => t.kind === "drum");
   const synth = keys.synth;
   const upSynth = (patch: Partial<SynthParams>) => updateKeys({ synth: { ...synth, ...patch } });
-  const upSample = (patch: Partial<KeysSample>) => updateKeys({ sample: { ...keys.sample, ...patch } });
+  // A new sample is an undo step; its settings aren't.
+  const upSample = (patch: Partial<KeysSample>, undoable = false) => updateKeys({ sample: { ...keys.sample, ...patch } }, undefined, undoable);
   const upLfo = (patch: Partial<KeysLfo>) => updateKeys({ lfo: { ...keys.lfo, ...patch } });
 
   /** One file as the keys sound; a note in its name ("Bass_C2.wav") becomes the root. */
   async function loadSample(f: File) {
     const sampleId = await engine.addFile(f);
-    upSample({ sampleId, root: rootFromName(f.name) ?? keys.sample.root });
+    upSample({ sampleId, root: rootFromName(f.name) ?? keys.sample.root }, true);
   }
 
   /** A library drawer row dropped on the Keys panel: a sample or file as the keys sound, a folder as the multisample. */
@@ -38,7 +39,7 @@ export function KeysPanel() {
     if (e.kind === "folder") return loadMulti(e.path);
     if (e.kind === "preset") return void (await loadLivePreset(e.path)); // an Ableton Live instrument (or kit)
     try {
-      upSample({ sampleId: await entrySample(e), root: rootFromName(e.name) ?? keys.sample.root });
+      upSample({ sampleId: await entrySample(e), root: rootFromName(e.name) ?? keys.sample.root }, true);
     } catch (err) {
       set({ status: `${e.name}: ${(err as Error).message}` });
     }
@@ -57,7 +58,7 @@ export function KeysPanel() {
           <span className="tool-label">Source</span>
           <div className="segmented">
             {(["synth", "sample", "chromatic", "multi"] as const).map((t) => (
-              <button key={t} className={keys.type === t ? "on" : ""} onClick={() => updateKeys({ type: t })}>
+              <button key={t} className={keys.type === t ? "on" : ""} onClick={() => updateKeys({ type: t }, undefined, true)}>
                 {t === "synth" ? "Synth" : t === "sample" ? "Sample" : t === "chromatic" ? "Pad sample" : "Multisample"}
               </button>
             ))}
@@ -126,7 +127,7 @@ export function KeysPanel() {
               <SamplePicker value={keys.sample.sampleId} allowNone onPick={(id) => {
                 // A note in the name ("Bass_C2") becomes the root, as when dropping a file.
                 const root = id ? rootFromName(get().samples[id]?.name ?? "") : null;
-                upSample({ sampleId: id, root: root ?? keys.sample.root });
+                upSample({ sampleId: id, root: root ?? keys.sample.root }, true);
               }} />
             </Field>
             <Field label="Root note">
@@ -150,7 +151,7 @@ export function KeysPanel() {
           <Field label="Source pad">
             <select value={`${keys.sourceTrack}:${keys.sourcePad}`} onChange={(e) => {
               const [track, pad] = e.target.value.split(":");
-              updateKeys({ sourceTrack: track, sourcePad: Number(pad) });
+              updateKeys({ sourceTrack: track, sourcePad: Number(pad) }, undefined, true);
             }}>
               {drumTracks.map((t) => (
                 <optgroup key={t.id} label={t.name}>

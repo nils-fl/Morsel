@@ -34,6 +34,8 @@ class Engine {
   ctx!: AudioContext;
   voices!: Voices;
   private buffers = new Map<string, AudioBuffer>();
+  /** Sounds the keys audition while browsing: played like samples, never kept or listed in the library. */
+  private passing = new Map<string, AudioBuffer>();
   private clickOut!: GainNode;
 
   /** The voice engine this session plays on; picked in Preferences or the Lab, used from the next load. */
@@ -56,7 +58,7 @@ class Engine {
       console.warn("The voice worklet couldn't be loaded; playing on Web Audio nodes", err);
       return false;
     }));
-    this.voices = new Voices(this.ctx, this.ctx.destination, () => get().project, (id) => this.buffers.get(id), true, worklet);
+    this.voices = new Voices(this.ctx, this.ctx.destination, () => get().project, (id) => this.buffers.get(id) ?? this.passing.get(id), true, worklet);
     this.clickOut = this.ctx.createGain();
     // Into the limiter, but not through the glue: the click shouldn't make the mix pump.
     this.clickOut.connect(this.voices.masterBus.limiterIn);
@@ -133,6 +135,11 @@ class Engine {
 
   bufferLookup = (id: string) => this.buffers.get(id);
 
+  /** The sounds being auditioned (Browse on a keys track), replacing the last ones. */
+  setPassing(buffers: Map<string, AudioBuffer>) {
+    this.passing = buffers;
+  }
+
   /**
    * List the library from its index; the audio stays on disk until a sample is used (ensure).
    * Samples the index doesn't know (an older library, or added just before the tab closed) are read once, one at a
@@ -192,8 +199,10 @@ class Engine {
     await Promise.all([...ids].filter((id) => !this.buffers.has(id)).map((id) => this.ensure(id)));
   }
 
-  /** Read a sample without keeping it (browsing previews). */
-  private async read(id: string) {
+  /** Read a sample without keeping it (browsing previews); one already in use is shared. */
+  async read(id: string) {
+    const have = this.buffers.get(id);
+    if (have) return have;
     try {
       const s = await loadSample(id);
       return s ? this.fromStored(s) : undefined;
