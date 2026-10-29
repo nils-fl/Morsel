@@ -494,15 +494,11 @@ class BrowseMode(object):
             return [(P.COLOR["dimWhite"], "static")] * 16
         if self.in_kits():
             # The pads play the loaded kit: its pads in their colours, as in Play mode.
-            out = []
-            for i in range(16):
-                dp = rack.drum_pads[P.DRUM_NOTES[i]]
-                out.append((self.c.pad_color(track, dp) if len(dp.chains) else P.COLOR["off"], "static"))
-            return out
+            return [(self.c.pad_color(track, dp) if len(dp.chains) else P.COLOR["off"], "static")
+                    for dp in self.c.launchkey_pads(rack)]
         sel = self._selected_pad(rack)
         out = []
-        for i in range(16):
-            dp = rack.drum_pads[P.DRUM_NOTES[i]]
+        for dp in self.c.launchkey_pads(rack):
             if dp == sel:
                 out.append((P.COLOR["white"], "flash"))
             else:

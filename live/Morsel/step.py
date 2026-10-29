@@ -77,7 +77,24 @@ class StepMode(object):
         i = self.c.scene_index()
         return slots[i] if i < len(slots) else None
 
+    def forget(self):
+        """Drop what's kept from Live for this tick or event (the controller calls it at the start of each)."""
+        self._memo = {}
+
     def clip(self, create=False):
+        """The clip being edited. Kept for the tick or event (the screen, LEDs and pages all ask for it, and each ask
+        lists Live's clip slots); creating one starts afresh."""
+        memo = getattr(self, "_memo", None)
+        if memo is None:
+            memo = self._memo = {}
+        if create:
+            memo.clear()
+        elif "clip" in memo:
+            return memo["clip"]
+        memo["clip"] = clip = self._find_clip(create)
+        return clip
+
+    def _find_clip(self, create):
         track = self.c.sel_track()
         slot = self.slot()
         if slot is None:
@@ -143,7 +160,17 @@ class StepMode(object):
         return clip.get_notes_extended(pitch, 1, lo, time + self.span / 2 - lo)
 
     def steps(self):
-        """Which steps of the page on the pads have notes (of the selected pad, on a drum track)."""
+        """Which steps of the page on the pads have notes (of the selected pad, on a drum track). Kept for the tick
+        or event: the screen and the LEDs both show them."""
+        memo = getattr(self, "_memo", None)
+        if memo is not None and "steps" in memo:
+            return memo["steps"]
+        out = self._steps()
+        if memo is not None:
+            memo["steps"] = out
+        return out
+
+    def _steps(self):
         n = page_steps(self.span)
         clip = self.clip()
         if clip is None:
@@ -363,6 +390,9 @@ class StepMode(object):
             on_beat = abs(t - round(t)) < 1e-6
             c = color if steps[step] else P.COLOR["dimWhite"] if on_beat else P.COLOR["off"]
             if step == head:
-                c = P.COLOR["white"]
+                # The playhead: white on an empty step; on a step with a note its colour pulses, so the note stays
+                # visible under it.
+                out[pad] = (color, "pulse") if steps[step] else (P.COLOR["white"], "static")
+                continue
             out[pad] = (c, "static")
         return out

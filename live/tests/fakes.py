@@ -59,6 +59,15 @@ class FakeParam(object):
     def str_for_value(self, v):
         return "%.2f" % v
 
+    def add_value_listener(self, f):
+        self.__dict__.setdefault("listeners", []).append(f)
+
+    def remove_value_listener(self, f):
+        self.listeners.remove(f)
+
+    def value_has_listener(self, f):
+        return f in self.__dict__.get("listeners", [])
+
 
 class FakeDrumPad(object):
     def __init__(self, note, loaded):
@@ -67,6 +76,9 @@ class FakeDrumPad(object):
         self.chains = [Obj(color=0xFF0000, devices=[FakeSimpler(FakeSample("/s/Pad %d.wav" % note))])] if loaded else []
         self.mute = False
         self.solo = False
+
+    def delete_all_chains(self):
+        self.chains = []
 
 
 class FakeRack(object):
@@ -77,6 +89,9 @@ class FakeRack(object):
         self.drum_pads = [FakeDrumPad(n, n in loaded) for n in range(128)]
         self.view = Obj(selected_drum_pad=self.drum_pads[36])
         self.parameters = [FakeParam("Device On")] + [FakeParam("Macro %d" % i) for i in range(1, 9)]
+
+    def copy_pad(self, source, destination):
+        self.drum_pads[destination].chains = list(self.drum_pads[source].chains)
 
 
 class FakeDevice(object):

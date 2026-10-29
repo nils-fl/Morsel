@@ -3,6 +3,7 @@ from fakes import FakeClip, FakeDevice, FakeHost, FakeNote, FakePlugin, FakeTrac
 from Morsel import protocol as P
 from Morsel.colors import nearest_color
 from Morsel import browse as BROWSE
+from Morsel import pages as PG
 from Morsel.controller import Controller
 
 
@@ -618,7 +619,9 @@ def test_scale_follows_both_ways():
 def test_shift_map_on_the_main_screen():
     host, c = setup()
     c.handle_midi(P.SYSEX_HEADER + (0x09, 0xF7))
-    shift(c, True)
+    shift(c, True)  # the cover goes out at once, counted as the frame in flight...
+    assert c.sender.busy
+    c.handle_midi(P.SYSEX_HEADER + (0x09, 0xF7))  # ...acked
     c.tick()
     assert any(m[:8] == P.SYSEX_HEADER + (0x09, P.DISPLAY_STATIONARY) for m in host.sent)  # and under the popup
 
@@ -1045,3 +1048,173 @@ def test_scene_warps_the_region_to_the_beats_on_sample():
     assert c.current_page().params[4].format() == "3 bars"
     tap(c, "scene")  # warp to it
     assert simpler.warped == 12 and c.overlay[:2] == ("WARPED", "3 bars at 120 BPM")
+
+
+def test_hold_a_key_and_tap_a_pad_to_keep_that_chop_there():
+    host, c = setup()
+    to_chop(c)
+    c.tick()
+    chop_track = host.song.tracks[1]
+    key = lambda k, on=True: c.handle_midi((0x98 if on else 0x88, 36 + k, 100 if on else 0))  # the keys stay on ch9
+    pad_note = lambda i: P.DRUM_NOTES[i]
+    assert c.key_channel() == P.CH_KEYS
+    key(4)  # chop 5 held...
+    c.handle_midi((0x99, pad_note(0), 100))  # ...pad 1 takes it
+    key(4, False)
+    key(0)  # chop 1 onto pad 2 (pad 2 is chop 2's place now: it's copied aside first)
+    c.handle_midi((0x99, pad_note(1), 100))
+    c.handle_midi((0x99, pad_note(2), 100))  # and onto pad 3 too
+    key(0, False)
+    assert c.chop.assigned == {0: 4, 1: 0, 2: 0} and c.overlay[1] == "3 on pads"
+    leds = c.pad_leds()
+    assert leds[0][0] == P.PAD_COLORS[4] and leds[5] == (P.COLOR["off"], "static")  # only the chosen pads light
+    c.handle_midi((0x99, pad_note(7), 100))  # a pad without a key: plays (selects) its chop, takes nothing
+    assert c.chop.selected() == pad_note(7) - 36 and len(c.chop.assigned) == 3
+    to_chop(c)  # done
+    rack = c.drum_rack(chop_track)
+    sample_on = lambda note: rack.drum_pads[note].chains[0].devices[0].sample.file_path if rack.drum_pads[note].chains \
+        else None
+    assert sample_on(pad_note(0)) == "/s/Pad %d.wav" % (36 + 4)  # chop 5
+    assert sample_on(pad_note(1)) == sample_on(pad_note(2)) == "/s/Pad 36.wav"  # chop 1, twice
+    kept = [n for n in range(128) if rack.drum_pads[n].chains]
+    assert sorted(kept) == sorted(pad_note(i) for i in range(3))  # the rest are gone, the scratch pads too
+    assert c.overlay[:2] == ("CHOPS > PADS", "3 on Chop Pad 36")
+
+
+def test_chops_go_on_their_pads_when_live_builds_the_rack_later():
+    host, c = setup()
+    to_chop(c)
+    c.tick()
+    chop_track = host.song.tracks[1]
+    real = host.slice_to_drum_rack
+    later = []
+    host.slice_to_drum_rack = lambda s: later.append(s) or True  # the rack isn't there yet
+    c.handle_midi((0x98, 38, 100))  # chop 3 held, onto pad 1
+    c.handle_midi((0x99, P.DRUM_NOTES[0], 100))
+    c.handle_midi((0x88, 38, 0))
+    to_chop(c)
+    c.tick()
+    assert c.chop.arrange_since is not None  # waiting
+    real(later[0])  # Live builds it
+    c.tick()
+    rack = c.drum_rack(chop_track)
+    assert [n for n in range(128) if rack.drum_pads[n].chains] == [P.DRUM_NOTES[0]]
+    assert rack.drum_pads[P.DRUM_NOTES[0]].chains[0].devices[0].sample.file_path == "/s/Pad 38.wav"
+
+
+def test_a_popup_shows_on_the_shift_cover_and_shift_up_redraws_at_once():
+    host, c = setup()
+    temp = P.SYSEX_HEADER + (0x09, P.DISPLAY_TEMPORARY)
+    stat = P.SYSEX_HEADER + (0x09, P.DISPLAY_STATIONARY)
+    ack = P.SYSEX_HEADER + (0x09, 0xF7)
+    shift(c, True)
+    c.handle_midi(ack)
+    first = [m for m in host.sent if m[:8] == temp][-1]
+    host.sent.clear()
+    tap(c, "play")  # Shift + Play: Metronome, shown at once on the cover
+    c.handle_midi(ack)
+    covers = [m for m in host.sent if m[:8] == temp]
+    assert covers and covers[-1] != first and c.overlay[0] == "Metronome"
+    host.sent.clear()
+    c.handle_midi(ack)
+    shift(c, False)  # our screen back at once, without a tick
+    assert P.display_config_sysex(P.DISPLAY_TEMPORARY, 0) in host.sent
+    c.handle_midi(ack)
+    assert [m for m in host.sent if m[:8] == stat]
+
+
+def test_a_button_press_lights_its_leds_before_the_next_tick():
+    host, c = setup()
+    host.sent.clear()
+    tap(c, "record")  # session record on: the Record LED now
+    assert P.button_led_message(P.CC_RECORD, 127) in host.sent
+
+
+def test_device_encoders_go_through_lives_midi_map_in_play_mode():
+    host, c = setup()
+    host.song.view.selected_track = host.song.tracks[1]  # Bass: Drift
+    c.tick()
+    mapped = c.mapped_encoders()
+    drift = host.song.tracks[1].devices[0]
+    assert c.page_key.startswith("DEV0") and len(mapped) == 8 and mapped[0][1] in drift.parameters
+    rebuilds = host.rebuilds
+    tap(c, "encPageDown")  # another page: a new MIDI map
+    assert host.rebuilds > rebuilds
+    c.set_page([p for p in c.pages() if p.key == "GLB"][0])  # GLB is the script's (tempo, groove, ...)
+    assert c.mapped_encoders() == []
+    c.set_mode("step")  # Step, Browse and Chop: never mapped (held steps, chop edits)
+    assert c.mapped_encoders() == []
+
+
+def test_live_sensitivity_per_parameter():
+    from fakes import FakeParam
+    assert PG.mapping_sensitivity(FakeParam("Cutoff")) == 1.0
+    assert PG.mapping_sensitivity(FakeParam("On", 0, 0, 1, quantized=True)) == 0.1
+    assert abs(PG.mapping_sensitivity(FakeParam("Type", 0, 0, 8, quantized=True)) - 0.1) < 1e-9  # 9 values
+    assert abs(PG.mapping_sensitivity(FakeParam("Transp", 0, -48, 48, quantized=True)) - 1.2) < 1e-9
+
+
+def test_a_mapped_turn_shows_on_the_screen_but_automation_doesnt_pop_up():
+    host, c = setup()
+    host.song.view.selected_track = host.song.tracks[1]
+    c.tick()
+    c.on_mapped_value(2)  # Live turned encoder 3's parameter
+    assert c.overlay is not None and c.overlay[2] == 2
+    c.overlay = None
+    c.current_page().params[2].p.automation_state = 1  # its automation plays it
+    c.on_mapped_value(2)
+    assert c.overlay is None
+
+
+def test_only_the_shown_page_reads_its_parameters(monkeypatch):
+    host, c = setup()
+    track = host.song.tracks[1]
+    track.devices += [FakeDevice("Reverb"), FakeDevice("Delay")]  # 3 devices, 2 banks each
+    host.song.view.selected_track = track
+    made = []
+    real = PG.LiveParam.__init__
+    monkeypatch.setattr(PG.LiveParam, "__init__", lambda self, p, name=None: (made.append(p), real(self, p, name))[1])
+    c.tick()
+    device_made = [p for p in made if any(p in d.parameters for d in track.devices)]
+    assert len(device_made) <= 8  # the shown device page only, not every bank of every device
+    made.clear()
+    c.tick()
+    assert len([p for p in made if any(p in d.parameters for d in track.devices)]) <= 8
+
+
+def test_pad_leds_read_the_drum_pads_once(monkeypatch):
+    host, c = setup()
+    rack = host.song.tracks[0].devices[0]
+    pads = rack.drum_pads
+    reads = []
+    monkeypatch.setattr(type(rack), "drum_pads", property(lambda self: reads.append(1) or pads), raising=False)
+    c.pad_leds()
+    assert len(reads) <= 3  # drum_rack, the selected pad's view, and the 16 pads in one read
+
+
+def test_step_mode_reads_the_clip_notes_once_per_tick():
+    host, c = setup()
+    to_step(c)
+    pad(c, 8)
+    pad(c, 8, False)
+    clip = host.song.tracks[0].clip_slots[0].clip
+    calls = []
+    real = clip.get_notes_extended
+    clip.get_notes_extended = lambda *a: calls.append(a) or real(*a)
+    host.t += 1
+    c.tick()
+    assert len(calls) == 1  # the screen and the LEDs share them
+
+
+def test_the_playhead_keeps_a_steps_note_visible():
+    host, c = setup()
+    to_step(c)
+    hit(c, 8)  # step 1 (top row) gets a note
+    clip = host.song.tracks[0].clip_slots[0].clip
+    clip.is_playing = True
+    clip.playing_position = 0.0  # the playhead on step 1
+    leds = c.pad_leds()
+    assert leds[8][1] == "pulse" and leds[8][0] != P.COLOR["white"]  # its colour pulsing, not white
+    clip.playing_position = 0.25  # on step 2, empty: white
+    c.step.forget()
+    assert c.pad_leds()[9] == (P.COLOR["white"], "static")

@@ -120,11 +120,21 @@ class ActionParam(Param):
 
 class Page(object):
     def __init__(self, key, tag, summary, params, device=None):
+        """`params`: the 8 params, or a function making them: device pages make theirs only when shown, as every
+        parameter read is a call into Live."""
         self.key = key  # stays the same across rebuilds: "DEV0", "TRK", "MIX", "GLB"
         self.tag = tag  # footer tag
         self.summary = summary  # footer text
-        self.params = (list(params) + [None] * 8)[:8]
+        self._params = params
         self.device = device  # a device page selects its device in Live
+
+    @property
+    def params(self):
+        if callable(self._params):
+            self._params = self._params()
+        if len(self._params) != 8:
+            self._params = (list(self._params) + [None] * 8)[:8]
+        return self._params
 
 
 class Turner(object):
@@ -165,19 +175,48 @@ def device_tag(name):
     return "".join(name.split())[:6].upper() or "DEV"
 
 
-def device_pages(track, host):
+class BankCache(object):
+    """Each device's banks (lists of DeviceParameters), worked out once: listing them reads every parameter, and the
+    pages are built on every tick and event. A device is known by == (Live hands out a new wrapper each read) and its
+    parameter count (a plug-in's can change)."""
+
+    def __init__(self):
+        self._entries = []  # (device, parameter count, banks)
+
+    def banks(self, device, host):
+        n = len(device.parameters)
+        for d, count, banks in self._entries:
+            if d == device and count == n:
+                return banks
+        best = host.device_bank(device)
+        banks = [best] + [b for b in host.device_banks(device) if list(b) != list(best)]
+        self._entries = [e for e in self._entries if e[0] != device][-31:] + [(device, n, banks)]
+        return banks
+
+
+def mapping_sensitivity(p):
+    """How far Live's MIDI map turns `p` per encoder message, as Live's own Launchkey script sets it
+    (ableton/v3/control_surface/parameter_mapping_sensitivities): 1.0 for a continuous parameter; a list a tenth of
+    its range over 8; on / off 0.1."""
+    if not getattr(p, "is_quantized", False):
+        return 1.0
+    span = float(p.max) - float(p.min)
+    return 0.1 * (1.0 if span == 1.0 else span / 8.0)
+
+
+def device_pages(track, host, cache=None):
     """Per device: its best 8 parameters first ("DEV0.0"), then all of them 8 at a time ("DEV0.1", ...), skipping
-    a bank that is just the best 8 again."""
+    a bank that is just the best 8 again. A page's params are only made when it's shown."""
+    cache = cache or BankCache()
     pages = []
     for i, d in enumerate(getattr(track, "devices", [])):
-        best = host.device_bank(d)
-        banks = [best] + [b for b in host.device_banks(d) if list(b) != list(best)]
-        tag = device_tag(d.name)
+        banks = cache.banks(d, host)
+        name = d.name
+        tag = device_tag(name)
         for b, bank in enumerate(banks):
-            params = [LiveParam(p) if p is not None else None for p in bank]
-            summary = d.name if len(banks) == 1 else "%s %d/%d" % (d.name, b + 1, len(banks))
-            pages.append(Page("DEV%d.%d" % (i, b), tag if b == 0 else (tag[:5] + str(b + 1)), summary, params,
-                              device=d))
+            summary = name if len(banks) == 1 else "%s %d/%d" % (name, b + 1, len(banks))
+            pages.append(Page("DEV%d.%d" % (i, b), tag if b == 0 else (tag[:5] + str(b + 1)), summary,
+                              lambda bank=bank: [LiveParam(p) if p is not None else None for p in bank], device=d))
     return pages
 
 
@@ -215,9 +254,9 @@ def global_page(song, host, repeat):
     return Page("GLB", "GLB", summary, params)
 
 
-def pages_for(song, track, host, repeat):
+def pages_for(song, track, host, repeat, cache=None):
     tracks = list(song.tracks)
-    pages = device_pages(track, host)
+    pages = device_pages(track, host, cache)
     if hasattr(track, "mixer_device"):
         pages.append(track_page(track, list(song.return_tracks)))
     pages.append(mix_page(tracks))

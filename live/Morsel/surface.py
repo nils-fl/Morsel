@@ -6,6 +6,7 @@ import traceback
 import Live
 from _Framework.ControlSurface import ControlSurface
 
+from . import pages as PG
 from . import protocol as P
 from .controller import Controller
 
@@ -154,6 +155,8 @@ class MorselSurface(ControlSurface):
         ControlSurface.__init__(self, c_instance)
         self._controller = Controller(LiveHost(self, c_instance))
         self._errors = 0
+        self._listening = []  # (DeviceParameter, callback) on the mapped encoders' parameters
+        self._map_failed = False
         self.schedule_message(1, self._connect)
 
     def _connect(self):
@@ -170,15 +173,17 @@ class MorselSurface(ControlSurface):
 
     def build_midi_map(self, midi_map_handle):
         h = self._c_instance.handle()
+        mapped = self._map_encoders(midi_map_handle)
         for ch in (P.CH_DAW_PADS, P.CH_FEATURE, P.CH_BUTTON):
             for cc in range(128):
-                Live.MidiMap.forward_midi_cc(h, midi_map_handle, ch, cc)
+                if ch != P.CH_BUTTON or cc not in mapped:
+                    Live.MidiMap.forward_midi_cc(h, midi_map_handle, ch, cc)
         # The keybed on the DAW port (keyboard_to_daw): on a drum track Live maps it to the pads (C3 = pad 1, onto
         # ch10). Heard without taking it (should_consume_event=False), so it still plays.
         key_map = self._controller.key_map()
         for note in range(128):
             if key_map is not None:
-                self._c_instance.set_note_translation(note, P.CH_KEYS, key_map[note], P.CH_DRUM)
+                self._c_instance.set_note_translation(note, P.CH_KEYS, key_map[note], self._controller.key_channel())
             else:
                 self._c_instance.set_note_translation(note, P.CH_KEYS, note, P.CH_KEYS)
             Live.MidiMap.forward_midi_note(h, midi_map_handle, P.CH_KEYS, note, False)
@@ -192,6 +197,56 @@ class MorselSurface(ControlSurface):
         if self._controller.layout == "daw":
             for note in P.DAW_NOTES:
                 Live.MidiMap.forward_midi_note(h, midi_map_handle, P.CH_DAW_PADS, note)
+
+    def _map_encoders(self, midi_map_handle):
+        """The encoders on Live parameters go into Live's MIDI map, as Live's own Launchkey script does
+        (_Framework ControlSurface._install_mapping): relative, Live's sensitivity per parameter, no feedback (the
+        encoders are endless). Live turns the parameter itself; a value listener tells the controller. Returns the
+        CCs mapped (those aren't forwarded)."""
+        self._stop_listening()
+        mapped = set()
+        try:
+            encoders = self._controller.mapped_encoders()
+        except Exception:
+            encoders = []
+        for index, param in encoders:
+            cc = P.CC_ENC_REL_FIRST + index
+            try:
+                rule = Live.MidiMap.CCFeedbackRule()
+                rule.channel = P.CH_BUTTON
+                rule.cc_no = cc
+                rule.cc_value_map = tuple()
+                rule.delay_in_ms = -1.0
+                if hasattr(rule, "enabled"):
+                    rule.enabled = False
+                # avoid_takeover True (= not needs_takeover): relative encoders have nothing to take over.
+                ok = Live.MidiMap.map_midi_cc_with_feedback_map(
+                    midi_map_handle, param, P.CH_BUTTON, cc, Live.MidiMap.MapMode.relative_smooth_binary_offset,
+                    rule, True, PG.mapping_sensitivity(param)) is not False
+            except Exception as e:
+                ok = False
+                if not self._map_failed:
+                    self._map_failed = True
+                    self.log_message("Morsel: can't map encoder %d: %r" % (index + 1, e))
+            if not ok:
+                continue  # forwarded instead: the script turns it, as before
+            mapped.add(cc)
+
+            def changed(index=index):
+                self._guard(self._controller.on_mapped_value, index)
+
+            param.add_value_listener(changed)
+            self._listening.append((param, changed))
+        return mapped
+
+    def _stop_listening(self):
+        for param, callback in self._listening:
+            try:
+                if param.value_has_listener(callback):
+                    param.remove_value_listener(callback)
+            except Exception:  # the parameter's device was deleted
+                pass
+        self._listening = []
 
     def receive_midi(self, midi_bytes):
         self._guard(self._controller.handle_midi, tuple(midi_bytes))
@@ -209,5 +264,6 @@ class MorselSurface(ControlSurface):
         self.schedule_message(1, self._connect)
 
     def disconnect(self):
+        self._stop_listening()
         self._guard(self._controller.disconnect)
         ControlSurface.disconnect(self)

@@ -61,6 +61,9 @@ class ChopMode(object):
         self.view_a, self.view_b = 0, None  # the frames shown (None: to the end)
         self.peaks = None  # the wave, read from the sample's file
         self.beats = None  # the Beats choice (index into BEAT_CHOICES); None: Live's guess
+        self.held = []  # chops whose keys are down, the latest last
+        self.arrange_since = None  # done with chops given to pads: waiting for the converted Drum Rack
+        self.assigned = {}  # pad index -> chop index: hold a key and tap a pad (Morsel's way of keeping chops)
 
     # ---- opening ------------------------------------------------------------------------------------------------
 
@@ -100,6 +103,8 @@ class ChopMode(object):
         self.view_a, self.view_b = 0, None
         self.peaks = None
         self.beats = None
+        self.held = []
+        self.assigned = {}
         return self.track
 
     def tick(self, now):
@@ -164,6 +169,29 @@ class ChopMode(object):
             pass
         self.show_frame(sl[self.sel])
         self.c.show_temp("Slice", "%d/%d" % (self.sel + 1, len(sl)))
+
+    def on_key(self, note, on):
+        """A key: plays its chop (Live does) and selects it; held, a pad tapped takes that chop."""
+        k = note - SLICE_NOTE0
+        if on:
+            self.held = [x for x in self.held if x != k] + [k]
+            self.on_note(note)
+        elif k in self.held:
+            self.held.remove(k)
+
+    def on_pad(self, note, on):
+        """A pad: plays the chop under it; with a key held, that pad takes the held key's chop (Morsel's Chop)."""
+        if not on or note not in P.DRUM_NOTES:
+            return
+        if not self.held:
+            self.on_note(note)
+            return
+        k = self.held[-1]
+        if k >= len(self.slices()):
+            return
+        pad = P.DRUM_NOTES.index(note)
+        self.assigned[pad] = k
+        self.c.show_temp("Chop %d > Pad %d" % (k + 1, pad + 1), "%d on pads" % len(self.assigned))
 
     def on_note(self, note):
         """A pad or key (slice notes from C1): that slice is the selected one."""
@@ -430,7 +458,46 @@ class ChopMode(object):
         n = len(self.slices())
         if not self.c.host.slice_to_drum_rack(s):
             return "Chop", "Live can't convert it"
-        return "CHOPS > PADS", "%d on %s" % (n, self.track.name)
+        if not self.assigned:
+            return "CHOPS > PADS", "%d on %s" % (n, self.track.name)
+        kept = len(self.assigned)
+        self.arrange_since = self.c.host.now()
+        self.after_done(self.arrange_since)  # now, or on the next ticks if Live builds the rack a moment later
+        return "CHOPS > PADS", "%d on %s" % (kept, self.track.name)
+
+    def after_done(self, now):
+        """The chosen chops onto their pads, once the converted Drum Rack is there (called every tick)."""
+        if self.arrange_since is None:
+            return
+        try:
+            rack = self.c.drum_rack(self.track)
+        except Exception:
+            rack = None
+        if rack is not None:
+            self.arrange_since = None
+            self.arrange(rack)
+        elif now - self.arrange_since > LOAD_TIMEOUT:
+            self.arrange_since = None
+            self.assigned = {}
+            self.c.show_temp("Chop", "All chops kept: no rack")
+
+    SCRATCH = 100  # pad notes the chosen chops wait on while the pads are rearranged
+
+    def arrange(self, rack):
+        """After Slice to Drum Rack: only the chosen chops, each on its pad. Chop k is the k-th pad with something
+        on it, by note (Live starts them at C1). They're copied aside first, so a chop going onto another chop's
+        pad isn't lost (Drum Rack's copy_pad, as Push uses)."""
+        pads = rack.drum_pads  # one read: Live builds the whole list each time
+        chops = [note for note in range(128) if len(pads[note].chains)]
+        pairs = [(pad, k) for pad, k in sorted(self.assigned.items()) if k < len(chops)]
+        for j, (_, k) in enumerate(pairs):
+            rack.copy_pad(chops[k], self.SCRATCH + j)
+        for note in chops:
+            pads[note].delete_all_chains()
+        for j, (pad, _) in enumerate(pairs):
+            rack.copy_pad(self.SCRATCH + j, P.DRUM_NOTES[pad])
+            rack.drum_pads[self.SCRATCH + j].delete_all_chains()
+        self.assigned = {}
 
     def key_map(self):
         """The keys play the slices from C3, one key each, as in Morsel's Chop."""
@@ -449,10 +516,17 @@ class ChopMode(object):
         return a, b, smp.start_marker, smp.end_marker, self.slices(), self.selected(), wave
 
     def leds(self):
-        """A pad per slice (Simpler's notes from C1, as on a Drum Rack), the selected one pulsing."""
+        """A pad per slice (Simpler's notes from C1, as on a Drum Rack), the selected one pulsing. Once chops are
+        given to pads (a key held, a pad tapped), those pads light in their chop's colour and the rest go dark."""
         n = len(self.slices())
         sel = self.selected()
         out = []
+        if self.assigned:
+            for i in range(16):
+                k = self.assigned.get(i)
+                out.append((P.PAD_COLORS[k % 16], "pulse" if k == sel else "static") if k is not None
+                           else (P.COLOR["off"], "static"))
+            return out
         for i in range(16):
             k = P.DRUM_NOTES[i] - SLICE_NOTE0
             if k < n:

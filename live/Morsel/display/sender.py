@@ -31,6 +31,15 @@ class BitmapSender(object):
         self._last.pop(target, None)
         self._pending.pop(target, None)
 
+    def send_now(self, target, packed):
+        """Send a frame at once, ahead of any queue (the Shift cover, which must beat the device's own overlay),
+        counted as the frame in flight so the next ack is matched to it."""
+        self._pending.pop(target, None)
+        self._last[target] = packed
+        self._in_flight_since = self._now()
+        self.sent += 1
+        self._send(P.bitmap_sysex(target, packed))
+
     @property
     def busy(self):
         """A frame is waiting for its ack: a new one now would only queue."""
