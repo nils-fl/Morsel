@@ -14,6 +14,7 @@ HELD_EDITS = ("Velocity", "Nudge", "Length")  # encoders 1-3 while steps are hel
 TICK = 1 / 96.0  # Morsel's nudge unit (96 per quarter note)
 MAX_BARS = 16
 DEFAULT_VELOCITY = 100
+TAP_S = 0.4  # a press shorter than this is a tap: on a lit step, it removes the step; longer is a hold, to look or edit
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
 
@@ -57,7 +58,7 @@ class StepMode(object):
         self.c = controller
         self.grid = 0  # index into GRIDS
         self.page = 0
-        self.held = {}  # pad -> {"time", "pitch", "remove"}
+        self.held = {}  # pad -> {"time", "pitch", "remove", "since"}
         self.velocity = DEFAULT_VELOCITY
         self.keys_note = 60
 
@@ -223,14 +224,14 @@ class StepMode(object):
             return
         pitch = self.pitch()
         lit = len(self.notes_at(clip, t, pitch)) > 0
-        # A lit step goes on release, so it can be held and edited first.
+        # A lit step goes on release, if it was a tap, so it can be held and edited first.
         if not lit:
             self.c.host.add_note(clip, pitch, t, self.span, self.velocity)
-        self.held[pad] = {"time": t, "pitch": pitch, "remove": lit}
+        self.held[pad] = {"time": t, "pitch": pitch, "remove": lit, "since": self.c.host.now()}
 
     def release(self, pad):
         step = self.held.pop(pad, None)
-        if step is None or not step["remove"]:
+        if step is None or not step["remove"] or self.c.host.now() - step["since"] >= TAP_S:
             return
         clip = self.clip()
         if clip is not None:

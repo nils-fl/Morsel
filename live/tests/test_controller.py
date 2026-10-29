@@ -207,6 +207,18 @@ def test_step_mode_adds_a_clip_and_toggles_steps():
     assert [n.start_time for n in clip.notes] == [2.0]
 
 
+def test_step_mode_holding_a_lit_step_keeps_it():
+    host, c = setup()
+    to_step(c)
+    hit(c, 8)
+    pad(c, 8)  # held to look at it, no encoder turned
+    host.t += 0.5
+    pad(c, 8, False)
+    assert [n.start_time for n in host.song.tracks[0].clip_slots[0].clip.notes] == [0.0]
+    hit(c, 8)  # a tap still removes it
+    assert host.song.tracks[0].clip_slots[0].clip.notes == []
+
+
 def test_step_mode_held_step_velocity_and_nudge():
     host, c = setup()
     to_step(c)
