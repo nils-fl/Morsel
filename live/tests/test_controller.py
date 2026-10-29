@@ -887,8 +887,8 @@ def test_chop_page_edits_the_region_and_the_slices():
     c.tick()
     smp = host.song.tracks[1].devices[0].sample
     page = c.current_page()
-    assert [p.name if p else None for p in page.params] == ["Scroll", "Zoom", "Slice", "Move", "Mode", "Count", "Split",
-                                                            None]
+    assert [p.name if p else None for p in page.params] == ["Scroll", "Zoom", "Start", "End", "Mode", "Count", "Split",
+                                                            None]  # Start and End where SAMPLE has them
     enc(c, 5, -8)  # Count: 8 equal steps
     assert smp.slicing_region_count == 8 and len(c.chop.slices()) == 8
     tap(c, "encPageDown")  # SAMPLE: the region
@@ -902,7 +902,7 @@ def test_chop_page_edits_the_region_and_the_slices():
     c.chop.select(2)
     c.chop._add_or_remove(1)  # split slice 3
     assert len(c.chop.slices()) == 9 and smp.slicing_style == 3  # by hand now
-    c.chop._move_slice(1)
+    c.chop._move_start(1)
     assert c.chop.slices()[2] > smp.start_marker
 
 
@@ -917,9 +917,12 @@ def test_chop_zooms_on_the_selected_slice_and_moves_it_a_pixel_a_detent():
     enc(c, 1, 10)  # Zoom in, around slice 2's start
     a, b = c.chop.shown()
     assert b - a < 88200 / 8 and a <= start <= b
-    enc(c, 3, 3)  # Move: three pixels at this zoom
+    enc(c, 2, 3)  # Start: three pixels at this zoom
     assert c.chop.slices()[1] == start + 3 * ((b - a) // 124)
     assert host.song.tracks[1].devices[0].view.selected_slice == c.chop.slices()[1]  # still selected in Live
+    end = c.chop.slices()[2]
+    enc(c, 3, -2)  # End: where slice 2 ends, slice 3's start; slice 2 stays selected
+    assert c.chop.slices()[2] == end - 2 * ((b - a) // 124) and c.chop.selected() == 1
     enc(c, 1, 100)  # no closer than 512 frames
     a, b = c.chop.shown()
     assert b - a == 512
@@ -983,3 +986,72 @@ def test_chop_explains_a_drum_sampler_pad():
     dp.chains[0].devices = [cell]
     to_chop(c)
     assert c.mode == "play" and c.overlay[:2] == ("Drum Sampler", "Chop it from Browse")
+
+
+def test_an_encoder_turn_draws_at_once_paced_by_the_acks():
+    host, c = setup()
+    to_chop(c)
+    c.tick()
+    for _ in range(5):  # ack whatever's queued, so the device has taken every frame
+        c.sender.on_ack()
+    assert not c.sender.busy
+    frames = lambda: [m for m in host.sent if m[:8] == P.SYSEX_HEADER + (0x09, P.DISPLAY_STATIONARY)]
+    host.sent.clear()
+    enc(c, 1, 1)  # Zoom, no tick: the device has taken the last frame, so it's drawn now
+    assert len(frames()) == 1 and c.sender.busy
+    enc(c, 1, 1)  # a frame in flight: not drawn yet...
+    enc(c, 1, 1)
+    assert len(frames()) == 1 and c.dirty
+    c.handle_midi(P.SYSEX_HEADER + (0x09, 0xF7))  # ...the ack draws the latest
+    assert len(frames()) == 2 and not c.dirty
+
+
+def test_zoomed_in_waves_reuse_the_read_window(tmp_path, monkeypatch):
+    import struct
+    import wave
+    from Morsel import wave_peaks as WP
+    path = str(tmp_path / "Loop.wav")
+    w = wave.open(path, "wb")
+    w.setnchannels(1)
+    w.setsampwidth(2)
+    w.setframerate(44100)
+    w.writeframes(b"".join(struct.pack("<h", (i * 37) % 20000 - 10000) for i in range(441000)))
+    w.close()
+    opens = []
+    real = WP._open
+    monkeypatch.setattr(WP, "_open", lambda p: (opens.append(p), real(p))[1])
+    peaks = WP.Peaks(path)
+    assert len(opens) == 1
+    peaks.view(200000, 202000, 124)  # zoomed in: read around it
+    assert len(opens) == 2
+    for a in range(200000, 201500, 100):  # scrolling nearby: no more reads
+        peaks.view(a, a + 2000, 124)
+    peaks.view(200500, 201500, 124)  # zooming in there too
+    assert len(opens) == 2
+    peaks.view(300000, 302000, 124)  # far away: read again
+    assert len(opens) == 3
+
+
+def test_the_last_chops_end_is_the_regions_end():
+    host, c = setup()
+    to_chop(c)
+    c.tick()
+    smp = host.song.tracks[1].devices[0].sample
+    c.chop.select(15)
+    end = smp.end_marker
+    enc(c, 3, -4)  # End of chop 16: the region's
+    assert smp.end_marker == end - 4 * ((88200 - 1) // 124)
+
+
+def test_scene_warps_the_region_to_the_beats_on_sample():
+    host, c = setup()
+    to_chop(c)
+    c.tick()
+    simpler = host.song.tracks[1].devices[0]
+    tap(c, "encPageDown")  # SAMPLE
+    page = c.current_page()
+    assert page.params[4].name == "Beats" and page.params[4].format() == "2 bars"  # Live's guess (7.5) as a length
+    enc(c, 4, 1)  # a step up: 3 bars
+    assert c.current_page().params[4].format() == "3 bars"
+    tap(c, "scene")  # warp to it
+    assert simpler.warped == 12 and c.overlay[:2] == ("WARPED", "3 bars at 120 BPM")

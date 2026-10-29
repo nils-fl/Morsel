@@ -183,6 +183,14 @@ class FakeSimpler(FakeDevice):
     def crop(self):
         self.cropped += 1
 
+    can_warp_as = True
+
+    def guess_playback_length(self):
+        return 7.5  # Live's guess, in beats
+
+    def warp_as(self, beats):
+        self.warped = beats
+
 
 class FakeNote(object):
     def __init__(self, pitch, start_time, duration, velocity):

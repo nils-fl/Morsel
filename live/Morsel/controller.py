@@ -87,6 +87,7 @@ class Controller(object):
         self.prev_mode = "play"
         self.page_before_step = None
         self.page_before_chop = None
+        self.dirty = False  # the screen should be drawn before the next tick (see request_draw)
         self.erasing = {}  # pad -> [pitch, last playhead position]
         self.scale_sent = None  # (root, scale name) last sent to the device
         self._scale_names = None
@@ -244,6 +245,8 @@ class Controller(object):
         if data[0] == 0xF0:
             if P.is_bitmap_ack(data):
                 self.sender.on_ack()
+                if self.dirty:
+                    self.draw()
             return
         status, ch = data[0] & 0xF0, data[0] & 0x0F
         d1 = data[1] if len(data) > 1 else 0
@@ -375,6 +378,7 @@ class Controller(object):
             self.browse.on_key()
         if on and self.mode == "chop":
             self.chop.on_note(note)
+            self.request_draw()
         if not on or self.mode != "step":
             return
         rack = self.drum_rack(self.sel_track())
@@ -689,8 +693,12 @@ class Controller(object):
         if button == "func" and not self.shift:
             self.chop.crop()
             return True
+        if button == "scene" and not self.shift:
+            self.chop.warp()
+            return True
         if button in ("padUp", "padDown") and not self.shift:
             self.chop.select(self.chop.selected() + (-1 if button == "padUp" else 1))
+            self.request_draw()
             return True
         return False
 
@@ -845,9 +853,11 @@ class Controller(object):
     def on_encoder(self, index, delta):
         if self.mode == "browse":
             self.browse.encoder(index, delta)
+            self.request_draw()
             return
         if self.mode == "step" and self.step.held and index < 3:
             self.step.edit_held(index, delta)
+            self.request_draw()
             return
         page = self.current_page()
         prm = page.params[index]
@@ -857,6 +867,7 @@ class Controller(object):
         if page.key == "GLB" and prm.name == "Rept" and self.repeat_on():
             self.host.note_repeat.repeat_rate = PG.REPEAT_RATES[self.repeat[0]][1]
         self.show_temp(prm.name, prm.format(), encoder=index)
+        self.request_draw()
 
     # ---- rendering ----------------------------------------------------------------------------------------------
 
@@ -994,6 +1005,26 @@ class Controller(object):
                 self.set_layout(self.browse.pad_layout())  # in Drums' kits the pads play them
         self.sync_scale()
         pages = self.pages()  # once a tick: building them reads every device's parameters
+        self.draw(pages)
+        if self.shift_since is not None:
+            self.shift_cover(now)
+        self.sender.pump()
+        if self.leds_resend_at is not None and now >= self.leds_resend_at:
+            self.leds_resend_at = None
+            self.sent_pads.clear()
+            self.sent_buttons.clear()
+        self.render_leds(pages)
+
+    def request_draw(self):
+        """The screen should change now (an encoder turned): drawn at once when the device has taken the last frame,
+        else as soon as it acks it. So the screen keeps up with the encoder, never faster than the device."""
+        self.dirty = True
+        if not self.sender.busy:
+            self.draw()
+
+    def draw(self, pages=None):
+        """The screen: the mode's, the popup over it, or the Shift map."""
+        self.dirty = False
         msg = self.active_overlay()
         # On the 8-encoder screen the turned cell is highlighted instead; a popup would cover the bottom row.
         on_encoders = self.mode == "play" or (self.mode == "step" and bool(self.step.held))
@@ -1004,14 +1035,6 @@ class Controller(object):
             if msg and not (msg[2] is not None and on_encoders):
                 overlay_bar(frame, msg[0], msg[1])
         self.sender.show(P.DISPLAY_STATIONARY, frame.pack())
-        if self.shift_since is not None:
-            self.shift_cover(now)
-        self.sender.pump()
-        if self.leds_resend_at is not None and now >= self.leds_resend_at:
-            self.leds_resend_at = None
-            self.sent_pads.clear()
-            self.sent_buttons.clear()
-        self.render_leds(pages)
 
     def shift_cover(self, now):
         held = now - self.shift_since

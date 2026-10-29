@@ -31,6 +31,11 @@ class BitmapSender(object):
         self._last.pop(target, None)
         self._pending.pop(target, None)
 
+    @property
+    def busy(self):
+        """A frame is waiting for its ack: a new one now would only queue."""
+        return self._in_flight_since is not None and self._now() - self._in_flight_since < ACK_TIMEOUT
+
     def on_ack(self):
         self.acks += 1
         self._in_flight_since = None

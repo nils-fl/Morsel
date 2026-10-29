@@ -22,7 +22,9 @@ KEY0 = 48  # C3 plays slice 1 (Simpler's slices start at C1, 36)
 SLICE_NOTE0 = 36
 COLUMNS = 124  # the wave's width on the screen, in pixels
 MIN_SPAN = 512  # frames across the screen at the closest zoom (Morsel's)
-ZOOM_STEP = 0.8  # the span per Zoom detent
+ZOOM_STEP = 0.7  # the span per Zoom detent
+BEAT_CHOICES = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64]  # lengths to warp to (Scene), in beats
+SCROLL_STEP = 1 / 8.0  # of the screen per Scroll detent
 
 
 def is_simpler(device):
@@ -58,6 +60,7 @@ class ChopMode(object):
         self.sel = 0  # the selected slice
         self.view_a, self.view_b = 0, None  # the frames shown (None: to the end)
         self.peaks = None  # the wave, read from the sample's file
+        self.beats = None  # the Beats choice (index into BEAT_CHOICES); None: Live's guess
 
     # ---- opening ------------------------------------------------------------------------------------------------
 
@@ -96,6 +99,7 @@ class ChopMode(object):
         self.sel = 0
         self.view_a, self.view_b = 0, None
         self.peaks = None
+        self.beats = None
         return self.track
 
     def tick(self, now):
@@ -208,7 +212,7 @@ class ChopMode(object):
 
     def scroll(self, delta):
         a, b = self.shown()
-        self._set_shown(a + delta * (b - a) / 16.0, b - a)
+        self._set_shown(a + delta * (b - a) * SCROLL_STEP, b - a)
 
     def show_frame(self, frame):
         """Bring `frame` into view (centred) when it's off the screen."""
@@ -258,24 +262,47 @@ class ChopMode(object):
         if smp is not None:
             self.c.host.set_enum(smp, "slicing_style", i)
 
-    def _move_slice(self, delta):
-        """The selected slice's start, a fine step per detent (Live makes the slicing Manual)."""
+    def _shift_slice(self, j, delta):
+        """Slice j's start, a screen pixel per detent, between its neighbours (Live makes the slicing Manual).
+        Returns where it went, or None."""
         smp = self.sample()
         sl = self.slices()
-        i = self.selected()
-        if smp is None or i < 0:
-            return
         step = self._frames_step(smp)
-        lo = sl[i - 1] + step if i > 0 else smp.start_marker
-        hi = sl[i + 1] - step if i + 1 < len(sl) else smp.end_marker - step
-        new = int(max(lo, min(hi, sl[i] + delta * step)))
-        if new != sl[i]:
-            smp.move_slice(sl[i], new)
-            self.follow(new)
+        lo = sl[j - 1] + step if j > 0 else smp.start_marker
+        hi = sl[j + 1] - step if j + 1 < len(sl) else smp.end_marker - step
+        new = int(max(lo, min(hi, sl[j] + delta * step)))
+        if new == sl[j]:
+            return None
+        smp.move_slice(sl[j], new)
+        self.follow(new)
+        return new
+
+    def _move_start(self, delta):
+        """Start: the selected chop's start (encoder 3, where SAMPLE has the region's)."""
+        i = self.selected()
+        if self.sample() is None or i < 0:
+            return
+        new = self._shift_slice(i, delta)
+        if new is not None:
             try:
                 self.simpler().view.selected_slice = new  # Live's Simpler keeps it highlighted
             except Exception:
                 pass
+
+    def _move_end(self, delta):
+        """End: where the selected chop ends, the next one's start; on the last chop, the region's end."""
+        i = self.selected()
+        if self.sample() is None or i < 0:
+            return
+        if i + 1 < len(self.slices()):
+            self._shift_slice(i + 1, delta)
+        else:
+            self._move_marker("end", delta)
+
+    def chop_end(self):
+        sl = self.slices()
+        i = self.selected()
+        return sl[i + 1] if 0 <= i < len(sl) - 1 else self.sample().end_marker
 
     def _add_or_remove(self, direction):
         """Right: split the selected slice in two. Left: remove it (joined to the one before)."""
@@ -314,9 +341,9 @@ class ChopMode(object):
         style = self._style()
         n = len(self.slices())
         params = self._view_params() + [
-            PG.ActionParam("Slice", lambda d: self.select(self.selected() + d),
-                           lambda: "%d/%d" % (self.selected() + 1, n)),
-            PG.ActionParam("Move", self._move_slice, lambda: self._seconds(self.focus()), detents=1),
+            # 3 and 4 as on SAMPLE: there the region's start and end, here the selected chop's.
+            PG.ActionParam("Start", self._move_start, lambda: self._seconds(self.focus()), detents=1),
+            PG.ActionParam("End", self._move_end, lambda: self._seconds(self.chop_end()), detents=1),
             PG.ChoiceParam("Mode", STYLES, self._style, self._set_style),
         ]
         if style == EQUAL:
@@ -335,8 +362,43 @@ class ChopMode(object):
         params.append(PG.ActionParam("Split", self._add_or_remove, lambda: "%d" % n))
         return PG.Page("CHOP", "CHOP", "%s %d chops" % (STYLES[style] if 0 <= style < 4 else "?", n), params)
 
+    # ---- warping (Morsel's stretch to the tempo) ---------------------------------------------------------------
+
+    def beats_index(self):
+        """The Beats choice: Live's guess of the region's length (Simpler.guess_playback_length) until it's turned."""
+        if self.beats is None:
+            try:
+                guess = float(self.simpler().guess_playback_length())
+            except Exception:
+                guess = 4.0
+            self.beats = min(range(len(BEAT_CHOICES)), key=lambda i: abs(BEAT_CHOICES[i] - guess))
+        return self.beats
+
+    def _set_beats(self, i):
+        self.beats = i
+
+    def beats_label(self, beats):
+        bar = 4.0 * self.c.song.signature_numerator / self.c.song.signature_denominator
+        if beats >= bar and beats % bar == 0:
+            bars = int(beats / bar)
+            return "%d bar%s" % (bars, "" if bars == 1 else "s")
+        return "%d beat%s" % (beats, "" if beats == 1 else "s")
+
+    def warp(self):
+        """Scene: warp the sample so the region lasts Beats (Simpler's Warp as), playing in time with Live's tempo."""
+        s = self.simpler()
+        if s is None or self.sample() is None:
+            return
+        if not getattr(s, "can_warp_as", True):
+            self.c.show_temp("Warp", "Not possible here")
+            return
+        beats = BEAT_CHOICES[self.beats_index()]
+        s.warp_as(beats)
+        self.c.show_temp("WARPED", "%s at %.0f BPM" % (self.beats_label(beats), self.c.song.tempo))
+
     def sample_page(self):
-        """SAMPLE: the region's start and end (Func keeps only the region)."""
+        """SAMPLE: the region's start and end (Func keeps only the region), and its length in beats (Scene warps to
+        it)."""
         smp = self.sample()
         if smp is None:
             return PG.Page("SAMPLE", "SAMPLE", "No sample", [])
@@ -345,6 +407,7 @@ class ChopMode(object):
                            detents=1),
             PG.ActionParam("End", lambda d: self._move_marker("end", d), lambda: self._seconds(smp.end_marker),
                            detents=1),
+            PG.ChoiceParam("Beats", [self.beats_label(b) for b in BEAT_CHOICES], self.beats_index, self._set_beats),
         ]
         return PG.Page("SAMPLE", "SAMPLE", "%s %s" % (self._seconds(smp.end_marker - smp.start_marker),
                                                      self.zoom_label()), params)

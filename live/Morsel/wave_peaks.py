@@ -1,6 +1,7 @@
 # The waveform for the Chop screen. Live doesn't hand a script a sample's audio, but Simpler names its file, and WAV and
 # AIFF read with Python's own modules. A file is read once into BUCKETS peaks; a view zoomed in closer than those is
-# read from the file again (a few thousand frames). Other formats (and float WAVs, which `wave` can't open): no wave.
+# read from the file again (a window around it, kept while scrolling and zooming there). Other formats (and float WAVs,
+# which `wave` can't open): no wave.
 import sys
 import warnings
 from array import array
@@ -69,6 +70,7 @@ class Peaks(object):
         self.buckets = []
         self._width, self._channels, self._swap, self._per = 2, 1, False, 1
         self._cache = None
+        self._window = None  # (from, to, raw frames) last read for a close zoom
         try:
             f, swap = _open(path)
         except Exception:
@@ -112,13 +114,24 @@ class Peaks(object):
         self._cache = (key, out)
         return out
 
+    def _frames(self, a, b):
+        """The raw frames a..b. Read with a screen's width to spare on each side and kept, so scrolling and zooming
+        nearby reuse them instead of reading the file every frame."""
+        w = self._window
+        if w is None or not (w[0] <= a and b <= w[1]):
+            span = b - a
+            lo, hi = max(0, a - span), min(self.frames, b + span)
+            f, _ = _open(self.path)
+            try:
+                f.setpos(lo)
+                w = self._window = (lo, hi, f.readframes(hi - lo))
+            finally:
+                f.close()
+        fb = self._width * self._channels
+        return w[2][(a - w[0]) * fb:(b - w[0]) * fb]
+
     def _direct(self, a, b, columns):
-        f, _ = _open(self.path)
-        try:
-            f.setpos(a)
-            data = f.readframes(b - a)
-        finally:
-            f.close()
+        data = self._frames(a, b)
         fb = self._width * self._channels
         n = len(data) // fb
         out = []
