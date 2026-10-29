@@ -52,11 +52,6 @@ def item_list(f, y0, rows, items, cursor):
         f.text(2, y0 + 1, "(empty)")
 
 
-def meter(f, x, y, w, h, value):
-    f.rect(x, y, w, h)
-    f.fill_rect(x + 1, y + 1, int(round((w - 2) * max(0.0, min(1.0, value)))), h - 2)
-
-
 def step_row(f, x, y, size, gap, steps, playhead, offset=0):
     """A row of step boxes: filled = on, inverted outline = playhead."""
     for i, on in enumerate(steps):

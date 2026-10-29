@@ -162,6 +162,9 @@ export class Launchkey {
     this.sentButtonLeds.clear();
     this.send(DAW_MODE_ON);
     this.send(cc7(CC.drumToDaw, 1));
+    // Morsel reads the keys on the MIDI port. Morsel for Live (live/) moves them to the DAW port; if Live quit without
+    // moving them back (a crash), they would never arrive here.
+    this.send(cc7(CC.keyboardToDaw, 0));
     this.send(cc7(CC.encoderRelative, 127));
     this.send(cc7(CC.padLayout, PAD_LAYOUT.drum));
     this.layout = "drum";

@@ -4,7 +4,8 @@
 import re
 
 from .frame import W, Frame, text_width
-from .widgets import HEADER_H, ROW_H, footer, header, step_row
+from .frame import H
+from .widgets import HEADER_H, ROW_H, footer, header, item_list, step_row
 
 
 class GridCell(object):
@@ -48,6 +49,17 @@ def grid_screen(title, status, cells, tag, info, note=None):
             if c.mark:
                 f.hline(x + 3, x + cw - 4, y + ch - 4, 0 if c.fill else 1)
     footer(f, tag, info)
+    return f
+
+
+def browser_screen(track, target, folder, index, items):
+    """Header: the track (and pad) things load onto, and the position in the folder. Footer: the folder.
+    `items`: (label, is_folder) pairs."""
+    f = Frame()
+    pos = "%d/%d" % (index + 1, len(items)) if items else "0/0"
+    header(f, track, "%s %s" % (target, pos) if target else pos)
+    item_list(f, HEADER_H + 1, (H - HEADER_H - 1 - 9) // ROW_H, items, index)
+    footer(f, "BROWSE", folder or "Top")
     return f
 
 

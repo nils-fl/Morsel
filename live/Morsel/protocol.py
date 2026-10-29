@@ -8,10 +8,9 @@ CH_DAW_PADS = 0  # ch1
 CH_FEATURE = 6  # ch7
 CH_DRUM = 9  # ch10
 CH_BUTTON = 15  # ch16
-CH_DAW = 15  # ch16 (note 12 = DAW mode)
+CH_KEYS = 8  # ch9: the keybed, once sent to the DAW port (keyboard_to_daw)
 
 CC_PAD_LAYOUT = 29  # ch7
-CC_ENCODER_MODE = 30  # ch7
 CC_ENCODER_RELATIVE = 69  # ch7
 CC_DRUM_TO_DAW = 84  # ch7
 CC_SHIFT = 63
@@ -25,7 +24,6 @@ CC_TRACK_PREV = 102  # measured: what Pad up sends while Shift is held ("< Track
 CC_TRACK_NEXT = 103  # assumed: Shift + Pad down ("Track >"), not measured yet
 CC_SCENE = 104
 CC_FUNC = 105
-CC_ENC_ABS_FIRST = 21  # 21..28 on ch16
 CC_ENC_REL_FIRST = 85  # 85..92 on ch16
 
 PAD_LAYOUT = {"drum": 1, "daw": 2}
@@ -82,6 +80,20 @@ def pad_rgb_sysex(layout, pad, r, g, b):
 DAW_MODE_ON = (0x9F, 0x0C, 0x7F)
 DAW_MODE_OFF = (0x9F, 0x0C, 0x00)
 
+# From Live's own Launchkey_MK4 script (midi.py, elements.py; disassembled 2026-10-26).
+def live_connection(on):
+    """Live's own script connects with this (its hello message). With it the device reports its Chord Map pad mode
+    as 14 (measured 2026-10-28), not as the 15 the drum layout reports under Live, so a pick can be told apart."""
+    return SYSEX_HEADER + (0x02, 0x7F if on else 0x00, 0xF7)
+
+
+DISABLE_DAW_LABEL = SYSEX_HEADER + (0x04, 0x22, 0x01, 0xF7)  # display target 0x22 (the "Plugin | DAW" label): off
+
+
+def keyboard_to_daw(on):
+    """The keybed sends on the DAW port (ch9) instead of the MIDI port."""
+    return (0xB6, 76, 127 if on else 0)
+
 
 def cc7(cc, v):
     return (0xB0 | CH_FEATURE, cc, v & 0x7F)
@@ -100,21 +112,9 @@ def display_config_sysex(target, config):
     return SYSEX_HEADER + (0x04, target, config & 0x7F, 0xF7)
 
 
-ARRANGEMENT_NAME_VALUE = 1
-ARRANGEMENT_TITLE_NAME_VALUE = 2
-ARRANGEMENT_TITLE_ENCODERS = 3
-ARRANGEMENT_NUMERIC = 4
+ARRANGEMENT_NAME_VALUE = 1  # with both auto-popup bits clear: the device never shows its own popups
 
-FEATURE_CC_BRIGHTNESS = 0x70
 FEATURE_CC_TEMP_TIMEOUT = 0x71
-
-
-def display_text_sysex(target, field, text):
-    out = []
-    for ch in text[:16]:
-        c = ord(ch)
-        out.append(c if 0x20 <= c <= 0x7E or 0x1B <= c <= 0x1E else 0x3F)  # '?'
-    return SYSEX_HEADER + (0x06, target, field & 0x7F) + tuple(out) + (0xF7,)
 
 
 def bitmap_sysex(target, packed):
@@ -143,3 +143,9 @@ COLOR = {
     "mint": 29, "cyan": 37, "sky": 41, "blue": 45, "purple": 49, "magenta": 53, "pink": 57, "dimRed": 7,
     "dimGreen": 23, "dimBlue": 47, "dimWhite": 2,
 }
+
+# Morsel's pad colours (app/src/state/store.ts), for Drum Rack pads Live hasn't given a colour of their own.
+PAD_COLORS = tuple(COLOR[c] for c in (
+    "red", "orange", "yellow", "lime", "green", "mint", "cyan", "sky",
+    "blue", "purple", "magenta", "pink", "red", "orange", "yellow", "green",
+))

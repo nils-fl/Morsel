@@ -31,6 +31,20 @@ def _hsv(c):
 _cache = {}
 
 
+def rgb(color):
+    """A Live colour (0xRRGGBB) for a pad LED, told apart from a palette index."""
+    return ("rgb", color)
+
+
+def is_rgb(color):
+    return isinstance(color, tuple) and color[0] == "rgb"
+
+
+def rgb7(color):
+    """0xRRGGBB as the device's 7-bit r, g, b."""
+    return ((color >> 16) & 0xFF) >> 1, ((color >> 8) & 0xFF) >> 1, (color & 0xFF) >> 1
+
+
 def nearest_color(rgb):
     """The palette colour closest in hue; greys and near-whites go to white. Pads are bright, so value is ignored."""
     if rgb in _cache:

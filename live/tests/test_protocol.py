@@ -23,8 +23,8 @@ def test_led_messages():
 
 def test_display_sysex():
     assert P.display_config_sysex(0x20, 1) == (0xF0, 0, 0x20, 0x29, 2, 0x13, 4, 0x20, 1, 0xF7)
-    msg = P.display_text_sysex(0x21, 0, "Hié")
-    assert msg[-5:] == (0, ord("H"), ord("i"), ord("?"), 0xF7)
+    assert P.DISABLE_DAW_LABEL == (0xF0, 0, 0x20, 0x29, 2, 0x13, 4, 0x22, 1, 0xF7)
+    assert P.keyboard_to_daw(True) == (0xB6, 76, 127) and P.keyboard_to_daw(False) == (0xB6, 76, 0)
 
 
 def test_bitmap_framing_and_ack():

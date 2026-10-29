@@ -17,6 +17,7 @@ export const CC = {
   encoderMode: 30, // ch7
   encoderRelative: 69, // ch7
   drumToDaw: 84, // ch7
+  keyboardToDaw: 76, // ch7: the keybed on the DAW port (Live's script turns it on; Morsel wants it off)
   shift: 63,
   play: 115,
   record: 117,

@@ -1,17 +1,23 @@
 # Maps Launchkey events to Live per hardware mode, and renders LEDs + the screen. The behaviour mirrors
-# app/src/modes/controller.ts; the music lives in Live instead of Morsel's store:
-#   track -> Live track (drums = it has a Drum Rack), pattern -> scene, pad -> Drum Rack pad (notes 36-51).
+# app/src/modes/controller.ts where Live has no better way of its own; the music lives in Live instead of Morsel's
+# store: track -> Live track (drums = it has a Drum Rack), pad -> Drum Rack pad (notes 36-51), and Morsel's patterns
+# are Live's scenes, launched from Clips mode (clips.py). Step mode is step.py, Browse browse.py.
 # No Live import: `host` (see surface.py) gives the song and the few things that need Live's own module.
 from . import pages as PG
 from . import protocol as P
-from .colors import nearest_color
+from . import scale as SC
+from .colors import is_rgb, nearest_color, rgb, rgb7
 from .display import screens as S
 from .display.sender import BitmapSender
 from .display.widgets import overlay_bar
+from .browse import BrowseMode
+from .clips import ClipsMode
 from .step import StepMode, note_name, row_steps
 
-MODES = ["play", "step", "track", "mute", "pattern"]
-MODE_NAMES = {"play": "Play", "step": "Step", "track": "Track", "mute": "Mute", "pattern": "Pattern"}
+MODES = ["play", "step", "track", "clips"]
+MODE_NAMES = {"play": "Play", "step": "Step", "track": "Track", "clips": "Clips", "browse": "Browse"}
+# Entered on top of another mode (Shift + Encoder page up); leaving goes back to it.
+TEMPORARY = ("browse",)
 
 LED_FULL, LED_DIM = 127, 16
 DOUBLE_TAP = 0.3  # s
@@ -19,13 +25,18 @@ OVERLAY_S = 1.0  # s a popup stays
 LAYOUT_FIX_INTERVAL = 1.0  # s between layout resends, so a device that keeps refusing can't cause a loop
 LED_RESEND_DELAY = 0.15  # s after a layout switch: the device drops LED messages while it switches
 TEMP_TIMEOUT_TENTHS = 10  # the device's temporary display: 1 s
-# The device draws its own Shift overlay; the shift map sent to the temporary target covers it (protocol_notes.md).
+# The shift map is drawn on the screen while Shift is held. The device still draws its own "Plugin | Drum" over it
+# (DISABLE_DAW_LABEL doesn't stop that, tested 2026-10-28), so SHIFT_COVER sends the map to the temporary target too,
+# which covers it (as Morsel's "bitmap" shift cover does; protocol_notes.md).
+SHIFT_COVER = True
 SHIFT_COVER_AT = (0.0, 0.1, 0.25, 0.5)  # s after Shift goes down
 SHIFT_COVER_EVERY = 0.7  # s, then, while held
 MAX_TRACKS = 8
 MAX_SCENES = 16
 ERASE_AHEAD = 0.1  # beats: erase a little ahead of the playhead, so a note about to sound goes too
 AUTO_ARM = True  # the selected track is armed (implicitly, like Push), so the keybed and Record follow it
+RGB_PADS = False  # True: Live's colours as RGB SysEx. It doesn't light the pads in DAW mode (tested 2026-10-28),
+# and Live's own script uses the palette too; so the nearest palette colour.
 
 
 def layout_for(mode):
@@ -46,6 +57,7 @@ class Controller(object):
         self.mode = "play"
         self.layout = "drum"
         self.native_pads = None  # the device's own pad mode (CC 29 value), when it has the pads
+        self.shift_pick = None  # the layout the device reported while Shift was held: a pad mode picked on it
         self.reported = None  # the last CC 29 value the device reported
         self.shift = False
         self.page_key = None
@@ -57,7 +69,6 @@ class Controller(object):
         self.func_held = False
         self.func_used = False
         self.held_pads = []
-        self.new_track = None  # "drum" / "keys" while a track is being set up in Track mode
         self.last_tap = (-1, 0.0)
         self.overlay = None  # (name, value, encoder, until)
         self.last_layout_fix = -1e9
@@ -68,11 +79,15 @@ class Controller(object):
         self.shift_cover_next = 0
         self.armed = None
         self.last_device = None
-        self.last_drum_track = None
         self.step = StepMode(self)
+        self.browse = BrowseMode(self)
+        self.clips = ClipsMode(self)
+        self.prev_mode = "play"
         self.page_before_step = None
         self.erasing = {}  # pad -> [pitch, last playhead position]
-        self.keys_drums = None  # whether Morsel Keys maps the keybed to the pads (the selected track is a drum track)
+        self.scale_sent = None  # (root, scale name) last sent to the device
+        self._scale_names = None
+        self.keys_drums = None  # whether the keybed maps to the pads (the selected track is a drum track)
 
     # ---- Live helpers -------------------------------------------------------------------------------------------
 
@@ -100,9 +115,16 @@ class Controller(object):
 
     @staticmethod
     def drum_rack(track):
+        """The track's Drum Rack: a device of its own, or in an Instrument Rack's chain (some of Live's kits are
+        built that way)."""
         for d in getattr(track, "devices", []):
             if getattr(d, "can_have_drum_pads", False):
                 return d
+            if getattr(d, "can_have_chains", False):
+                for chain in getattr(d, "chains", []):
+                    for inner in getattr(chain, "devices", []):
+                        if getattr(inner, "can_have_drum_pads", False):
+                            return inner
         return None
 
     def kind(self, track):
@@ -110,23 +132,20 @@ class Controller(object):
             return "drum"
         return "keys" if getattr(track, "has_midi_input", False) else "audio"
 
-    def drum_track(self):
-        """The selected track if it has a Drum Rack, else the last drum track picked, else the first one."""
-        t = self.sel_track()
-        if self.drum_rack(t) is not None:
-            return t
-        ts = self.tracks()
-        if self.last_drum_track in ts and self.drum_rack(self.last_drum_track) is not None:
-            return self.last_drum_track
-        for t in ts:
-            if self.drum_rack(t) is not None:
-                return t
-        return None
-
     @staticmethod
     def drum_pad(rack, pad):
         """The Drum Rack pad under Launchkey pad `pad` (the drum layout's notes, so the pads match Play mode)."""
         return rack.drum_pads[P.DRUM_NOTES[pad]]
+
+    @staticmethod
+    def pad_color(track, dp):
+        """A Drum Rack pad's colour: its chain's, or Morsel's colour for that pad when the chain just has the track's
+        (Live's default, which would make every pad the same)."""
+        color = getattr(dp.chains[0], "color", track.color)
+        if color != track.color:
+            return rgb(color)
+        note = getattr(dp, "note", P.DRUM_NOTES[0])
+        return P.PAD_COLORS[P.DRUM_NOTES.index(note) if note in P.DRUM_NOTES else note % 16]
 
     def track_label(self):
         t = self.sel_track()
@@ -147,10 +166,6 @@ class Controller(object):
     def queued_scenes(self):
         return set(t.fired_slot_index for t in self.tracks() if t.fired_slot_index >= 0)
 
-    @staticmethod
-    def scene_has_clips(scene):
-        return any(cs.has_clip for cs in scene.clip_slots)
-
     # ---- device -------------------------------------------------------------------------------------------------
 
     def send(self, msg):
@@ -159,6 +174,7 @@ class Controller(object):
     def connect(self):
         """The handshake from Launchkey.handshake (app/src/midi/launchkey.ts)."""
         self.send(P.DAW_MODE_ON)
+        self.send(P.live_connection(True))
         self.send(P.cc7(P.CC_DRUM_TO_DAW, 1))
         self.send(P.cc7(P.CC_ENCODER_RELATIVE, 127))
         self.send(P.cc7(P.CC_PAD_LAYOUT, P.PAD_LAYOUT[self.layout]))
@@ -169,6 +185,10 @@ class Controller(object):
         # Arrangement with both auto bits clear: the device never pops up its own per-encoder display.
         for i in range(8):
             self.send(P.display_config_sysex(P.display_encoder(i), P.ARRANGEMENT_NAME_VALUE))
+        # From Live's own Launchkey script: the keybed on the DAW port, and its "Plugin | DAW" label off.
+        self.send(P.keyboard_to_daw(True))
+        self.send(P.DISABLE_DAW_LABEL)
+        self.scale_sent = None  # send Live's scale again
         self.sender.reset()
         self.sent_pads.clear()
         self.sent_buttons.clear()
@@ -181,6 +201,8 @@ class Controller(object):
             self._arm(self.armed, False)
             self.armed = None
         self.send(P.cc7(P.CC_DRUM_TO_DAW, 0))
+        self.send(P.keyboard_to_daw(False))  # the keybed back on the MIDI port, for Morsel and other apps
+        self.send(P.live_connection(False))
         self.send(P.DAW_MODE_OFF)
 
     def set_layout(self, layout):
@@ -223,6 +245,14 @@ class Controller(object):
         status, ch = data[0] & 0xF0, data[0] & 0x0F
         d1 = data[1] if len(data) > 1 else 0
         d2 = data[2] if len(data) > 2 else 0
+        if status in (0x90, 0x80) and (ch == P.CH_KEYS or (ch == P.CH_DRUM and self.hears_drum_notes())):
+            # The keybed on the DAW port: ch9 as played, ch10 once mapped to the pads (drum tracks). In DAW layout
+            # no pad sends on ch10, so a ch10 note is a key; in Browse's kits a pad counts as one too.
+            self.on_key(d1, d2, status == 0x90 and d2 > 0)
+            return
+        if status == 0xB0 and ch == P.CH_FEATURE and (d1 in SC.CC_ROOT or d1 in SC.CC_SCALE):
+            self.on_device_scale(d1, d2)
+            return
         if status in (0x90, 0x80) and ch == P.CH_DAW_PADS:
             pad = P.pad_from_note("daw", d1)
             if pad >= 0:
@@ -245,8 +275,9 @@ class Controller(object):
 
     def on_layout_report(self, value):
         self.reported = value
-        # Not while Shift is held: that is the device's pad-mode picker (it reports "daw"); Shift up decides.
+        # Not while Shift is held: Shift + pad picks one of the device's own pad modes; Shift up decides.
         if self.shift:
+            self.shift_pick = value
             return
         if value not in (1, 2, 15):
             # The device's own pad mode (chords): leave it the pads. Func or a mode change takes them back.
@@ -264,15 +295,32 @@ class Controller(object):
             self.sent_pads.clear()
             self.leds_resend_at = now + LED_RESEND_DELAY
 
+    def on_shift_up_layout(self):
+        """A pad mode picked on the device while Shift was held (Chord Map reports 14) gets the pads; the DAW
+        layout (2: the device's picker, or its DAW mode) puts ours back."""
+        pick, self.shift_pick = self.shift_pick, None
+        if pick is None or self.native_pads is not None or layout_reported(self.layout, pick):
+            return
+        if pick in (1, 2, 15):
+            self.send(P.cc7(P.CC_PAD_LAYOUT, P.PAD_LAYOUT[self.layout]))
+            self.sent_pads.clear()
+            self.leds_resend_at = self.host.now() + LED_RESEND_DELAY
+            return
+        self.native_pads = pick
+        self.show_temp("Pads", "Launchkey mode")
+
     # ---- modes --------------------------------------------------------------------------------------------------
 
     def set_mode(self, mode):
         prev = self.mode
         if prev == mode:
             return
-        self.cancel_new_track()
         if prev == "play" and self.repeat_latch:
             self.set_repeat(False)
+        if prev == "browse":
+            self.browse.exit()
+        if prev not in TEMPORARY:
+            self.prev_mode = prev
         if prev == "step":
             self.step.held.clear()  # a step let go in another mode stays
         if mode == "step":
@@ -283,23 +331,36 @@ class Controller(object):
             self.page_key = self.page_before_step
         self.mode = mode
         self.set_layout(layout_for(mode))
-        self.show_temp("Mode %d/%d" % (MODES.index(mode) + 1, len(MODES)), MODE_NAMES[mode])
+        if mode == "browse":
+            self.browse.enter()
+        elif mode == "clips":
+            self.clips.enter()
+        # The Func cycle shows where you are in it ("Mode 2/5"); Browse sits outside it.
+        at = "Mode %d/%d" % (MODES.index(mode) + 1, len(MODES)) if mode in MODES else "Mode"
+        self.show_temp(at, MODE_NAMES[mode])
 
     def next_mode(self):
-        self.set_mode(MODES[(MODES.index(self.mode) + 1) % len(MODES)])
+        mode = self.prev_mode if self.mode in TEMPORARY else self.mode
+        self.set_mode(MODES[(MODES.index(mode) + 1) % len(MODES)])
 
     def key_map(self):
-        """What Morsel Keys has Live do with the keybed's notes: on a drum track every key plays a pad, C3 (48) =
-        pad 1 up to D#4 = pad 16, repeating every 16 keys (Morsel's mapping, in the Launchkey's pad order).
-        None: the keys pass as they are."""
+        """What Live does with the keybed's notes (on the DAW port):
+        on a drum track every key plays a pad, C3 (48) = pad 1 up to D#4 = pad 16, repeating every 16 keys (Morsel's
+        mapping, in the Launchkey's pad order). None: the keys pass as they are."""
         if not self.keys_drums:
             return None
         return [P.DRUM_NOTES[n % 16] for n in range(128)]
 
+    def hears_drum_notes(self):
+        """Whether ch10 pad notes come to the script (heard, not taken): in DAW layout they can only be keys; in
+        Browse's kits the pads play the kit and a pad or key loads the kit under the cursor."""
+        return self.layout == "daw" or (self.mode == "browse" and self.browse.in_kits())
+
     def on_key(self, note, velocity, on):
-        """A key from Morsel Keys, which hears the keybed while it plays the track. In Step mode it picks what the
-        steps write: on a drum track the Drum Rack pad you hear (its note; C1-D#2 are the Launchkey's 16 pads), on a
-        keys track the note."""
+        """A key, heard while it plays the track (on the DAW port). In Step mode it picks
+        what the steps write: on a drum track the Drum Rack pad you hear, on a keys track the note."""
+        if on and self.mode == "browse":
+            self.browse.on_key()
         if not on or self.mode != "step":
             return
         rack = self.drum_rack(self.sel_track())
@@ -310,8 +371,47 @@ class Controller(object):
             self.step.keys_note = note
             self.show_temp("Note", note_name(note))
 
+    # ---- scale (the Launchkey's Scale mode follows Live 12's song scale, both ways) ------------------------------
+
+    def scale_names(self):
+        if self._scale_names is None:
+            self._scale_names = SC.scale_names(self.host.all_scales())
+        return self._scale_names
+
+    def on_device_scale(self, cc, value):
+        song = self.song
+        if cc in SC.CC_ROOT and 0 <= value < 12:
+            if value == song.root_note:
+                return  # the device echoing what we sent
+            song.root_note = value
+        elif cc in SC.CC_SCALE and value < len(self.scale_names()) and self.scale_names()[value]:
+            if self.scale_names()[value] == song.scale_name:
+                return
+            song.scale_name = self.scale_names()[value]
+        else:
+            return
+        self.scale_sent = (song.root_note, song.scale_name)  # the device has it already
+        self.show_temp("Scale", SC.label(song.root_note, song.scale_name))
+
+    def sync_scale(self):
+        """Send Live's scale to the device when it changed (also right after connecting)."""
+        song = self.song
+        now = (song.root_note, song.scale_name)
+        if now == self.scale_sent:
+            return
+        first = self.scale_sent is None
+        self.scale_sent = now
+        for cc in SC.CC_ROOT:
+            self.send(P.cc7(cc, now[0]))
+        index = SC.device_index(self.scale_names(), now[1])
+        if index is not None:
+            for cc in SC.CC_SCALE:
+                self.send(P.cc7(cc, index))
+        if not first:
+            self.show_temp("Scale", SC.label(*now))
+
     def tap_is_double(self, pad):
-        """Second tap of the same pad within DOUBLE_TAP (Track and Mute mode: double-tap = solo)."""
+        """Second tap of the same pad within DOUBLE_TAP (Track mode: double-tap = solo)."""
         now = self.host.now()
         last_pad, at = self.last_tap
         double = last_pad == pad and now - at < DOUBLE_TAP
@@ -322,18 +422,20 @@ class Controller(object):
         if self.mode == "play":
             if self.func_held:
                 self.start_erase(pad)
+        elif self.mode == "browse":
+            self.browse.pad(pad)
         elif self.mode == "step":
             self.step.press(pad)
         elif self.mode == "track":
             self.track_pad(pad)
-        elif self.mode == "mute":
-            self.mute_pad(pad)
-        elif self.mode == "pattern":
-            self.pattern_pad(pad)
+        elif self.mode == "clips":
+            self.clips.press(pad)
+        self.render_leds()  # right away, not on the next tick: a step lights as it's pressed
 
     def on_pad_release(self, pad):
         self.step.release(pad)
         self.stop_erase(pad)
+        self.render_leds()
 
     # ---- erase (hold Func + pads in Play mode, MPC style) -------------------------------------------------------
 
@@ -379,27 +481,14 @@ class Controller(object):
             e[1] = pos
 
     def track_pad(self, pad):
-        """Top row = select tracks 1-8 (the next empty slot adds one). Bottom row = mute, double-tap = solo."""
+        """Top row = select tracks 1-8. Bottom row = mute, double-tap = solo."""
         ts = self.tracks()
         if pad >= 8:
-            i = pad - 8
-            if i >= len(ts):
-                if i == len(ts):
-                    # The next free slot: set up a new track, then a second tap adds it.
-                    if self.new_track is None:
-                        self.new_track = "drum"
-                        self.show_new_track()
-                    else:
-                        kind = self.new_track
-                        self.cancel_new_track()
-                        self.add_track(kind)
-                return
-            self.cancel_new_track()
-            t = ts[i]
-            self.select_track(t)
-            self.show_temp("Track %d" % (i + 1), "%s (%s)" % (t.name, self.kind_label(t)))
+            if pad - 8 < len(ts):
+                t = ts[pad - 8]
+                self.select_track(t)
+                self.show_temp("Track %d" % (pad - 7), "%s (%s)" % (t.name, self.kind_label(t)))
             return
-        self.cancel_new_track()
         if pad >= len(ts):
             return
         t = ts[pad]
@@ -414,80 +503,6 @@ class Controller(object):
 
     def kind_label(self, t):
         return {"drum": "drums", "keys": "keys", "audio": "audio"}[self.kind(t)]
-
-    def show_new_track(self):
-        if self.new_track is None:
-            return
-        n = len(self.tracks()) + 1
-        self.show_temp("New T%d: %s" % (n, "Drums" if self.new_track == "drum" else "Keys"), "Enc 1 kind, tap: add",
-                       hold=True)
-
-    def cancel_new_track(self):
-        if self.new_track is None:
-            return
-        self.new_track = None
-        self.release_hold()
-
-    def add_track(self, kind):
-        """A MIDI track at the end with a Drum Rack (drums) or an instrument (keys), selected."""
-        song = self.song
-        n = len(self.tracks())
-        try:
-            song.create_midi_track(n)
-        except Exception:
-            self.show_temp("Track", "Can't add one")
-            return
-        t = self.tracks()[n]
-        self.select_track(t)
-        loaded = self.host.load_instrument("drum" if kind == "drum" else "keys")
-        self.show_temp("T%d added" % (n + 1), t.name if loaded else "Add an instrument")
-
-    def mute_pad(self, pad):
-        """The pads of the drum track: tap = mute, double-tap = solo (the second tap undoes the first's mute)."""
-        t = self.drum_track()
-        if t is None:
-            self.show_temp("Mute", "No Drum Rack")
-            return
-        dp = self.drum_pad(self.drum_rack(t), pad)
-        double = self.tap_is_double(pad)
-        dp.mute = not dp.mute
-        if double:
-            dp.solo = not dp.solo
-            self.show_temp(dp.name, "Solo" if dp.solo else "Solo off")
-        else:
-            self.show_temp(dp.name, "Muted" if dp.mute else "On")
-
-    def pattern_pad(self, pad):
-        """Tap = go to that scene (queued while playing). Hold one + tap another = copy the held scene there; with
-        Scene held too, only the selected track's clip."""
-        sc = self.scenes()
-        if pad >= min(len(sc), MAX_SCENES):
-            return
-        held = [p for p in self.held_pads if p != pad]
-        if held:
-            src = held[0]
-            if src >= len(sc):
-                return
-            if self.scene_held:
-                t = self.sel_track()
-                self.copy_clip(t, src, pad)
-                self.show_temp("Copied clip", "%s %d > %d" % (t.name, src + 1, pad + 1))
-            else:
-                for t in self.tracks():
-                    self.copy_clip(t, src, pad)
-                self.show_temp("Copied", "Scene %d > %d" % (src + 1, pad + 1))
-            return
-        self.go_to_scene(pad)
-
-    @staticmethod
-    def copy_clip(track, src, dst):
-        slots = list(track.clip_slots)
-        if src >= len(slots) or dst >= len(slots):
-            return
-        if slots[src].has_clip:
-            slots[src].duplicate_clip_to(slots[dst])
-        elif slots[dst].has_clip:
-            slots[dst].delete_clip()
 
     def go_to_scene(self, i):
         """Select scene i; while playing also launch it (Live's launch quantization queues it, like Morsel)."""
@@ -532,21 +547,33 @@ class Controller(object):
     def on_button(self, button, down):
         if button == "shift":
             self.shift = down
-            self.shift_since = self.host.now() if down else None
+            self.shift_since = self.host.now() if down and SHIFT_COVER else None
             self.shift_cover_next = 0
-            if not down:
+            if down and SHIFT_COVER:
+                # The device draws its own "Plugin | Drum" the moment Shift goes down: cover it right away, without
+                # waiting for the next tick or for the ack of a frame in flight (as Morsel does). The retries follow.
+                self.send(P.bitmap_sysex(P.DISPLAY_TEMPORARY, S.shift_screen(self.shift_rows(), "MORSEL").pack()))
+                self.shift_cover_next = 1
+            if not down and SHIFT_COVER:
                 # Close the shift map on the temporary target and show our screen again.
                 self.send(P.display_config_sysex(P.DISPLAY_TEMPORARY, 0))
                 self.sender.forget(P.DISPLAY_TEMPORARY)
                 self.sender.forget(P.DISPLAY_STATIONARY)
-                # Shift let go without picking one of the device's own pad modes: put back our layout.
-                if self.native_pads is None and not layout_reported(self.layout, self.reported):
-                    self.send(P.cc7(P.CC_PAD_LAYOUT, P.PAD_LAYOUT[self.layout]))
-                    self.sent_pads.clear()
-                    self.leds_resend_at = self.host.now() + LED_RESEND_DELAY
+            if down:
+                self.shift_pick = None
+            else:
+                self.on_shift_up_layout()
             return
         if down and self.shift and button in ("encPageUp", "encPageDown"):
-            self.show_temp("Browse / Chop", "Not in Live yet")
+            # Shift + Encoder page up: Browse on / off. Down: Chop (not in Live yet).
+            if button == "encPageDown":
+                self.show_temp("Chop", "Not in Live yet")
+            elif self.mode == "browse":
+                self.set_mode(self.prev_mode)
+            else:
+                self.set_mode("browse")
+            return
+        if self.mode == "browse" and down and self.browse_button(button):
             return
         if button == "scene" and not down:
             self.scene_held = False
@@ -594,12 +621,13 @@ class Controller(object):
                 self.undo()
             elif self.native_pads is not None:
                 self.set_layout(layout_for(self.mode))  # take the pads back from the device's own mode
-            elif self.mode == "play":
-                # Held with pads it erases; the mode switch waits for the release. Meanwhile the pads come to the
-                # script (DAW layout) instead of playing.
+            elif self.mode in ("play", "clips"):
+                # Held with pads it erases (Play) or stops tracks (Clips); the mode switch waits for the release.
+                # In Play the pads meanwhile come to the script (DAW layout) instead of playing.
                 self.func_held = True
                 self.func_used = False
-                self.set_layout("daw")
+                if self.mode == "play":
+                    self.set_layout("daw")
             else:
                 self.next_mode()
         elif button in ("encPageUp", "encPageDown"):
@@ -610,10 +638,37 @@ class Controller(object):
                 self.step.page = max(0, min(self.step.pages() - 1, self.step.page + d))
                 self.show_temp("Bar", "%s / %d" % (self.step.bar_label(), self.step.bars()))
                 return
+            if self.mode == "clips":
+                self.clips.scroll(d)
+                return
             queued = sorted(self.queued_scenes())
             at = queued[0] if queued else self.scene_index()
             n = min(len(self.scenes()), MAX_SCENES)
             self.go_to_scene(max(0, min(n - 1, at + d)))
+
+    def browse_button(self, button):
+        """Browse owns Func / Pad down (open / load), Scene / Pad up (up a folder) and the encoder page arrows (one
+        item), so the left hand selects while the right scrolls. Returns whether it took the button."""
+        b = self.browse
+        if button == "func" and self.shift:
+            popup, leave = b.shift_press()
+            if leave and popup is not None:
+                self.set_mode(self.prev_mode)
+            if popup is not None:
+                self.show_temp(*popup)
+            return True
+        if (button == "func" or button == "padDown") and not self.shift:
+            popup = b.press()
+            if popup is not None:
+                self.show_temp(*popup)
+            return True
+        if button == "scene" or (button == "padUp" and not self.shift):
+            b.up()
+            return True
+        if button in ("encPageUp", "encPageDown"):
+            b.move(-1 if button == "encPageUp" else 1)
+            return True
+        return False
 
     def scene_down(self):
         if self.shift:
@@ -642,19 +697,19 @@ class Controller(object):
             self.set_repeat(True)
             self.repeat_latch = latch
             self.show_temp("Repeat", "%s latched" % rate if latch else rate, hold=not latch)
-        elif self.mode == "pattern":
-            self.show_temp("Scene", "Hold+2 pads: clip", hold=True)
+        elif self.mode == "clips":
+            self.show_temp("Scene", "Pad: launch row", hold=True)
 
     def toggle_play(self):
+        """Live's own play / stop (scenes launch from Clips mode). In Step mode, starting also launches the clip
+        being edited: in the session view the transport alone plays nothing."""
         song = self.song
         if song.is_playing:
             song.stop_playing()
             return
-        # Like Morsel: Play plays the current pattern (scene) from its start.
-        sc = self.scenes()
-        i = self.scene_index()
-        if i < len(sc) and self.scene_has_clips(sc[i]):
-            sc[i].fire()
+        slot = self.step.slot() if self.mode == "step" else None
+        if slot is not None and slot.has_clip and not slot.is_playing:
+            slot.fire()  # starts the transport too
         else:
             song.start_playing()
 
@@ -738,13 +793,11 @@ class Controller(object):
         self.show_temp("Encoders", pages[i].summary)
 
     def on_encoder(self, index, delta):
-        if self.mode == "step" and self.step.held and index < 2:
-            self.step.edit_held(index, delta)
+        if self.mode == "browse":
+            self.browse.encoder(index, delta)
             return
-        if self.mode == "track" and self.new_track is not None and index == 0:
-            # Setting up a new track: encoder 1 picks the kind (right = Keys, left = Drums).
-            self.new_track = "keys" if delta > 0 else "drum"
-            self.show_new_track()
+        if self.mode == "step" and self.step.held and index < 3:
+            self.step.edit_held(index, delta)
             return
         page = self.current_page()
         prm = page.params[index]
@@ -760,34 +813,49 @@ class Controller(object):
     def follow_live(self):
         """Things the selection in Live drives: the armed track, and the device page following the blue hand."""
         t = self.sel_track()
-        if AUTO_ARM and t is not self.armed:
+        # Live objects compare with == / != (a new Python wrapper comes back on every read), as Live's own
+        # liveobj_changed does; `is` would see a new track every tick.
+        if AUTO_ARM and t != self.armed:
             if self.armed is not None:
                 self._arm(self.armed, False)
             self.armed = t if self._arm(t, True) else None
-        if self.drum_rack(t) is not None:
-            self.last_drum_track = t
         drums = self.drum_rack(t) is not None
         if drums != self.keys_drums:
             self.keys_drums = drums
-            self.host.keys_routing_changed()
+            self.host.keys_routing_changed()  # the keybed's map
+            if drums and self.native_pads is not None:
+                self.set_layout(layout_for(self.mode))  # the device's chords are for keys tracks, as in Morsel
         dev = getattr(getattr(t, "view", None), "selected_device", None)
-        if dev is not None and dev is not self.last_device:
+        if dev is not None and dev != self.last_device:
             self.last_device = dev
             devices = list(getattr(t, "devices", []))
             if dev in devices and (self.page_key is None or self.page_key.startswith("DEV")):
-                self.page_key = "DEV%d" % devices.index(dev)
+                i = devices.index(dev)
+                if not (self.page_key or "").startswith("DEV%d." % i):  # stay on this device's bank
+                    self.page_key = "DEV%d.0" % i
 
     @staticmethod
     def _arm(track, on):
-        if not getattr(track, "can_be_armed", False) or not hasattr(track, "implicit_arm"):
-            return False
+        # A deleted track raises on any attribute, the reads too.
         try:
+            if not getattr(track, "can_be_armed", False) or not hasattr(track, "implicit_arm"):
+                return False
             track.implicit_arm = on
             return True
         except Exception:
             return False
 
     def shift_rows(self):
+        if self.mode == "browse":
+            drums = self.drum_rack(self.sel_track()) is not None
+            return [
+                ("Play", "Metronome"),
+                ("Rec", "Capture MIDI"),
+                ("Func", "Folder>pads" if self.browse.on_folder() and drums else "Load + exit"),
+                ("Scene", "Up folder"),
+                ("Enc ^", "Exit browse"),
+                ("Enc v", "Chop (later)"),
+            ]
         return [
             ("Play", "Metronome"),
             ("Rec", "Capture MIDI"),
@@ -798,55 +866,40 @@ class Controller(object):
             ("Enc ^v", "Browse/Chop"),
         ]
 
-    def screen(self, overlay):
+    def screen(self, overlay, pages=None):
+        """The mode's screen; `pages`: the encoder pages, when the caller has built them already."""
         title, status = self.track_label(), self.status()
+        if self.mode == "browse":
+            b = self.browse
+            items = [(label, folder) for label, _, folder in b.entries()]
+            return S.browser_screen(title, b.target_label(), b.folder_label(), b.index, items)
         if self.mode == "track":
             ts = self.tracks()
             cells = []
             for i in range(16):
                 j = i - 8 if i >= 8 else i
-                t = ts[j] if j < len(ts) else None
-                if t is None and i >= 8 and j == len(ts) and j < MAX_TRACKS:
-                    # The next free slot: "+" to add a track there, its kind (D / K) while one is set up.
-                    if self.new_track is not None:
-                        cells.append(S.GridCell("D" if self.new_track == "drum" else "K", fill=True))
-                    else:
-                        cells.append(S.GridCell("+"))
-                elif t is None or j >= MAX_TRACKS:
+                t = ts[j] if j < len(ts) and j < MAX_TRACKS else None
+                if t is None:
                     cells.append(S.GridCell("", dim=True))
                 elif i >= 8:
                     cells.append(S.GridCell(str(j + 1), fill=t == self.sel_track(), mark=self.kind(t) == "keys"))
                 else:
                     cells.append(S.GridCell("S" if t.solo else "M" if t.mute else "", fill=self.audible(t)))
-            info = "Enc1 kind Tap:add" if self.new_track is not None else "Up:pick Dn:mute"
-            return S.grid_screen(title, status, cells, "TRACK", info)
-        if self.mode == "mute":
-            t = self.drum_track()
-            if t is None:
-                return S.grid_screen(title, status, [], "MUTE", "1x mute 2x solo", note="No Drum Rack")
-            rack = self.drum_rack(t)
-            cells = []
-            for i in range(16):
-                dp = self.drum_pad(rack, i)
-                has = len(dp.chains) > 0
-                label = "S" if dp.solo else "M" if dp.mute else str(i + 1)
-                cells.append(S.GridCell(label, fill=has and not dp.mute, dim=not has))
-            n = self.track_number(t)
-            return S.grid_screen("T%d %s" % (n, t.name) if n else t.name, status, cells, "MUTE", "1x mute 2x solo")
-        if self.mode == "pattern":
-            sc = self.scenes()[:MAX_SCENES]
-            queued = self.queued_scenes()
-            cur = self.scene_index()
-            cells = [S.GridCell(str(i + 1), fill=i == cur, mark=self.scene_has_clips(s), dim=i in queued)
-                     for i, s in enumerate(sc)]
-            info = "Next: S%d" % (min(queued) + 1) if queued else "Hold+tap copy"
-            return S.grid_screen(title, status, cells, "SCENE", info)
+            return S.grid_screen(title, status, cells, "TRACK", "Up:pick Dn:mute")
+        if self.mode == "clips":
+            return S.grid_screen(title, status, self.clips.cells(), "CLIPS", self.clips.info())
+        if self.mode == "step" and self.step.held:
+            # Holding steps: encoders 1-3 edit them, so the screen shows those three.
+            cells = self.step.held_cells()
+            if cells is not None:
+                return S.encoder_screen(title, status, "HOLD", self.step.item(), cells,
+                                        active=overlay[2] if overlay else None)
         if self.mode == "step":
-            page = self.current_page()
+            page = self.current_page(pages)
             return S.step_screen(title, status, self.step.item(), self.step.bar_label(), self.step.bars(),
                                  self.step.steps(), self.step.playhead(), page.tag, page.summary,
                                  per_row=self.step_row())
-        page = self.current_page()
+        page = self.current_page(pages)
         cells = []
         for prm in page.params:
             if prm is None:
@@ -871,12 +924,21 @@ class Controller(object):
         self.follow_live()
         if self.erasing:
             self.erase_tick()
+        if self.mode == "browse":
+            self.browse.tick(now)
+            if self.browse.pad_layout() != self.layout:
+                self.set_layout(self.browse.pad_layout())  # in Drums' kits the pads play them
+        self.sync_scale()
+        pages = self.pages()  # once a tick: building them reads every device's parameters
         msg = self.active_overlay()
         # On the 8-encoder screen the turned cell is highlighted instead; a popup would cover the bottom row.
-        on_encoders = self.mode == "play"
-        frame = self.screen(msg)
-        if msg and not (msg[2] is not None and on_encoders):
-            overlay_bar(frame, msg[0], msg[1])
+        on_encoders = self.mode == "play" or (self.mode == "step" and bool(self.step.held))
+        if self.shift and msg is None:
+            frame = S.shift_screen(self.shift_rows(), "MORSEL")  # what Shift does with each button
+        else:
+            frame = self.screen(msg, pages)
+            if msg and not (msg[2] is not None and on_encoders):
+                overlay_bar(frame, msg[0], msg[1])
         self.sender.show(P.DISPLAY_STATIONARY, frame.pack())
         if self.shift_since is not None:
             self.shift_cover(now)
@@ -885,7 +947,7 @@ class Controller(object):
             self.leds_resend_at = None
             self.sent_pads.clear()
             self.sent_buttons.clear()
-        self.render_leds()
+        self.render_leds(pages)
 
     def shift_cover(self, now):
         held = now - self.shift_since
@@ -898,21 +960,31 @@ class Controller(object):
 
     # ---- LEDs ---------------------------------------------------------------------------------------------------
 
-    def render_leds(self):
+    def render_leds(self, pages=None):
         if self.native_pads is None:
             for i, (color, mode) in enumerate(self.pad_leds()):
                 self.set_pad(i, color, mode)
-        for cc, value in self.button_leds().items():
+        for cc, value in self.button_leds(pages).items():
             if self.sent_buttons.get(cc) != value:
                 self.sent_buttons[cc] = value
                 self.send(P.button_led_message(cc, value))
 
     def set_pad(self, pad, color, mode="static"):
+        """`color`: a palette index, or a Live colour (colors.rgb). The device animates only palette colours, so
+        a flashing or pulsing Live colour goes as its nearest palette colour."""
         key = (self.layout, pad)
         sig = (color, mode)
-        if self.sent_pads.get(key) == sig:
+        prev = self.sent_pads.get(key)
+        if prev == sig:
             return
         self.sent_pads[key] = sig
+        if is_rgb(color) and mode == "static" and RGB_PADS:
+            if prev is None or prev[1] != "static":
+                self.send(P.pad_led_message(self.layout, pad, 0))  # stop a flash / pulse first
+            self.send(P.pad_rgb_sysex(self.layout, pad, *rgb7(color[1])))
+            return
+        if is_rgb(color):
+            color = nearest_color(color[1])
         # Flash / pulse alternate with the static colour, so set static first.
         if mode != "static":
             self.send(P.pad_led_message(self.layout, pad, 0))
@@ -930,59 +1002,39 @@ class Controller(object):
                 for i in range(16):
                     dp = self.drum_pad(rack, i)
                     if len(dp.chains):
-                        color = nearest_color(getattr(dp.chains[0], "color", t.color))
-                        leds[i] = (color, "pulse" if dp == sel else "static")
+                        leds[i] = (self.pad_color(t, dp), "pulse" if dp == sel else "static")
             elif getattr(t, "has_midi_input", False):
                 # Note pads in the track colour, the Cs white.
-                tc = nearest_color(t.color)
+                tc = rgb(t.color)
                 leds = [(P.COLOR["dimWhite"] if P.DRUM_NOTES[i] % 12 == 0 else tc, "static") for i in range(16)]
+        elif self.mode == "browse":
+            leds = self.browse.leds()
         elif self.mode == "step":
             t = self.sel_track()
             rack = self.drum_rack(t)
-            color = nearest_color(t.color)
+            color = rgb(t.color)
             if rack is not None:
                 dp = rack.drum_pads[self.step.pitch()]
                 if len(dp.chains):
-                    color = nearest_color(getattr(dp.chains[0], "color", t.color))
+                    color = self.pad_color(t, dp)
             leds = self.step.leds(color)
         elif self.mode == "track":
             # Top row: tracks in their colours, the selected one pulsing. Bottom row: their mute / solo state.
-            # The next free slot glows dimly (tap to add a track), pulsing while one is set up.
             for i in range(16):
                 j = i - 8 if i >= 8 else i
-                if j >= MAX_TRACKS:
-                    continue
-                if j >= len(ts):
-                    if i >= 8 and j == len(ts):
-                        leds[i] = (P.COLOR["white"], "pulse") if self.new_track else (P.COLOR["dimWhite"], "static")
+                if j >= MAX_TRACKS or j >= len(ts):
                     continue
                 t = ts[j]
                 if i >= 8:
-                    leds[i] = (nearest_color(t.color), "pulse" if t == self.sel_track() else "static")
+                    leds[i] = (rgb(t.color), "pulse" if t == self.sel_track() else "static")
                 else:
                     color = "yellow" if t.solo else "green" if self.audible(t) else "dimRed"
                     leds[i] = (P.COLOR[color], "static")
-        elif self.mode == "mute":
-            t = self.drum_track()
-            if t is not None:
-                rack = self.drum_rack(t)
-                for i in range(16):
-                    dp = self.drum_pad(rack, i)
-                    color = "yellow" if dp.solo else "dimRed" if dp.mute else "green" if len(dp.chains) else "dimGreen"
-                    leds[i] = (P.COLOR[color], "static")
-        elif self.mode == "pattern":
-            queued = self.queued_scenes()
-            cur = self.scene_index()
-            for i, s in enumerate(self.scenes()[:MAX_SCENES]):
-                if i in queued:
-                    leds[i] = (P.COLOR["green"], "flash")
-                elif i == cur:
-                    leds[i] = (P.COLOR["green"], "static")
-                elif self.scene_has_clips(s):
-                    leds[i] = (P.COLOR["blue"], "static")
+        elif self.mode == "clips":
+            leds = self.clips.leds()
         return leds
 
-    def button_leds(self):
+    def button_leds(self, pages=None):
         song = self.song
         on_beat = (song.current_song_time % 1.0) < 0.5
         counting = getattr(song, "is_counting_in", False)
@@ -991,15 +1043,25 @@ class Controller(object):
             record = LED_FULL if on_beat else 0
         else:
             record = LED_FULL if song.session_record or song.record_mode else 0
-        pages = self.pages()
-        pi = pages.index(self.current_page(pages))
+        func = LED_FULL
+        scene = LED_FULL if self.repeat_on() else LED_DIM
         if self.shift:
+            # Pad arrows: previous / next track. Encoder page up: Browse on / off (Chop isn't in Live yet).
             many = LED_FULL if len(self.tracks()) > 1 else 0
             pad_up = pad_down = many
-            enc_up = enc_down = 0
+            enc_up, enc_down = LED_FULL, 0
+        elif self.mode == "browse":
+            # Func / Pad down open or load, Scene / Pad up go up a folder, the encoder page arrows step the list.
+            enter = LED_FULL if self.browse.can_enter() else 0
+            up = LED_FULL if self.browse.can_up() else 0
+            func, scene, pad_up, pad_down, enc_up, enc_down = enter, up, up, enter, enter, enter
         else:
+            pages = pages if pages is not None else self.pages()
+            pi = pages.index(self.current_page(pages))
             if self.mode == "step":
                 n, at = self.step.pages(), self.step.page
+            elif self.mode == "clips":
+                n, at = len(self.scenes()) - 1, self.scene_index()
             else:
                 n, at = min(len(self.scenes()), MAX_SCENES), self.scene_index()
             pad_up = LED_FULL if at > 0 else 0
@@ -1009,8 +1071,8 @@ class Controller(object):
         return {
             P.CC_PLAY: play,
             P.CC_RECORD: record,
-            P.CC_FUNC: LED_FULL,
-            P.CC_SCENE: LED_FULL if self.repeat_on() else LED_DIM,
+            P.CC_FUNC: func,
+            P.CC_SCENE: scene,
             P.CC_PAD_UP: pad_up,
             P.CC_PAD_DOWN: pad_down,
             P.CC_ENC_PAGE_UP: enc_up,

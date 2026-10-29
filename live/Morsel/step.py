@@ -5,8 +5,12 @@ import math
 
 from . import pages as PG
 from . import protocol as P
+from .display.screens import EncoderCell
 
 GRIDS = [("1/16", 0.25), ("1/32", 0.125), ("1/8T", 1 / 3.0), ("1/16T", 1 / 6.0)]
+# Live's RecordingQuantization value per grid, for quantizing a clip to it (clip.quantize).
+GRID_QUANTIZE = ["sixtenth", "thirtysecond", "eight_triplet", "sixtenth_triplet"]
+HELD_EDITS = ("Velocity", "Nudge", "Length")  # encoders 1-3 while steps are held
 TICK = 1 / 96.0  # Morsel's nudge unit (96 per quarter note)
 MAX_BARS = 16
 DEFAULT_VELOCITY = 100
@@ -67,13 +71,17 @@ class StepMode(object):
         s = self.c.song
         return 4.0 * s.signature_numerator / s.signature_denominator
 
+    def slot(self):
+        """The selected track's clip slot in the selected scene, or None."""
+        slots = list(getattr(self.c.sel_track(), "clip_slots", []))
+        i = self.c.scene_index()
+        return slots[i] if i < len(slots) else None
+
     def clip(self, create=False):
         track = self.c.sel_track()
-        slots = list(getattr(track, "clip_slots", []))
-        i = self.c.scene_index()
-        if i >= len(slots):
+        slot = self.slot()
+        if slot is None:
             return None
-        slot = slots[i]
         if not slot.has_clip:
             if not create or not getattr(track, "has_midi_input", False):
                 return None
@@ -203,7 +211,7 @@ class StepMode(object):
             clip.remove_notes_extended(step["pitch"], 1, lo, step["time"] + self.span / 2 - lo)
 
     def edit_held(self, index, delta):
-        """Encoder 1 (velocity) or 2 (nudge) turned while steps are held: edit those steps' notes."""
+        """Encoder 1 (velocity), 2 (nudge) or 3 (length) turned while steps are held: edit those steps' notes."""
         clip = self.clip()
         if clip is None:
             return
@@ -214,6 +222,8 @@ class StepMode(object):
             for n in notes:
                 if index == 0:
                     n.velocity = max(1.0, min(127.0, n.velocity + delta * 2))
+                elif index == 2:
+                    n.duration = max(TICK, n.duration + delta * TICK)
                 else:
                     off = n.start_time - step["time"] + delta * TICK
                     off = max(-max_nudge(self.span), min(max_nudge(self.span), off))
@@ -221,13 +231,50 @@ class StepMode(object):
             if len(notes):
                 clip.apply_note_modifications(notes)
                 first = first or notes[0]
-        if first is None:
-            return
+        if first is not None:
+            self.show_held(index, first)
+
+    def held_value(self, index, note):
+        """What encoder `index` shows for a held step's note: velocity, nudge or length (in Morsel's ticks)."""
         if index == 0:
-            self.c.show_temp("Velocity", "%d" % first.velocity, encoder=0)
-        else:
-            ticks = int(round((first.start_time - min(s["time"] for s in self.held.values())) / TICK))
-            self.c.show_temp("Nudge", "%+d" % ticks if ticks else "0", encoder=1)
+            return "%d" % note.velocity
+        if index == 2:
+            return "%d" % int(round(note.duration / TICK))
+        ticks = int(round((note.start_time - min(s["time"] for s in self.held.values())) / TICK))
+        return "%+d" % ticks if ticks else "0"
+
+    def held_note(self):
+        """The first held step's note (what the held screen shows), or None."""
+        clip = self.clip()
+        step = next(iter(self.held.values()), None)
+        notes = self.notes_at(clip, step["time"], step["pitch"]) if clip is not None and step else []
+        return notes[0] if len(notes) else None
+
+    def held_cells(self):
+        """Encoders 1-3 while steps are held, for encoder_screen: velocity, nudge and length with their values."""
+        note = self.held_note()
+        if note is None:
+            return None
+        nudge = note.start_time - min(s["time"] for s in self.held.values())
+        levels = (note.velocity / 127.0, 0.5 + nudge / (2 * max_nudge(self.span)),
+                  min(1.0, note.duration / (4 * self.span)))
+        return [EncoderCell(HELD_EDITS[i], self.held_value(i, note), levels[i]) for i in range(3)] + [None] * 5
+
+    def show_held(self, index, note=None):
+        """Show a held step's value for encoder `index`."""
+        if note is None:
+            note = self.held_note()
+            if note is None:
+                return
+        self.c.show_temp(HELD_EDITS[index], self.held_value(index, note), encoder=index)
+
+    def quantize(self, direction):
+        """Quant (right): the clip's notes onto the grid."""
+        clip = self.clip()
+        if clip is None or direction <= 0:
+            return
+        self.c.host.quantize(clip, GRID_QUANTIZE[self.grid])
+        self.c.show_temp("Quantized", GRIDS[self.grid][0])
 
     def clear_pad(self):
         """Shift + Scene on a drum track: only the selected pad's notes."""
@@ -278,13 +325,12 @@ class StepMode(object):
         params = [
             PG.ChoiceParam("Bars", [str(i) for i in range(1, MAX_BARS + 1)], lambda: max(0, self.bars() - 1),
                            lambda i: self.set_bars(i + 1)),
-            PG.ChoiceParam("Page", [str(i) for i in range(1, self.pages() + 1)], lambda: self.page,
-                           lambda i: setattr(self, "page", i)),
             PG.ChoiceParam("Grid", [g[0] for g in GRIDS], lambda: self.grid, self.set_grid),
             PG.ActionParam("Double", self.double,
                            lambda: "%d bar%s" % (clip_bars, "" if clip_bars == 1 else "s") if clip_bars else "-"),
             PG.ValueParam("Vel", lambda: self.velocity, lambda v: setattr(self, "velocity", int(v)), 1, 127, 1,
                           lambda v: "%d" % v),
+            PG.ActionParam("Quant", self.quantize, lambda: "> %s" % GRIDS[self.grid][0]),
         ]
         if self.rack() is not None:
             params.append(PG.ChoiceParam("Pad", [str(i + 1) for i in range(16)], lambda: max(0, self.selected_pad()),
