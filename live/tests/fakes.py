@@ -242,6 +242,29 @@ class FakeCompressor(FakeDevice):
         return [Obj(display_name=n) for n in out]
 
 
+class FakeEffect(FakeDevice):
+    """One of Live's audio effects: its class name and parameters by name ("Device On" first, as in Live)."""
+
+    def __init__(self, name, class_name, params):
+        FakeDevice.__init__(self, name)
+        self.class_name = class_name
+        self.parameters = [FakeParam("Device On", 1, 0, 1, quantized=True)] + params
+
+
+def FakeAutoFilter():
+    kind = FakeParam("Filter Type", 0, 0, 5, quantized=True)
+    kind.value_items = ["Lowpass", "Highpass", "Bandpass", "Notch", "Morph", "DJ"]
+    return FakeEffect("Auto Filter", "AutoFilter2", [kind, FakeParam("Frequency", 0.7), FakeParam("Resonance", 0.1)])
+
+
+def FakeEq3():
+    return FakeEffect("EQ Three", "FilterEQ3", [FakeParam(n, 0.5) for n in ("GainLo", "GainMid", "GainHi")])
+
+
+def FakeSaturator():
+    return FakeEffect("Saturator", "Saturator", [FakeParam("Drive", 0.0, -36.0, 36.0), FakeParam("Dry/Wet", 1.0)])
+
+
 class FakeNote(object):
     def __init__(self, pitch, start_time, duration, velocity):
         self.pitch, self.start_time, self.duration, self.velocity = pitch, start_time, duration, velocity
@@ -537,9 +560,13 @@ class FakeHost(object):
         self.song.view.selected_track = track
         track.devices.append(FakeSimpler(FakeSample("/s/" + item.name)))
 
-    def add_compressor(self, track):
-        if not getattr(self, "compressor_later", False):
-            track.devices.append(FakeCompressor(self.song))
+    def add_device(self, track, name, index=None):
+        """Live's insert_device: the matching fake effect at `index` (or, with devices_later, not yet)."""
+        if getattr(self, "devices_later", False):
+            return
+        make = {"Compressor": lambda: FakeCompressor(self.song), "Auto Filter": FakeAutoFilter, "EQ Three": FakeEq3,
+                "Saturator": FakeSaturator}[name]
+        track.devices.insert(len(track.devices) if index is None else index, make())
 
     def delete_device(self, track, device):
         track.devices.remove(device)

@@ -73,7 +73,7 @@ class Duck(object):
         duck = self.find(track)
         if direction > 0 and duck is None and self.pending is None:
             self.pending = (track, self.c.host.now(), len(self._compressors(track)))
-            self.c.host.add_compressor(track)
+            self.c.host.add_device(track, "Compressor")
             self.tick(self.c.host.now())  # set it up now if Live put it there at once
         elif direction < 0 and duck is not None:
             self.c.host.delete_device(track, duck)

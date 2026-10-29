@@ -13,6 +13,7 @@ from .display.widgets import overlay_bar
 from .browse import BrowseMode, is_sample
 from .chop import ChopMode
 from .duck import Duck
+from .fx import TrackFx
 from .clips import ClipsMode
 from .step import StepMode, note_name, row_steps
 
@@ -85,6 +86,7 @@ class Controller(object):
         self.clips = ClipsMode(self)
         self.chop = ChopMode(self)
         self.duck = Duck(self)
+        self.fx = TrackFx(self)
         self.prev_mode = "play"
         self.page_before_step = None
         self.page_before_chop = None
@@ -837,8 +839,9 @@ class Controller(object):
             front.append(pad)
         pages = front + PG.pages_for(self.song, self.sel_track(), self.host, self.repeat, self.banks)
         keys = [p.key for p in pages]
-        if "TRK" in keys:  # DUCK right after the track's own mixer page
-            pages.insert(keys.index("TRK") + 1, self.duck.page(self.sel_track()))
+        if "TRK" in keys:  # FX and DUCK right after the track's own mixer page
+            t = self.sel_track()
+            pages[keys.index("TRK") + 1:keys.index("TRK") + 1] = [self.fx.page(t), self.duck.page(t)]
         return pages
 
     def pad_page(self):
@@ -909,7 +912,8 @@ class Controller(object):
         cur = self.current_page(pages)
         i = max(0, min(len(pages) - 1, pages.index(cur) + direction))
         self.set_page(pages[i])
-        self.show_temp("Encoders", pages[i].summary)
+        # No popup: it would cover the footer, which names the page; the footer shows it now.
+        self.request_draw()
 
     def on_encoder(self, index, delta):
         if self.mode == "browse":
@@ -1066,6 +1070,7 @@ class Controller(object):
             self.chop.tick(now)
         self.chop.after_done(now)  # chops given to pads go on them once the Drum Rack is there
         self.duck.tick(now)  # a Compressor asked for: set it up once it's there
+        self.fx.tick(now)  # the same for the FX page's effects
         if self.mode == "browse":
             self.browse.tick(now)
             if self.browse.pad_layout() != self.layout:

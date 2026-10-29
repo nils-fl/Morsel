@@ -105,12 +105,12 @@ def test_encoder_pages_and_stepped_params():
     song = host.song
     keys = [p.key for p in c.pages()]
     # The Drum Rack's 8 macros are one bank; Reverb has 11 parameters: its best 8, then the other 3.
-    assert keys == ["PAD", "DEV0.0", "DEV1.0", "DEV1.1", "TRK", "DUCK", "MIX", "GLB", "POS"]
+    assert keys == ["PAD", "DEV0.0", "DEV1.0", "DEV1.1", "TRK", "FX", "DUCK", "MIX", "GLB", "POS"]
     tap(c, "encPageDown")
     assert c.page_key == "DEV1.0" and song.tracks[0].view.selected_device is song.tracks[0].devices[1]
     tap(c, "encPageDown")
     assert c.page_key == "DEV1.1" and c.current_page().summary == "Reverb 2/2" and c.current_page().tag == "REVER2"
-    for _ in range(4):  # TRK, DUCK, MIX, GLB
+    for _ in range(5):  # TRK, FX, DUCK, MIX, GLB
         tap(c, "encPageDown")
     assert c.page_key == "GLB"
     tap(c, "encPageDown")
@@ -1256,7 +1256,7 @@ def test_duck_set_up_when_the_compressor_arrives_later():
     host.song.view.selected_track = keys
     c.tick()
     to_duck_page(c)
-    host.compressor_later = True
+    host.devices_later = True
     enc(c, 0, 8)
     assert c.duck.pending is not None
     keys.devices.append(FakeCompressor(host.song))  # Live loads it from the browser
@@ -1280,3 +1280,74 @@ def test_duck_picks_the_kick_once_live_lists_the_pads():
         assert comp.input_routing_channel.display_name.endswith("Bassdrum | Post FX") and c.duck.choosing is None
     finally:
         FakeCompressor.listed = True
+
+
+def to_page(c, key):
+    c.set_page([p for p in c.pages() if p.key == key][0])
+
+
+def fx_on_keys():
+    host, c = setup()
+    keys = host.song.tracks[1]
+    host.song.view.selected_track = keys
+    c.tick()
+    to_page(c, "FX")
+    return host, c, keys
+
+
+def cls(track):
+    return [getattr(d, "class_name", "") for d in track.devices]
+
+
+def test_fx_filter_adds_auto_filter_and_off_switches_it_off():
+    host, c, keys = fx_on_keys()
+    page = c.current_page()
+    assert [p.name for p in page.params] == ["Filter", "Cutoff", "Reso", "Low", "Mid", "High", "Drive", "Comp"]
+    assert page.summary == "Off"
+    enc(c, 0, 1)  # Filter: LP
+    f = keys.devices[-1]
+    assert cls(keys)[-1] == "AutoFilter2" and f.parameters[1].value == 0  # Lowpass
+    host.t += 1
+    enc(c, 0, 1)  # HP
+    assert f.parameters[1].value == 1 and c.current_page().summary == "HP"
+    assert [i for i, _ in c.mapped_encoders()] == [1, 2]  # Cutoff and Reso: through Live's map
+    host.t += 1
+    enc(c, 0, -1)  # back to LP (a fresh turn's first detent)...
+    enc(c, 0, -8)  # ...and on to Off: switched off, not deleted
+    assert f in keys.devices and f.parameters[0].value == 0 and c.current_page().summary == "Off"
+
+
+def test_fx_eq_drive_and_comp_are_added_in_order_before_the_duck():
+    host, c, keys = fx_on_keys()
+    to_page(c, "DUCK")
+    enc(c, 0, 8)  # a duck first: its Compressor is last
+    to_page(c, "FX")
+    enc(c, 3, 1)  # Low: adds EQ Three
+    enc(c, 7, 10)  # Comp: 20 %, adds a Compressor (not the duck's)
+    enc(c, 6, 5)  # Drive: adds Saturator
+    enc(c, 1, 1)  # Cutoff: adds Auto Filter (LP)
+    assert cls(keys) == ["", "AutoFilter2", "FilterEQ3", "Saturator", "Compressor2", "Compressor2"]
+    assert c.duck.find(keys) is keys.devices[-1] and c.fx.find(keys, "comp") is keys.devices[-2]
+    assert abs(c.fx.comp_amount(keys) - 0.2) < 1e-6 and abs(c.fx.drive_amount(keys) - 0.1) < 1e-6
+    assert c.current_page().summary == "LP EQ Drive Comp"
+    enc(c, 7, -20)  # Comp to 0: switched off
+    assert c.fx.find(keys, "comp").parameters[0].value == 0 and c.fx.comp_amount(keys) == 0
+
+
+def test_fx_effect_loaded_later_is_set_up_when_it_arrives():
+    host, c, keys = fx_on_keys()
+    host.devices_later = True
+    enc(c, 0, 1)  # Filter: LP, but the Auto Filter isn't there yet
+    assert "filter" in c.fx.pending
+    host.devices_later = False
+    host.add_device(keys, "Auto Filter")  # Live loads it
+    c.tick()
+    f = c.fx.find(keys, "filter")
+    assert f is not None and "filter" not in c.fx.pending and f.parameters[0].value == 1
+
+
+def test_changing_encoder_pages_leaves_the_footer_visible():
+    host, c = setup()
+    c.overlay = None
+    tap(c, "encPageDown")
+    assert c.active_overlay() is None  # no popup over the footer that names the page

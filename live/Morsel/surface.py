@@ -97,23 +97,25 @@ class LiveHost(object):
 
     # ---- Duck (duck.py) -----------------------------------------------------------------------------------------
 
-    def add_compressor(self, track):
-        """Live's Compressor at the end of `track`: Track.insert_device (Live 12), else through the browser with the
-        track's last device selected, so it lands after it."""
+    def add_device(self, track, name, index=None):
+        """One of Live's audio effects (by its browser name: "Compressor", "Auto Filter", "EQ Three", "Saturator")
+        onto `track` at `index` (None: the end): Track.insert_device (Live 12), else through the browser with the
+        device before that place selected, so it lands after it."""
         devices = list(track.devices)
+        index = len(devices) if index is None else index
         try:
-            track.insert_device("Compressor", len(devices))
+            track.insert_device(name, index)
             return
         except Exception as e:
-            self.log("Morsel Duck: insert_device failed (%r), loading from the browser" % (e,))
+            self.log("Morsel: insert_device %s failed (%r), loading from the browser" % (name, e))
         song = self.song
         song.view.selected_track = track
-        if devices:
-            song.view.select_device(devices[-1])
+        if index > 0:
+            song.view.select_device(devices[index - 1])
         browser = self.browser
-        item = next((i for i in browser.audio_effects.children if i.name == "Compressor"), None)
+        item = next((i for i in browser.audio_effects.children if i.name == name), None)
         if item is None:
-            self.log("Morsel Duck: no Compressor in the browser")
+            self.log("Morsel: no %s in the browser" % name)
             return
         try:
             browser.hotswap_target = None
