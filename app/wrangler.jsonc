@@ -1,10 +1,17 @@
-// Cloudflare Worker that serves the built site (dist/): the landing page at /, the app at /app/ and the Live script's
-// zip, counting visits and downloads (worker/index.ts). Deploy: push main (Cloudflare builds it), or npm run deploy.
+// Cloudflare Worker that serves the built site (dist/) at morselbox.com: the landing page at /, the app at /app/ and the
+// Live script's zip, counting visits and downloads (worker/index.ts). Deploy: push main (Cloudflare builds it), or
+// npm run deploy.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "morsel",
   "main": "worker/index.ts",
   "compatibility_date": "2026-10-18",
+  // The domain (bought at Cloudflare): each deploy attaches it. www forwards to it (worker/index.ts). The workers.dev
+  // address stays as it is.
+  "routes": [
+    { "pattern": "morselbox.com", "custom_domain": true },
+    { "pattern": "www.morselbox.com", "custom_domain": true }
+  ],
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",

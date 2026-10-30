@@ -6,7 +6,7 @@
 
 A browser-based groovebox for the **Novation Launchkey Mini MK4 25**. Morsel puts the Launchkey in DAW mode over Web MIDI and takes over its pads, encoders, buttons and screen, turning it into a standalone sampler, step sequencer and song arranger. You don't need a DAW.
 
-**Try it:** [morsel.n-flaschel.workers.dev](https://morsel.n-flaschel.workers.dev/) in Chrome or Edge, with the Launchkey plugged in. Nothing to install; your samples and projects stay in your browser. The same page has **Morsel for Live** to download.
+**Try it:** [morselbox.com](https://morselbox.com/) in Chrome or Edge, with the Launchkey plugged in. Nothing to install; your samples and projects stay in your browser. The same page has **Morsel for Live** to download.
 
 ## Features
 
@@ -91,7 +91,7 @@ npm install
 npm run dev
 ```
 
-Or open the [hosted app](https://morsel.n-flaschel.workers.dev/app/), built from `main` on every push. Open the URL Vite prints and allow MIDI (with SysEx) access when the browser asks. The dot next to the Morsel logo turns green once the Launchkey is found.
+Or open the [hosted app](https://morselbox.com/app/), built from `main` on every push. Open the URL Vite prints and allow MIDI (with SysEx) access when the browser asks. The dot next to the Morsel logo turns green once the Launchkey is found.
 
 Load samples by dropping audio files onto an on-screen pad, or use **Import folder** to add a whole folder to the browser.
 
@@ -99,7 +99,7 @@ Load samples by dropping audio files onto an on-screen pad, or use **Import fold
 
 ## Ableton Live
 
-The repo also holds **Morsel for Live** (`live/`), a control surface script for Ableton Live 12 that makes the Launchkey work in Live the way it does in Morsel: the same pad modes, encoder pages, Shift layer and screen, with Live's tracks, clips, Drum Racks, browser and Simpler underneath, and chopping with the wave on the Launchkey's screen. It doesn't need the app. Download it from the [landing page](https://morsel.n-flaschel.workers.dev/) (a zip of `live/Morsel`, built with the site). Setup and controls are in [live/README.md](live/README.md).
+The repo also holds **Morsel for Live** (`live/`), a control surface script for Ableton Live 12 that makes the Launchkey work in Live the way it does in Morsel: the same pad modes, encoder pages, Shift layer and screen, with Live's tracks, clips, Drum Racks, browser and Simpler underneath, and chopping with the wave on the Launchkey's screen. It doesn't need the app. Download it from the [landing page](https://morselbox.com/) (a zip of `live/Morsel`, built with the site). Setup and controls are in [live/README.md](live/README.md).
 
 **Live's sounds in Morsel.** The Launchkey comes with Ableton Live Lite, and its library has drum kits and sampled instruments Morsel can play. **Ableton Live** in the library panel connects it: the desktop app finds it in Applications; in a browser the folder picker opens, and you press ⌘⇧G, paste the path (it's copied for you) and choose *Core Library*. It then shows as *Ableton Live*:
 - **Live Kits**: Live's Drum Racks (the 505 to 909 Core Kits, acoustic, electronic and sampled kits). Loading one (double-click, the menu, dropping it on the pads, or Func in Browse on the Launchkey) puts its sounds on a drum track's pads in Live's layout (kick on pad 1), with Live's pad names.
@@ -155,7 +155,7 @@ Run these inside `app/`:
 
 ## Hosting
 
-The site is the `morsel` Cloudflare Worker (`app/wrangler.jsonc`), built from `main` on every push. It serves `app/dist`:
+The site is [morselbox.com](https://morselbox.com/) (registered at Cloudflare; `www.` forwards to it), the `morsel` Cloudflare Worker (`app/wrangler.jsonc`), built from `main` on every push. Each deploy attaches the domain. It serves `app/dist`:
 - `/` is the landing page (`app/landing.html`), with the link to the app and the Live script's download.
 - `/app/` is the app (`app/index.html`). An app installed when it was at `/` starts there and is sent on to `/app/`.
 - `/download/morsel-for-live.zip` is `live/Morsel` (the `.py` files), zipped by the build (`app/vite.config.ts`). Cloudflare's build watches `app/**` and `live/**`, so a change to the script updates the download.

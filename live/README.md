@@ -5,7 +5,7 @@ A control surface script for Ableton Live 12 that makes the Launchkey Mini MK4 w
 In Live terms, a Morsel **track** is a Live track (a drum track has a Drum Rack), and a **pad** is a Drum Rack pad (notes 36–51).
 
 ## Setup
-1. Download it from [morsel.n-flaschel.workers.dev](https://morsel.n-flaschel.workers.dev/), unzip it and put the `Morsel` folder into `Remote Scripts` in Live's User Library (`~/Music/Ableton/User Library/Remote Scripts/` on a Mac; make the folder if it isn't there). From the repo, run `./install.sh` instead: it links `live/Morsel` there, so edits are what Live loads.
+1. Download it from [morselbox.com](https://morselbox.com/), unzip it and put the `Morsel` folder into `Remote Scripts` in Live's User Library (`~/Music/Ableton/User Library/Remote Scripts/` on a Mac; make the folder if it isn't there). From the repo, run `./install.sh` instead: it links `live/Morsel` there, so edits are what Live loads.
 2. Restart Live. Live loads scripts only at start, so restart it after every change too.
 3. Go to Settings → Link, Tempo & MIDI. Remove the stock Launchkey Mini MK4 control surface, then add **Morsel** with:
    - Input: **Launchkey Mini MK4 25 (DAW Out)**

@@ -24,6 +24,11 @@ const BOT = /bot|crawl|spider|slurp|preview|facebookexternalhit|headless|lightho
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
+    // One address: www goes to the bare domain, where the page links and the counts are.
+    if (url.hostname.startsWith("www.")) {
+      url.hostname = url.hostname.slice(4);
+      return Response.redirect(url.href, 301);
+    }
     const path = url.pathname;
     if (path === "/api/event") return appEvent(req, env);
     if (path === "/") {

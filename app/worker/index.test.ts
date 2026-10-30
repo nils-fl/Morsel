@@ -31,6 +31,14 @@ describe("worker", () => {
     expect(deep.served).toEqual(["/"]);
   });
 
+  it("forwards www to the bare domain, keeping the path", async () => {
+    const res = await worker.fetch(new Request("https://www.morselbox.com/app/?x=1", { headers: PAGE }), {
+      ASSETS: { fetch: async () => new Response("file") },
+    });
+    expect(res.status).toBe(301);
+    expect(res.headers.get("location")).toBe("https://morselbox.com/app/?x=1");
+  });
+
   it("sends /app to /app/", async () => {
     const res = await run("/app").res;
     expect(res.status).toBe(301);
