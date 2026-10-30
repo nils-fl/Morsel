@@ -54,6 +54,7 @@ const SHORTCUTS: [string, string][] = [
   ["R", "Computer: record"],
   ["B", "Computer: show / hide the library"],
   ["[ / ]", "Computer: previous / next pattern"],
+  ["?", "Computer: this guide"],
   ["⌘ + Z", "Computer: undo the project's last change, any track (⇧⌘Z or Ctrl+Y: redo)"],
 ];
 
@@ -91,6 +92,10 @@ function MiniPads({ leds }: { leds: Led[] }) {
 
 const CONTROL_IDS = Object.keys(CONTROLS) as ControlId[];
 
+/** Where an encoder page shows up: no track has all of them (the effects' pages only while the effect is on). */
+const pageWhere = (pg: (typeof PAGES)[number]) =>
+  pg.stepOnly ? "Step mode" : pg.fx ? "Effect on" : pg.kind === "drum" ? "Drums" : pg.kind === "keys" ? "Keys" : "All tracks";
+
 export function Guide() {
   const pads = useApp(drumPads);
   const selected = useApp((s) => s.selectedPad);
@@ -114,7 +119,7 @@ export function Guide() {
     { name: "Track", color: "var(--yellow)", leds: trackLeds(), how: "Func ×2", pads: "Top row = select track 1–8 (pulsing = selected). Bottom row = mute track 1–8 (red), double-tap = solo. Next free slot (dim white) = add a track: tap it, pick Drums or Keys with encoder 1, tap again.", enc: "Same pages (Mix: 8 track levels); encoder 1 picks the kind while adding a track", keys: "Drum track: its pads. Keys track: the keys" },
     { name: "Mute", color: "var(--lime)", leds: muteLeds(), how: "Func ×3", pads: "Pads of the drum track (the last one picked, also from a keys track). Tap = mute (red), double-tap = solo (yellow).", enc: "Same pages", keys: "Drum track: its pads. Keys track: the keys" },
     { name: "Pattern", color: "var(--violet)", leds: patternLeds(), how: "Func ×4", pads: "Pick a pattern (green). Blue = has notes. While playing the switch is queued (flashing) until the loop ends.", enc: "Same pages", keys: "Drum track: its pads. Keys track: the keys" },
-    { name: "Browse", color: "var(--white)", leds: browseLeds, how: "Shift + Enc page ⌃", pads: "The screen header names the track it loads onto (and the pad, on a drum track), the footer the folder. Target a pad (flashes white) and audition it. Pad ⌄ / Func = open or load (Kits lists the built-in kits first; connected folders are listed at the top), Shift + Func on a sample or kit = load it and leave Browse, on a folder = its samples on pads 1–16, Pad ⌃ / › = up a folder. Shift + Enc page ⌄ on a sample = open it in Chop (its hits marked, on the keys) without loading it onto a pad; leaving Chop goes back to where you were before Browse. On a keys track: Func loads the sample onto the keys (the track switches to Sample; a note in the name sets the root), Shift + Func on a folder makes its note-named samples the multisample, any pad auditions, the keys play the highlighted sound (a sample, a Live instrument) without loading it, or on a folder the track's own. No Kits folder.", enc: "1 or 8 = scroll (auto-preview), 2 or 7 = jump by letter (Shift: by 8). ⌃ / ⌄ arrows = one item", keys: "Drum track: its pads. Keys track: the highlighted sound" },
+    { name: "Browse", color: "var(--white)", leds: browseLeds, how: "Shift + Enc page ⌃", pads: "The screen header names the track it loads onto (and the pad, on a drum track), the footer the folder. Target a pad (flashes white) and audition it. Pad ⌄ / Func = open or load (Favorites first once you've starred something, then Kits and your library, then connected folders and Ableton Live; only what the track can use is listed), Shift + Func on a sample or kit = load it and leave Browse, on a folder = its samples on pads 1–16, Pad ⌃ / › = up a folder. Shift + Enc page ⌄ on a sample = open it in Chop (its hits marked, on the keys) without loading it onto a pad; leaving Chop goes back to where you were before Browse. On a keys track: Func loads the sample onto the keys (the track switches to Sample; a note in the name sets the root), Shift + Func on a folder makes its note-named samples the multisample, any pad auditions, the keys play the highlighted sound (a sample, a Live instrument) without loading it, or on a folder the track's own. No Kits folder.", enc: "1 or 8 = scroll (auto-preview), 2 or 7 = jump by letter (Shift: by 8). ⌃ / ⌄ arrows = one item", keys: "Drum track: its pads. Keys track: the highlighted sound" },
     { name: "Chop", color: "var(--magenta)", leds: chopLeds, how: "After a take, or Shift + Enc page ⌄", pads: "The keys play the chops (C3 = chop 1, up to 32 with the octave buttons) and select their markers. Hold a key and tap a pad to put that chop on it: the first one makes a new drum rack (Chop 1, …) and the pads then play it, so you build your own order. Pad ⌃ / ⌄ = previous / next marker. Play = play from the marker, › = add a marker at the playhead (Shift: remove), Func = done (to the rack; none yet: chops 1–16 on a new rack). A chop opens on the Sample page: Play loops start–end, Func keeps only that (a new sample), › stretches it to the tempo set (keeping the pitch). Enc page ⌄ = Chop page (equal steps across start–end the first time), ⌃ = back.", enc: "Sample page: 1 scroll, 2 zoom, 3 start, 4 end (Shift: fine), 5 length in beats (Shift: bars), 6 the tempo to stretch to (Shift: 0.1). Chop page: 1 scroll, 2 zoom, 3 pick marker, 4 move it (Shift: fine), 5 steps, 6 chop by Equal or at the hits (more sensitive to the right), 7 the chop's pitch, 8 its choke (on by default; Shift: every chop)", keys: "Play the chops" },
   ];
 
@@ -215,10 +220,10 @@ export function Guide() {
       <div className="g-split">
         <section className="g-block">
           <h3><b>03</b> Encoder pages</h3>
-          <p className="hint">Switch with the ⌃ / ⌄ arrows right of the encoders. Drum tracks show Kit (encoder 1 scrolls the kits, like the Keys presets), Pad, Pad 2 and Sidechain; keys tracks show Keys (its encoders follow the sound source: synth, Sample or Pad sample) and LFO. Track FX, Mix, Global and Duck are on both. Track FX switches the track's eight effects on and off (right on, left off); drag an effect's name onto another encoder here to change the order the sound goes through them, and each effect on adds its own page of settings after Track FX, in that order; on a drum track the Duck page's encoder 7 switches whether the selected pad ducks. Hold Shift for fine steps.</p>
-          {PAGES.map((pg, n) => (
+          <p className="hint">Switch with the ⌃ / ⌄ arrows right of the encoders. Drum tracks show Kit (encoder 1 scrolls the kits, like the Keys presets), Pad, Pad 2 and Sidechain; keys tracks show Keys (its encoders follow the sound source: synth, Sample or Pad sample) and LFO. Track FX, Mix, Global and Duck are on both. Track FX switches the track's eight effects on and off (right on, left off); drag an effect's name onto another encoder here (or its chip on the Mixer tab) to change the order the sound goes through them, and each effect on adds its own page of settings after Track FX, in that order; on a drum track the Duck page's encoder 7 switches whether the selected pad ducks. Hold Shift for fine steps.</p>
+          {PAGES.map((pg) => (
             <div key={pg.name} className="g-page">
-              <div className="g-page-tag"><b>{pg.tag}</b><span>{pg.stepOnly ? "Step mode" : `${n + 1}/${PAGES.filter((x) => !x.stepOnly).length}`}</span></div>
+              <div className="g-page-tag"><b>{pg.tag}</b><span>{pageWhere(pg)}</span></div>
               <div className="g-page-params">
                 {Array.from({ length: 8 }, (_, i) => {
                   const p = pg.params[i];
@@ -242,9 +247,11 @@ export function Guide() {
           <h3 className="g-sub"><b>05</b> Good to know</h3>
           <ul className="g-notes">
             <li>Everything follows the selected track: Shift + Pad ⌃ / ⌄ steps through them, and the Track tab, the on-screen pads, the encoder pages and the Launchkey screen show only that track.</li>
-            <li>Close Ableton Live first: Morsel puts the Launchkey in DAW mode and takes over its pads, encoders, buttons and screen.</li>
+            <li>Close Ableton Live first: Morsel puts the Launchkey in DAW mode and takes over its pads, encoders, buttons and screen. To use the Launchkey this way inside Live instead, there's Morsel for Live, a control surface script for Live 12 (download it from Morsel's website).</li>
             <li>Everything autosaves in this browser. Project → Export… keeps a copy with all samples, New… starts over.</li>
-            <li>Samples come from connected folders (Connect folder, Chrome / Edge): browsed in place from Sample ▾ or Browse on the Launchkey, and a sample is copied into the browser only when you use it. Folder → pads in Sample ▾ makes the open folder the kit. After a browser restart, the first click on the page (the one that starts audio) asks for the folders again; if the browser didn't ask, click Reconnect next to the folder in Sample ▾.</li>
+            <li>The Library (top bar, or B) holds your samples, kits and connected folders, with search and ☆ favourites. It lists only what the selected track can use: a double-click loads onto it (the selected pad, or the keys), or drag a sound onto a pad. A folder's ⋯ menu puts its samples on the pads (Folder → pads) or, on a keys track, makes its note-named samples the multisample.</li>
+            <li>Connected folders (Connect folder…, Chrome / Edge) are browsed in place, from the Library or Browse on the Launchkey; a sample is copied into the browser only when you use it. After a browser restart, the first click on the page (the one that starts audio) asks for the folders again; if the browser didn't ask, pick Reconnect in the folder's ⋯ menu.</li>
+            <li>Ableton Live in the Library connects Live's library (Live Lite comes with the Launchkey): its kits load onto drum tracks, its sampled instruments onto keys tracks, and its samples work like any folder's. They're read in place, for your own music.</li>
             <li>Dropping an audio file on an on-screen pad loads just that file.</li>
             <li>The on-screen encoders under the Launchkey row turn like the real ones: drag up or down, scroll over one, or click one and use the arrow keys. Shift turns them in fine steps.</li>
             <li>New drum tracks start with the Factory kit. Built-in genre kits (Lo-Fi, Boom Bap, Hip Hop, Trap, Drill, House, Techno, DnB, Electro) are synthesized like it. The Kit picker over the pads, the Kit encoder page or Browse → Kits loads a kit; Kits… next to the picker saves, renames, exports, imports (several at once) and deletes them.</li>
