@@ -1,5 +1,6 @@
 # electron-builder: `npm run desktop:dist` makes release/Morsel-<version>-arm64.dmg.
-# Signed ad hoc (mac.identity "-"): it runs on this Mac, and on others after right-click → Open. With a Developer ID
+# Signed ad hoc (mac.identity "-"): it runs on this Mac; on others, Gatekeeper blocks it until System Settings →
+# Privacy & Security → Open Anyway (right-click → Open no longer does it since macOS 15). With a Developer ID
 # certificate in the keychain, put its name in mac.identity; with APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD and
 # APPLE_TEAM_ID set it's notarized too.
 appId: com.nilsflaschel.morsel
