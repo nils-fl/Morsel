@@ -6,11 +6,11 @@ import { MAX_CHOPS, addMarker, beatsLabel, clampView, moveMarker, removeMarker, 
 import { engine } from "../audio/engine";
 import {
   CHOP_KEY0, assignChop, autoChop, setChopOpts, bpmText, chopLooping, chopPadOf, chopPlay, chopPlayhead, chopPlaying, chopPlaySlice, chopRack, chopStop, chopTempo,
-  chopToggleLoop, minSpan, newChop, updateChop,
+  chopToggleLoop, minSpan, newChop, updateChop, STEMS, STEM_NAMES, chopStem, shownStem,
 } from "../modes/chop";
 import { enterChopHw } from "../modes/controller";
 import { canAddTrack, drumPads, drumTrack, get, set, useApp } from "../state/store";
-import { DEFAULT_SLICE, PAD_COUNT, type ChopSession } from "../state/types";
+import { DEFAULT_SLICE, PAD_COUNT, type ChopSession, type Stem } from "../state/types";
 import { noteName } from "./notes";
 import { Field, Section } from "./controls";
 import { SamplePicker } from "./SamplePicker";
@@ -50,7 +50,7 @@ export function ChopEditor() {
 
   if (!chop || !buffer) {
     return (
-      <Section title="Chop" actions={source}>
+      <Section title="Sample" actions={source}>
         <p className="hint">
           Sample something on a drum track's Track tab (or Shift + Record on the Launchkey): the take opens here with its transients marked. Or pick any sample above.
         </p>
@@ -69,6 +69,7 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
   const projectBpm = useApp((s) => s.project.bpm);
   const [assignTo, setAssignTo] = useState(0);
   const [stretching, setStretching] = useState(false);
+  const [separating, setSeparating] = useState(false);
   const theme = useApp((s) => s.theme); // canvas colours come from CSS variables: redraw when they change
   const [playhead, setPlayhead] = useState<number | null>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -308,6 +309,11 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
     setStretching(true);
     await stretchChop().finally(() => setStretching(false));
   };
+  // The drums or the rest of the sample (the Sample page's encoder 7): split the first time, then switched.
+  const stemTo = async (stem: Stem) => {
+    setSeparating(true);
+    await chopStem(stem).finally(() => setSeparating(false));
+  };
   const pct = (f: number) => `${((f - view[0]) / (view[1] - view[0])) * 100}%`;
   const time = (f: number) => `${(f * buffer.duration).toFixed(2)} s`;
   const state = get();
@@ -322,7 +328,7 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
   return (
     <div className="chop-editor">
       <Section
-        title={`Chop · ${name}`}
+        title={`Sample · ${name}`}
         actions={
           <>
             {source}
@@ -423,6 +429,12 @@ function ChopSessionView({ chop, buffer, source }: { chop: ChopSession; buffer: 
             {stretching ? "Stretching…" : `Stretch ${bpmText(tempo.bpm)} → ${bpmText(chop.toBpm)}`}
           </button>
           {chop.from && <button onClick={chopOriginal} title="Back to the sample before the stretch">↺ Original</button>}
+          <Field label="Stem">
+            <div className="segmented" title="Split the sample into its drums and the rest, both added to the library (Launchkey: Sample page, encoder 7)">
+              {STEMS.map((s) => <button key={s} className={shownStem(chop) === s ? "on" : ""} disabled={separating} onClick={() => void stemTo(s)}>{STEM_NAMES[s]}</button>)}
+            </div>
+          </Field>
+          {separating && <span className="hint">Separating…</span>}
         </div>
 
         <p className="hint tip">

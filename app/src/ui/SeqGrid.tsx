@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { sequencer } from "../seq/sequencer";
 import { BAR_TICKS, GRID_OPTIONS, MAX_BARS, PPQN, QUANTIZE_OPTIONS, gridLabel, humanizeEvents, maxNudge, pageSteps, quantizeEvents } from "../seq/timing";
-import { clearTrack, clipOf, clipStep, copyClip, copyPattern, doubleClip, patternHasNotes, selectedTrack, set, setClipGrid, setTrackBars, togglePadFlag, toggleStep, toggleTrackFlag, trackBars, updateClip, updatePattern, useApp } from "../state/store";
-import { PAD_COUNT } from "../state/types";
+import { clearTrack, clipOf, clipStep, copyClip, copyPattern, doubleClip, drumNoteName, patternHasNotes, selectedTrack, set, setClipGrid, setTrackBars, togglePadFlag, toggleStep, toggleTrackFlag, trackBars, updateClip, updatePattern, useApp } from "../state/store";
+import { KEY_CHOP0, PAD_COUNT, isKeyChop } from "../state/types";
+import { engine } from "../audio/engine";
+import { CHOP_KEY0 } from "../modes/chop";
 import { noteName } from "./notes";
 import { Section } from "./controls";
 import { inkOn, mute, paletteCss } from "./palette";
@@ -71,9 +73,13 @@ export function SeqGrid() {
   const [strength, setStrength] = useState(1);
   const empty = !clip.events.length;
 
-  // Drum track: one row per pad. Keys track: one row with every note.
+  // Drum track: one row per pad, then on a chop track one per chop played on its keys. Keys track: one row with every note.
+  const keyChops = [...new Set(clip.events.filter((e) => drum && isKeyChop(e.note)).map((e) => e.note))].sort((a, b) => a - b);
   const rows = drum
-    ? Array.from({ length: PAD_COUNT }, (_, i) => ({ key: i, name: track.pads[i].name, color: paletteCss(track.pads[i].color), note: i, events: clip.events.filter((e) => e.note === i) }))
+    ? [
+        ...Array.from({ length: PAD_COUNT }, (_, i) => ({ key: i, name: track.pads[i].name, color: paletteCss(track.pads[i].color), note: i, events: clip.events.filter((e) => e.note === i) })),
+        ...keyChops.map((n) => ({ key: n, name: `${noteName(CHOP_KEY0 + n - KEY_CHOP0)} ${drumNoteName(track, n)}`, color: paletteCss(track.color), note: n, events: clip.events.filter((e) => e.note === n) })),
+      ]
     : [{ key: -1, name: track.name, color: mute("#a46bff", 0.12), note: keyNote, events: clip.events }];
 
   return (
@@ -165,11 +171,17 @@ export function SeqGrid() {
         </div>
         {rows.map((row) => (
           <div key={row.key} className={`seq-row ${drum && selectedPad === row.note ? "selected" : ""}`} style={{ "--row": row.color, "--on-pad": inkOn(row.color) } as React.CSSProperties}>
-            <button className="seq-name" onClick={() => drum && set({ selectedPad: row.note })}>{row.name}</button>
-            {drum ? <>
+            {drum && isKeyChop(row.note) ? <>
+              {/* A chop on the keys: the name plays it; mute and solo are the pads' own. */}
+              <button className="seq-name" onClick={() => engine.voices.pad(track.id, row.note, 100, engine.ctx.currentTime)}>{row.name}</button>
+              <span />
+              <span />
+            </> : drum ? <>
+              <button className="seq-name" onClick={() => set({ selectedPad: row.note })}>{row.name}</button>
               <button className={`ms ${track.padMutes[row.note] ? "on" : ""}`} onClick={() => togglePadFlag(track.id, row.note, "padMutes")}>M</button>
               <button className={`ms solo ${track.padSolos[row.note] ? "on" : ""}`} onClick={() => togglePadFlag(track.id, row.note, "padSolos")}>S</button>
             </> : <>
+              <button className="seq-name">{row.name}</button>
               <button className={`ms ${track.mute ? "on" : ""}`} onClick={() => toggleTrackFlag(track.id, "mute")}>M</button>
               <button className={`ms solo ${track.solo ? "on" : ""}`} onClick={() => toggleTrackFlag(track.id, "solo")}>S</button>
             </>}

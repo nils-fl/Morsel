@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  DRUMS_ID, KEYS_ID, addEvent, addTrack, clipOf, editStep, markUndo, canRemoveTrack, copyClip, copyPattern, defaultPad, doubleClip, setClipGrid, setTrackBars, clipStep, stepPages, setTrackDuck, setDuckPad, padDucks, toggleSidechainInput, trackBars, trackLength, updateKeys, setFxOn, moveFx, normalizeFx, defaultProject, fixSelection, get, migrateV1, normalizeProject, removeTrack, resetSession, selectTrack, set, stepTrack, undo, redo, updateProject, undoTrack, trackUndoSteps,
+  DRUMS_ID, KEYS_ID, addEvent, addTrack, clipOf, editStep, markUndo, canRemoveTrack, copyClip, copyPattern, defaultPad, doubleClip, setClipGrid, setTrackBars, clipStep, stepPages, setTrackDuck, setDuckPad, padDucks, toggleSidechainInput, trackBars, trackLength, updateKeys, setFxOn, moveFx, normalizeFx, defaultProject, fixSelection, get, migrateV1, normalizeProject, removeTrack, resetSession, selectTrack, set, stepTrack, undo, redo, updateProject, undoTrack, trackUndoSteps, usedSampleIds,
 } from "./store";
-import { MAX_TRACKS, PATTERN_COUNT, type NoteEvent, type Project } from "./types";
+import { DEFAULT_SLICE, MAX_TRACKS, PATTERN_COUNT, type NoteEvent, type Project } from "./types";
 import { DECAY_MAX } from "../audio/dsp";
 
 const ev = (id: string, tick: number, note: number): NoteEvent => ({ id, tick, note, vel: 100, len: 10 });
@@ -72,6 +72,23 @@ describe("normalizeProject", () => {
     expect(p.patterns[0].bars).toBe(16);
     expect(p.patterns[0].clips.d.events.map((e) => e.id)).toEqual(["a"]); // pad 99 doesn't exist on a drum track
     expect(p.song).toEqual([{ pattern: 3, repeats: 2 }]);
+  });
+
+  it("keeps a chop track's chops and the notes of its keys (past the pads)", () => {
+    const chops = { sampleId: "x", markers: [0, 0.5, 1], slices: [{ pitch: 2, choke: false }], group: 1 };
+    const p = normalizeProject({
+      tracks: [{ id: "d", kind: "drum", chops }, { id: "k", kind: "keys", chops }],
+      patterns: [{ bars: 1, clips: { d: { events: [ev("a", 0, 15), ev("b", 0, 16), ev("c", 0, 47), ev("d", 0, 48)] } } }],
+    });
+    expect(p.tracks[0].chops).toEqual({ ...chops, slices: [{ pitch: 2, choke: false }, DEFAULT_SLICE] });
+    expect(p.tracks[1].chops).toBeNull();
+    expect(p.patterns[0].clips.d.events.map((e) => e.id)).toEqual(["a", "b", "c"]);
+    expect(usedSampleIds(p).has("x")).toBe(true);
+  });
+
+  it("drops chops it can't play", () => {
+    const bad = [{ markers: [0, 1] }, { sampleId: "x", markers: [0.5, 0.2, 1] }, { sampleId: "x", markers: [0] }, { sampleId: "x", markers: [0, 2] }];
+    for (const chops of bad) expect(normalizeProject({ tracks: [{ id: "d", kind: "drum", chops }] }).tracks[0].chops).toBeNull();
   });
 
   it("gives repeated event ids (from the old Double button) fresh ones", () => {

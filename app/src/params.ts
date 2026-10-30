@@ -5,8 +5,8 @@ import { reverbSeconds } from "./audio/reverb";
 import { crushHold } from "./audio/worklet/crushCore";
 import type { Visual } from "./modes/notify";
 import { BAR_TICKS, GRID_OPTIONS, MAX_BARS, PPQN, QUANTIZE_OPTIONS, REPEAT_OPTIONS, STEP_TICKS, gridLabel, pageSteps } from "./seq/timing";
-import { clipStep, defaultDuck, doubleClip, drumPads, get, keysStepNote, quantizeToGrid, setFxOn, setFxParams, setClipGrid, stepPages, inputOf, keysTrack, padDucks, parseInput, setDuckPad, setTrackBars, setTrackDuck, toggleSidechainInput, trackBars, selectedTrack, set, trackById, updateKeys, updatePad, updateProject, updateTrack } from "./state/store";
-import { FX_KINDS, MAX_TRACKS, PAD_COUNT, type FxKind, type KeysLfo, type Pad, type SampleInfo, type SidechainInput, type SynthParams, type TrackDuck, type TrackFx, type TrackKind, type Wave } from "./state/types";
+import { clipStep, defaultDuck, doubleClip, drumNoteName, drumPads, get, keysStepNote, quantizeToGrid, setFxOn, setFxParams, setClipGrid, stepPages, inputOf, keysTrack, padDucks, parseInput, setDuckPad, setTrackBars, setTrackDuck, toggleSidechainInput, trackBars, selectedTrack, set, trackById, updateKeys, updatePad, updateProject, updateTrack } from "./state/store";
+import { FX_KINDS, MAX_TRACKS, PAD_COUNT, isKeyChop, type FxKind, type KeysLfo, type Pad, type SampleInfo, type SidechainInput, type SynthParams, type TrackDuck, type TrackFx, type TrackKind, type Wave } from "./state/types";
 import { allPresets, applyPreset, currentKit, kitNames, stepKit } from "./actions";
 import { jumpFolder, presetEdited } from "./audio/synthPresets";
 import { noteName } from "./ui/notes";
@@ -160,6 +160,7 @@ const cents = (v: number) => `${v > 0 ? "+" : ""}${Math.round(v)} ct`;
 /** "P1 Kick" for a pad of a drum track; with `withTrack`, "Drums P1 Kick". */
 export function padLabel(trackId: string, pad: number, withTrack = false) {
   const t = trackById(get().project, trackId);
+  if (t && isKeyChop(pad)) return `${withTrack ? `${t.name} ` : ""}${drumNoteName(t, pad)}`;
   return `${withTrack && t ? `${t.name} ` : ""}P${pad + 1} ${t?.pads[pad]?.name ?? ""}`.trim();
 }
 

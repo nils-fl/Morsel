@@ -293,13 +293,13 @@ export function shiftRows(mode: HwMode, kind: TrackKind, sampling: boolean, onFo
     ["Func", "Undo"],
     ["Scene", mode === "step" && kind === "drum" ? "Clear pad" : "Clear track"],
     track,
-    kind === "drum" ? ["Enc ^v", "Browse/Chop"] : ["Enc ^", "Browse"],
+    kind === "drum" ? ["Enc ^v", "Browse/Sample"] : ["Enc ^", "Browse"],
   ];
 }
 
 /** Two 16-character lines for the device's own text popup while Shift is held (when the bitmap can't show). */
 export function shiftCoverText(mode: HwMode, kind: TrackKind, onFolder = true): [string, string] {
-  if (mode === "browse") return [!onFolder ? "Fn=Load + exit" : kind === "drum" ? "Fn=Folder>pads" : "Fn=Folder>multi", "Enc^=Exit v=Chop"];
+  if (mode === "browse") return [!onFolder ? "Fn=Load + exit" : kind === "drum" ? "Fn=Folder>pads" : "Fn=Folder>multi", "Enc^=Exit v=Smpl"];
   if (mode === "chop") return ["Scn=Del marker", "Encv=Exit chop"];
   return ["Play=Met Rec=Smp", "Fn=Undo Scn=Clr"];
 }

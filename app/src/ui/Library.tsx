@@ -249,8 +249,8 @@ function Drawer() {
       ];
     }
     if (e.kind === "sample") {
-      const { pads, zones } = sampleUsers(e.id);
-      const used = [pads && `${pads} pad${pads === 1 ? "" : "s"}`, zones && `${zones} Keys zone${zones === 1 ? "" : "s"}`].filter(Boolean).join(", ");
+      const { pads, zones, chops } = sampleUsers(e.id);
+      const used = [pads && `${pads} pad${pads === 1 ? "" : "s"}`, zones && `${zones} Keys zone${zones === 1 ? "" : "s"}`, chops && `${chops} chop track${chops === 1 ? "" : "s"}`].filter(Boolean).join(", ");
       return [
         { label: used ? `Used by ${used}` : "Not on any pad or zone" },
         { label: pad, run: () => load(e) },

@@ -35,6 +35,8 @@ const TAB_COLOR: Record<Tab, string> = {
   Track: "var(--magenta)", Chop: "var(--orange)", Sequencer: "var(--cyan)", Mixer: "var(--blue)", Song: "var(--lime)",
 };
 const KEYS_COLOR = "var(--violet)";
+/** The Chop tab is the sample editor: its Sample page (trim, stem, stretch) and its Chop page. */
+const TAB_LABEL: Partial<Record<Tab, string>> = { Chop: "Sample" };
 
 export default function App() {
   const track = useApp(selectedTrack);
@@ -137,7 +139,7 @@ export default function App() {
       <nav className="tabs">
         {TABS.filter((t) => t !== "Chop" || showChop).map((t) => (
           <button key={t} className={t === tab ? "on" : ""} style={{ "--tab": color(t) } as React.CSSProperties} onClick={() => setTab(t)}>
-            {t === "Track" ? `${track.kind === "drum" ? "▦" : "♪"} ${track.name}` : t}
+            {t === "Track" ? `${track.kind === "drum" ? "▦" : "♪"} ${track.name}` : TAB_LABEL[t] ?? t}
           </button>
         ))}
       </nav>

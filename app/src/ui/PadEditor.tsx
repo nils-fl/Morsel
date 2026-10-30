@@ -139,7 +139,7 @@ function SampleChopPanel() {
         {source === "tab" && !tabShared
           ? TAB_WORDS.hint
           : `Shift + Record (or ● Sample) arms a take; it starts with the sound${source === "tab" ? " (press play in the tab), up to 2 min" : ", up to 30 s"}. ` +
-            (target === "chop" ? "The take opens in Chop: trim it on the Sample page, Encoder page ⌄ chops it, Function makes a new drum rack." : `The take goes on pad ${pad + 1}.`)}
+            (target === "chop" ? "The take opens in Sample mode: trim or stretch it on the Sample page, Encoder page ⌄ chops it, Function makes a new drum rack." : `The take goes on pad ${pad + 1}.`)}
       </p>
       <div className="row grow-first">
         <select value={source} disabled={sampling !== "idle"} onChange={(e) => set({ sampleSource: e.target.value as SampleSource })}>
@@ -151,7 +151,7 @@ function SampleChopPanel() {
           {sampling === "idle" ? "● Sample" : sampling === "waiting" ? "Waiting… (stop)" : "■ Stop"}
         </button>
         <select value={target} onChange={(e) => set({ sampleTarget: e.target.value as SampleTarget })} title="Where a take lands">
-          <option value="chop">Take → Chop</option>
+          <option value="chop">Take → Sample</option>
           <option value="pad">Take → pad {pad + 1}</option>
         </select>
       </div>

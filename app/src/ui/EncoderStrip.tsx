@@ -51,9 +51,9 @@ export function EncoderStrip() {
       <div className="enc-strip">
         <button
           className="enc-tag" onClick={() => chopSetPage(chopPage === "sample" ? "chop" : "sample")}
-          title="Chop's encoder pages: Sample (start, end, keep, tempo) and Chop (steps, markers, chops). Click for the other one (Launchkey: Encoder page ⌃ / ⌄)"
+          title="Sample mode's encoder pages: Sample (start, end, tempo, stretch, stem) and Chop (steps, markers, chops). Click for the other one (Launchkey: Encoder page ⌃ / ⌄)"
         >
-          <b>CHOP {chopPage === "sample" ? 1 : 2}/2</b><span>{chopPageInfo()}</span>
+          <b>SAMPLE {chopPage === "sample" ? 1 : 2}/2</b><span>{chopPageInfo()}</span>
         </button>
         <div className="enc-knobs">
           {Array.from({ length: 8 }, (_, i) => <EncoderCell key={i} index={i} p={params[i]} turn={turnChop} />)}

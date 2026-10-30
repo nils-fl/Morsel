@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // A one-second silent buffer stands in for the chopped sample; auditions and pad hits are recorded.
-const played = vi.hoisted(() => ({ chops: [] as { offset: number; rate?: number; choke?: boolean }[], pads: [] as [string, number][] }));
+const played = vi.hoisted(() => ({ chops: [] as { offset: number; rate?: number; choke?: boolean }[], pads: [] as [string, number][], added: [] as string[], splits: 0 }));
 vi.mock("../audio/engine", () => ({
   engine: {
-    buffer: () => ({ length: 44100, duration: 1, getChannelData: () => new Float32Array(44100) }),
+    buffer: () => ({ length: 44100, duration: 1, numberOfChannels: 1, sampleRate: 44100, getChannelData: () => new Float32Array(44100) }),
+    addBuffer: async (name: string) => {
+      played.added.push(name);
+      return `id:${name}`;
+    },
     ctx: { currentTime: 0 },
     chopVoice: (_id: string, offset: number, _dur: number, o: { rate?: number; choke?: boolean }) => {
       played.chops.push({ offset, ...o });
@@ -15,7 +19,20 @@ vi.mock("../audio/engine", () => ({
   },
 }));
 
-import { CHOP_KEY0, chopEncoder, chopSetPage, chopKeyDown, chopKeysReleased, chopKeyUp, chopMarkerArrows, chopPad, chopRack, chopStepMarker, newChop, updateChop } from "./chop";
+vi.mock("../audio/hpss", () => ({
+  hpssAsync: async (channels: Float32Array[]) => {
+    played.splits++;
+    return { drums: channels, harmonic: channels };
+  },
+}));
+vi.stubGlobal("AudioBuffer", class {
+  constructor(o: { length: number }) {
+    Object.assign(this, o);
+  }
+  copyToChannel() {}
+});
+
+import { CHOP_KEY0, chopStem, shownStem, chopEncoder, chopSetPage, chopKeyDown, chopKeysReleased, chopKeyUp, chopMarkerArrows, chopPad, chopRack, chopStepMarker, newChop, updateChop } from "./chop";
 import { DRUMS_ID, KEYS_ID, defaultProject, get, set } from "../state/store";
 import { DEFAULT_SLICE } from "../state/types";
 
@@ -27,6 +44,8 @@ beforeEach(() => {
   chopKeysReleased();
   played.chops = [];
   played.pads = [];
+  played.added = [];
+  played.splits = 0;
 });
 
 describe("chop marker stepping (encoder 3, Pad up / down)", () => {
@@ -107,6 +126,21 @@ describe("key + pad", () => {
     const pads = chopRack()!.pads;
     expect([pads[0].start, pads[1].start]).toEqual([0.5, 0]);
     expect([pads[0].choke, pads[1].choke]).toEqual([1, 0]);
+  });
+
+  it("keeps every chop on the new chop track for its keys, following later edits", () => {
+    session(null);
+    const slices = [DEFAULT_SLICE, { pitch: 2, choke: false }, DEFAULT_SLICE];
+    updateChop({ slices });
+    chopKeyDown(CHOP_KEY0 + 1, 100);
+    chopPad(4, 100);
+    expect(chopRack()!.chops).toEqual({ sampleId: "s", markers: [0, 0.25, 0.5, 1], slices, group: 1 });
+    updateChop({ markers: [0, 0.3, 0.5, 1] });
+    expect(chopRack()!.chops!.markers).toEqual([0, 0.3, 0.5, 1]);
+    // Scrolling the view doesn't touch the track.
+    const before = chopRack()!.chops;
+    updateChop({ view: [0, 0.5] });
+    expect(chopRack()!.chops).toBe(before);
   });
 
   it("plays the rack's pad when no key is held", () => {
@@ -275,5 +309,45 @@ describe("changing a chop after it is on a pad", () => {
     expect(chopRack()!.pads.slice(0, 2).map((p) => p.choke)).toEqual([0, 0]);
     chopEncoder(7, 1, true);
     expect(chopRack()!.pads.slice(0, 2).map((p) => p.choke)).toEqual([1, 1]);
+  });
+});
+
+describe("stems (Sample page, encoder 7)", () => {
+  it("splits the sample once, adds both stems and switches with the markers where they were", async () => {
+    session(null);
+    set({ samples: { s: { id: "s", name: "Loop", folder: "Breaks" } } });
+    await chopStem("noDrums");
+    const c = get().chop!;
+    expect(played.splits).toBe(1);
+    expect(played.added).toEqual(["Loop drums", "Loop no drums"]);
+    expect(c.sampleId).toBe("id:Loop no drums");
+    expect(c.markers).toEqual([0, 0.25, 0.5, 1]);
+    expect(shownStem(c)).toBe("noDrums");
+    await chopStem("drums");
+    await chopStem("full");
+    expect(played.splits).toBe(1);
+    expect(get().chop!.sampleId).toBe("s");
+  });
+
+  it("steps through Full, Drums, No drums on encoder 7", async () => {
+    session(null);
+    updateChop({ page: "sample" });
+    chopEncoder(6, 1, false);
+    await vi.waitFor(() => expect(shownStem(get().chop!)).toBe("drums"));
+    chopEncoder(6, 1, false);
+    expect(shownStem(get().chop!)).toBe("noDrums");
+    chopEncoder(6, -1, false);
+    chopEncoder(6, -1, false);
+    expect(get().chop!.sampleId).toBe("s");
+  });
+
+  it("moves a chop track's keys to the stem", async () => {
+    session(null);
+    chopKeyDown(CHOP_KEY0, 100);
+    chopPad(0, 100);
+    chopKeyUp(CHOP_KEY0);
+    await chopStem("drums");
+    expect(chopRack()!.chops!.sampleId).toBe(get().chop!.sampleId);
+    expect(chopRack()!.chops!.sampleId).not.toBe("s");
   });
 });

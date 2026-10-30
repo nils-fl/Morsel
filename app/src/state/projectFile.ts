@@ -226,6 +226,7 @@ export async function importProject(f: File, eng: typeof Engine) {
       zones: t.keys.zones.flatMap((z) => (idMap.has(z.sampleId) ? [{ ...z, sampleId: idMap.get(z.sampleId)! }] : [])),
       sample: { ...t.keys.sample, sampleId: t.keys.sample.sampleId ? idMap.get(t.keys.sample.sampleId) ?? null : null },
     },
+    chops: t.chops && idMap.has(t.chops.sampleId) ? { ...t.chops, sampleId: idMap.get(t.chops.sampleId)! } : null,
   }));
   openProject(p, `Imported ${p.name}`);
 }

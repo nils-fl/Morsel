@@ -35,6 +35,13 @@ export function playPad(i: number, vel: number) {
   sequencer.recordPad(track, i, vel, when);
 }
 
+/** A chop track's key chop (drum note KEY_CHOP0 + k) on its keys, recorded like a pad. */
+export function playKeyChop(track: string, note: number, vel: number) {
+  const when = liveWhen();
+  engine.voices.pad(track, note, vel, when);
+  sequencer.recordPad(track, note, vel, when);
+}
+
 export function releasePad(i: number) {
   engine.voices.releasePad(drumTrack().id, i, liveWhen());
 }
@@ -284,7 +291,8 @@ export async function sendChopToNewTrack() {
   const n = Math.min(markers.length - 1, PAD_COUNT);
   const name = nextChopName();
   const empty = Array.from({ length: PAD_COUNT }, (_, i) => defaultPad(i));
-  const id = addTrack("drum", { name, pads: slicePads(empty, sampleId, markers, 0, "Chop", slices) });
+  // Chops 1-16 on the pads, and all of them on its keys (slicePads chokes in group 1).
+  const id = addTrack("drum", { name, pads: slicePads(empty, sampleId, markers, 0, "Chop", slices), chops: { sampleId, markers, slices, group: 1 } });
   let msg: string;
   if (id) {
     msg = `${name}: ${n} chop${n === 1 ? "" : "s"} on pads 1–${n}`;
@@ -413,7 +421,7 @@ export function openInChop() {
   set({ chop: newChop(pad.sampleId, [Math.min(pad.start, pad.end), Math.max(pad.start, pad.end)]), tab: "Chop" });
 }
 
-/** Pads and Keys zones using any of the samples, on every track. */
+/** Pads, Keys zones and chop tracks' keys using any of the samples, on every track. */
 export function sampleUsers(id: string | Set<string>) {
   const ids = typeof id === "string" ? new Set([id]) : id;
   const has = (x: string | null) => x !== null && ids.has(x);
@@ -421,12 +429,14 @@ export function sampleUsers(id: string | Set<string>) {
   return {
     pads: tracks.reduce((n, t) => n + t.pads.filter((pad) => has(pad.sampleId)).length, 0),
     zones: tracks.reduce((n, t) => n + (t.keys?.zones.filter((z) => has(z.sampleId)).length ?? 0) + (t.keys && has(t.keys.sample.sampleId) ? 1 : 0), 0),
+    chops: tracks.filter((t) => t.chops && has(t.chops.sampleId)).length,
   };
 }
 
 /** "3 pads and 1 Keys zone", or "" when nothing uses them. */
-function usersText({ pads, zones }: { pads: number; zones: number }) {
-  return [pads && `${pads} pad${pads === 1 ? "" : "s"}`, zones && `${zones} Keys zone${zones === 1 ? "" : "s"}`].filter(Boolean).join(" and ");
+function usersText({ pads, zones, chops }: { pads: number; zones: number; chops: number }) {
+  const parts = [pads && `${pads} pad${pads === 1 ? "" : "s"}`, zones && `${zones} Keys zone${zones === 1 ? "" : "s"}`, chops && `the keys of ${chops} chop track${chops === 1 ? "" : "s"}`];
+  return parts.filter(Boolean).join(" and ");
 }
 
 /**
@@ -449,6 +459,7 @@ async function deleteSamplesEverywhere(ids: Set<string>) {
         zones: t.keys.zones.filter((z) => !ids.has(z.sampleId)),
         sample: t.keys.sample.sampleId && ids.has(t.keys.sample.sampleId) ? { ...t.keys.sample, sampleId: null } : t.keys.sample,
       },
+      chops: t.chops && ids.has(t.chops.sampleId) ? null : t.chops,
     })),
   });
   updateProject(strip, false);

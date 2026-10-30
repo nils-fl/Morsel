@@ -4,8 +4,8 @@ import type { SynthPreset } from "../audio/synthPresets";
 import { useStore } from "zustand";
 import { COLOR } from "../midi/protocol";
 import { BAR_TICKS, GRID_OPTIONS, MAX_BARS, STEP_TICKS, maxNudge, pageSteps, quantizeEvents } from "../seq/timing";
-import type { ChopSession, Clip, FxKind, HwMode, KeysInstrument, KeysLfo, KeysSample, NoteEvent, Pad, Pattern, Project, Returns, SampleInfo, SampleSource, SampleTarget, SidechainInput, SynthParams, Tab, Track, TrackDuck, TrackFx, TrackKind, Wave, Zone } from "./types";
-import { DEFAULT_MASTER_LEVEL, FX_KINDS, MAX_TRACKS, PAD_COUNT, PATTERN_COUNT } from "./types";
+import type { ChopSession, Clip, FxKind, HwMode, KeysInstrument, KeysLfo, KeysSample, NoteEvent, Pad, Pattern, Project, Returns, SampleInfo, SampleSource, SampleTarget, SidechainInput, SliceOpts, SynthParams, Tab, Track, TrackChops, TrackDuck, TrackFx, TrackKind, Wave, Zone } from "./types";
+import { DEFAULT_MASTER_LEVEL, DEFAULT_SLICE, FX_KINDS, KEY_CHOP0, MAX_KEY_CHOPS, isKeyChop, MAX_TRACKS, PAD_COUNT, PATTERN_COUNT } from "./types";
 
 export const PAD_COLORS = [
   COLOR.red, COLOR.orange, COLOR.yellow, COLOR.lime, COLOR.green, COLOR.mint, COLOR.cyan, COLOR.sky,
@@ -159,6 +159,7 @@ export function defaultTrack(kind: TrackKind, id: string, index = 0, name?: stri
     sendB: kind === "keys" ? 0.08 : 0,
     fx: defaultFx(),
     duck: defaultDuck(kind),
+    chops: null,
   };
 }
 
@@ -167,6 +168,9 @@ export const defaultDuck = (kind: TrackKind = "keys"): TrackDuck => ({
   on: false, input: null, depth: 0.85, attack: 0.005, hold: 0.06, release: 0.3,
   ...(kind === "drum" ? { pads: Array<boolean>(PAD_COUNT).fill(true) } : {}),
 });
+
+/** A drum note's name: its pad's, or "Chop 3" for a chop track's key chop. */
+export const drumNoteName = (t: Track, note: number) => (isKeyChop(note) ? `Chop ${note - KEY_CHOP0 + 1}` : t.pads[note]?.name ?? "");
 
 /** Whether a pad of a drum track dips when its duck's input is hit (never the input pad itself). */
 export function padDucks(t: Track, pad: number) {
@@ -344,7 +348,22 @@ function normalizeTrack(raw: Record<string, unknown>, index: number, ids: Set<st
     sendB: num(raw.sendB, 0, 1, 0),
     fx: normalizeFx(raw.fx),
     duck: normalizeTrackDuck(raw.duck, kind),
+    chops: kind === "drum" ? normalizeChops(raw.chops) : null,
   };
+}
+
+/** A chop track's chops: 1..MAX_KEY_CHOPS chops between ascending markers in 0..1, else none. */
+function normalizeChops(raw: unknown): TrackChops | null {
+  if (!isObj(raw) || typeof raw.sampleId !== "string" || !raw.sampleId || !Array.isArray(raw.markers)) return null;
+  const markers = raw.markers;
+  if (markers.length < 2 || markers.length > MAX_KEY_CHOPS + 1) return null;
+  if (!markers.every((m, i) => typeof m === "number" && m >= 0 && m <= 1 && (i === 0 || m > markers[i - 1]))) return null;
+  const rawSlices = Array.isArray(raw.slices) ? raw.slices : [];
+  const slices = Array.from({ length: markers.length - 1 }, (_, k): SliceOpts => {
+    const o = rawSlices[k];
+    return isObj(o) ? { pitch: Math.round(num(o.pitch, -24, 24, 0)), choke: bool(o.choke, DEFAULT_SLICE.choke) } : DEFAULT_SLICE;
+  });
+  return { sampleId: raw.sampleId, markers: markers as number[], slices, group: Math.round(num(raw.group, 0, 4, 1)) };
 }
 
 /** The input is checked once the project's inputs are known. */
@@ -381,7 +400,8 @@ function normalizeClip(raw: unknown, track: Track, patternBars: number, seen: Se
   const limit = maxNudge(step ?? STEP_TICKS);
   const events = (isObj(raw) && Array.isArray(raw.events) ? raw.events : []).flatMap((e): NoteEvent[] => {
     if (!isObj(e) || typeof e.tick !== "number" || e.tick < 0 || e.tick >= bars * BAR_TICKS) return [];
-    if (track.kind === "drum" && (typeof e.note !== "number" || e.note < 0 || e.note >= PAD_COUNT)) return [];
+    // Drum notes: the pads, then a chop track's key chops.
+    if (track.kind === "drum" && (typeof e.note !== "number" || e.note < 0 || e.note >= KEY_CHOP0 + MAX_KEY_CHOPS)) return [];
     // Old "Double" copies shared ids with their originals; give any repeat a fresh one.
     let id = typeof e.id === "string" ? e.id : newId();
     if (seen.has(id)) id = newId();
@@ -611,6 +631,7 @@ export function usedSampleIds(p: Project) {
     t.pads.forEach((pad) => pad.sampleId && ids.add(pad.sampleId));
     t.keys?.zones.forEach((z) => ids.add(z.sampleId));
     if (t.keys?.sample.sampleId) ids.add(t.keys.sample.sampleId);
+    if (t.chops) ids.add(t.chops.sampleId);
   }
   return ids;
 }
@@ -839,7 +860,7 @@ export const canRemoveTrack = (p: Project, id: string) => {
 };
 
 /** Add a track (up to 8), optionally with its name and pads, and select it. One undo step. Returns its id. */
-export function addTrack(kind: TrackKind, opts: { name?: string; pads?: Pad[]; kit?: string } = {}): string | null {
+export function addTrack(kind: TrackKind, opts: { name?: string; pads?: Pad[]; kit?: string; chops?: TrackChops } = {}): string | null {
   const p = get().project;
   if (!canAddTrack(p)) return null;
   const id = newId();
@@ -847,6 +868,7 @@ export function addTrack(kind: TrackKind, opts: { name?: string; pads?: Pad[]; k
   const t = defaultTrack(kind, id, p.tracks.length, opts.name ?? `${kind === "drum" ? "Drums" : "Keys"} ${n}`);
   if (opts.pads && kind === "drum") t.pads = normalizePads(opts.pads);
   if (opts.kit && kind === "drum") t.kit = opts.kit;
+  if (opts.chops && kind === "drum") t.chops = opts.chops;
   if (t.keys) t.keys.sourceTrack = drumTrack().id;
   updateProject((pr) => ({ ...pr, tracks: [...pr.tracks, t] }));
   selectTrack(id);

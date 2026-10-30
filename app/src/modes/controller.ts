@@ -1,5 +1,5 @@
 // Maps Launchkey events to actions per hardware mode, and renders LEDs + display.
-import { addDrumTrack, allPresets, bendKeys, currentKit, finishChop, keepRegion, keyOff, keyOn, modKeys, kitNames, liveWhen, openInChop, playPad, releasePad, setRepeatLatch, stretchChop, toggleSampling, togglePlay, toggleRecord } from "../actions";
+import { addDrumTrack, allPresets, bendKeys, currentKit, finishChop, keepRegion, keyOff, keyOn, modKeys, kitNames, liveWhen, openInChop, playKeyChop, playPad, releasePad, setRepeatLatch, stretchChop, toggleSampling, togglePlay, toggleRecord } from "../actions";
 import { engine } from "../audio/engine";
 import { launchkey } from "../midi/launchkey";
 import { countOnce } from "../platform/stats";
@@ -9,15 +9,15 @@ import { DUCK_PAGE, PAGES, STEP_PAGE, fixPage, inputLabel, keysSampleList, padLa
 import { makeTicker, sequencer } from "../seq/sequencer";
 import { PPQN, REPEAT_OPTIONS, maxNudge, pageSteps, rowSteps } from "../seq/timing";
 import {
-  type AppState, addTrack, clearTrack, clipOf, copyClip, copyPattern, drumPads, drumTrack, editStep, get, keysStepNote, keysTrack, markUndo, padDucks, patternHasNotes, selectTrack,
+  type AppState, addTrack, clearTrack, clipOf, copyClip, copyPattern, drumNoteName, drumPads, drumTrack, editStep, get, keysStepNote, keysTrack, markUndo, padDucks, patternHasNotes, selectTrack,
   selectedTrack, set, stepEvents, stepTrack, store, trackById, togglePadFlag, toggleStep, toggleTrackFlag, trackAudible, trackBars, trackLength, trackUndoSteps, clipStep, stepPages, undoTrack, updateProject, PAD_COLORS,
 } from "../state/store";
-import type { HwMode, KeysInstrument, NoteEvent, Track, TrackKind } from "../state/types";
+import { KEY_CHOP0, isKeyChop, type HwMode, type KeysInstrument, type NoteEvent, type Track, type TrackKind } from "../state/types";
 import { noteForKeysPad, stepForPad } from "./stepMap";
 import { enterStepTab, leaveStepTab } from "./stepTab";
 import { noteName } from "../ui/notes";
 import { activeOverlay, releaseHold, showTemp, type Overlay } from "./notify";
-import { chopAddMarker, chopEncoder, chopKeyDown, chopKeyUp, chopKeysReleased, chopMarkerArrows, chopPad, chopPadLeds, chopRemoveMarker, chopSetPage, chopStepMarker, chopStop, chopTogglePlay, chopView } from "./chop";
+import { CHOP_KEY0, newChop, chopAddMarker, chopEncoder, chopKeyDown, chopKeyUp, chopKeysReleased, chopMarkerArrows, chopPad, chopPadLeds, chopRemoveMarker, chopSetPage, chopStepMarker, chopStop, chopTogglePlay, chopView } from "./chop";
 import { browseCan, browseChop, browseKeys, browseDisplay, browseEncoder, browseEnter, browseLeds, browseOnFolder, browseOnSample, browseShiftEnter, browsePad, browseUp, browseView, enterBrowse, exitBrowse } from "./browse";
 import { H, W, type Frame } from "../display/frame";
 import { browserScreen, chopScreen, duckScreen, encoderScreen, gridScreen, keysScreen, padScreen, shiftCoverText, shiftEncHint, shiftRows, shiftScreen, stepScreen } from "../display/screens";
@@ -25,7 +25,7 @@ import { HEADER_H, computePeaks, duckPanel, filterPanel, overlayBar, type Peaks 
 import { BOOT_BURP_MS, BOOT_EAT_MS, BOOT_MS, bootFrame } from "../display/bootAnim";
 
 const MODES: HwMode[] = ["play", "step", "track", "mute", "pattern"];
-const MODE_NAMES: Record<HwMode, string> = { play: "Play", step: "Step", track: "Track", mute: "Mute", pattern: "Pattern", browse: "Browse", chop: "Chop" };
+const MODE_NAMES: Record<HwMode, string> = { play: "Play", step: "Step", track: "Track", mute: "Mute", pattern: "Pattern", browse: "Browse", chop: "Sample" };
 /** Modes entered on top of another one; leaving them returns to prevHwMode. */
 const TEMPORARY: HwMode[] = ["browse", "chop"];
 
@@ -67,7 +67,7 @@ export function setHwMode(mode: HwMode) {
   if (mode === "step") enterStepTab();
   else if (!TEMPORARY.includes(mode)) leaveStepTab();
   launchkey.setLayout(layoutFor(mode));
-  // The Func cycle shows where you are in it ("Mode 2/5"); Browse and Chop sit outside it.
+  // The Func cycle shows where you are in it ("Mode 2/5"); Browse and Sample (chop) sit outside it.
   const at = MODES.indexOf(mode);
   showTemp(at < 0 ? "Mode" : `Mode ${at + 1}/${MODES.length}`, MODE_NAMES[mode]);
 }
@@ -87,12 +87,19 @@ export function exitChopHw() {
 /** Shift + Encoder page ⌄: chop the selected pad's sample, or go back to the open chop when the pad is empty or holds the same sample. */
 function hwOpenChop() {
   const s = get();
+  const t = selectedTrack(s);
+  if (t.chops) {
+    // A chop track: back to its chop (markers, pitch, choke), with the track as the rack chops go onto.
+    if (s.chop?.rack?.id !== t.id) set({ chop: { ...newChop(t.chops.sampleId, t.chops.markers), slices: t.chops.slices, count: t.chops.markers.length - 1, rack: { id: t.id, group: t.chops.group }, page: "chop" } });
+    set({ tab: "Chop" });
+    return enterChopHw();
+  }
   const pad = drumPads(s)[s.selectedPad];
   if (s.chop && (!pad.sampleId || s.chop.sampleId === pad.sampleId)) {
     set({ tab: "Chop" });
     return enterChopHw();
   }
-  if (!pad.sampleId) return showTemp("Chop", "Pad is empty");
+  if (!pad.sampleId) return showTemp("Sample", "Pad is empty");
   openInChop();
   enterChopHw();
 }
@@ -127,7 +134,7 @@ function startErase(held: Map<number, { track: string; note: number }>, at: numb
   if (!get().playing) return showTemp("Erase", "Play first");
   held.set(at, { track: track.id, note });
   sequencer.eraseStart(track.id, note);
-  showTemp("Erase", track.kind === "drum" ? track.pads[note].name : noteName(note), { hold: true });
+  showTemp("Erase", track.kind === "drum" ? drumNoteName(track, note) : noteName(note), { hold: true });
 }
 
 function stopErase(held: Map<number, { track: string; note: number }>, at: number) {
@@ -325,6 +332,16 @@ const trackItemName = (s: AppState, t: Track) => (t.kind === "drum" ? t.pads[s.s
 /** Step mode: key -> pad, repeating every 16 keys. At the default octave the lowest key (C3 = 48) is pad 1. */
 export const padForKey = (note: number) => ((note % 16) + 16) % 16;
 
+/** What a key plays on a drum track: a chop track's key chop (C3 = chop 1), else a pad. Null (with a popup) past the
+ *  chops. */
+function drumNoteForKey(t: Track, note: number): number | null {
+  if (!t.chops) return padForKey(note);
+  const k = note - CHOP_KEY0, n = t.chops.markers.length - 1;
+  if (k >= 0 && k < n) return KEY_CHOP0 + k;
+  showTemp(noteName(note), k < 0 ? `Chop 1 is ${noteName(CHOP_KEY0)}` : `Only ${n} chops`);
+  return null;
+}
+
 function onKey(note: number, vel: number, on: boolean) {
   if (!on) stopErase(erasingKeys, note);
   if (!on) chopKeyUp(note);
@@ -332,7 +349,9 @@ function onKey(note: number, vel: number, on: boolean) {
   if (on && get().hwMode === "chop") return chopKeyDown(note, vel);
   if (on && funcHeld && get().hwMode === "play") {
     const sel = selectedTrack();
-    return sel.kind === "drum" ? startErase(erasingKeys, note, sel, padForKey(note)) : startErase(erasingKeys, note, keysTrack(), note);
+    if (sel.kind !== "drum") return startErase(erasingKeys, note, keysTrack(), note);
+    const drumNote = drumNoteForKey(sel, note);
+    return drumNote === null ? undefined : startErase(erasingKeys, note, sel, drumNote);
   }
   if (!on) {
     const track = instrumentKeys.get(note);
@@ -377,13 +396,18 @@ function onKey(note: number, vel: number, on: boolean) {
   }
   if (sel.kind === "drum") {
     // A drum track: the keys play its pads (C3 = pad 1 … D#4 = pad 16, then round again), recorded like the pads.
+    // A chop track's keys play its chops instead (C3 = chop 1), whichever of them are on its pads.
     // Held with Scene in Play, they repeat like held pads.
-    const pad = padForKey(note);
+    const pad = drumNoteForKey(sel, note);
+    if (pad === null) return;
     drumKeys.set(note, { track: sel.id, pad });
     if (s.hwMode === "play" && sequencer.repeatOn) {
       sequencer.repeatPads.set(`${sel.id}:${pad}`, { track: sel.id, pad, vel });
-      set({ selectedPad: pad });
+      if (!isKeyChop(pad)) set({ selectedPad: pad });
       sequencer.ensureRepeatClock();
+    } else if (isKeyChop(pad)) {
+      playKeyChop(sel.id, pad, vel);
+      showTemp(drumNoteName(sel, pad), noteName(note));
     } else playPad(pad, vel);
     return;
   }
@@ -575,7 +599,7 @@ function onButton(button: string, down: boolean) {
   if (down && s.shift && (button === "encPageUp" || button === "encPageDown")) {
     if (button === "encPageUp" ? s.hwMode === "browse" : s.hwMode === "chop") return button === "encPageUp" ? setHwMode(s.prevHwMode) : exitChopHw();
     if (button === "encPageDown" && s.hwMode === "browse") return void browseChop().then((ok) => ok && enterChopHw());
-    if (button === "encPageDown" && selectedTrack(s).kind !== "drum") return showTemp("Chop", "Drum track only");
+    if (button === "encPageDown" && selectedTrack(s).kind !== "drum") return showTemp("Sample", "Drum track only");
     return button === "encPageUp" ? setHwMode("browse") : hwOpenChop();
   }
   if (s.hwMode === "browse" && down) {

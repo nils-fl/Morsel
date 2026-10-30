@@ -190,7 +190,7 @@ async function loadItem(e: Exclude<Entry, { kind: "folder" }>): Promise<{ popup:
 export async function browseChop(): Promise<boolean> {
   const e = current();
   if (e?.kind !== "sample" && e?.kind !== "file") {
-    showTemp("Chop", "Pick a sample");
+    showTemp("Sample", "Pick a sample");
     return false;
   }
   let id: string;

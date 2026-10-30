@@ -140,9 +140,25 @@ export interface Track {
   fx: TrackFx;
   /** Ducked by a sidechain input: a keys track as a whole, a drum track pad by pad. */
   duck: TrackDuck;
+  /** A chop track (made from Chop): its chops, which its keys play (C3 = chop 1). Null on other tracks. */
+  chops: TrackChops | null;
 }
 
-/** A note in a clip. On drum tracks `note` is the pad index (0..15). */
+/** The chops a chop track keeps on its keys: the sample, its markers and each chop's pitch and choke (in `group`). */
+export interface TrackChops {
+  sampleId: string;
+  markers: number[];
+  slices: SliceOpts[];
+  group: number;
+}
+
+/** Drum notes from here on are a chop track's key chops: note KEY_CHOP0 + k = chop k (the pads are 0..15). */
+export const KEY_CHOP0 = PAD_COUNT;
+/** The most chops Chop makes (audio/chop.ts MAX_CHOPS), all of them on a chop track's keys. */
+export const MAX_KEY_CHOPS = 32;
+export const isKeyChop = (note: number) => note >= KEY_CHOP0;
+
+/** A note in a clip. On drum tracks `note` is the pad index (0..15), or a key chop (KEY_CHOP0 + k) on a chop track. */
 export interface NoteEvent {
   id: string;
   tick: number;
@@ -271,7 +287,16 @@ export interface ChopSession {
   toBpm: number;
   /** The sample before the last stretch, to go back to. */
   from?: { sampleId: string; markers: number[]; slices: SliceOpts[]; beats: number | null };
+  /** The sample split into its drums and the rest (audio/hpss.ts): the one shown is the one `sampleId` is. */
+  stems?: Stems;
 }
+
+export interface Stems {
+  full: string;
+  drums: string;
+  noDrums: string;
+}
+export type Stem = keyof Stems;
 
 export interface SampleInfo {
   id: string;

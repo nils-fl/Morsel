@@ -3,7 +3,14 @@ import { slicesFromMarkers } from "../audio/chop";
 import { DECAY_MAX } from "../audio/dsp";
 import { DRUM_NOTES } from "../midi/protocol";
 import { defaultPad } from "./store";
-import { PAD_COUNT, type Pad, type SliceOpts } from "./types";
+import { DEFAULT_SLICE, PAD_COUNT, type Pad, type SliceOpts } from "./types";
+
+/** Chop k of `chops` as pad `i` (colour `color`): its region, pitch and choke (`group` when it chokes), the rest a fresh pad. */
+export function chopAsPad(chops: { sampleId: string; markers: number[]; slices: SliceOpts[] }, k: number, i: number, color: number, group: number): Pad {
+  const [start, end] = slicesFromMarkers(chops.markers)[k];
+  const o = chops.slices[k] ?? DEFAULT_SLICE;
+  return { ...defaultPad(i), color, sampleId: chops.sampleId, name: `Chop ${k + 1}`, start, end, pitch: o.pitch, choke: o.choke ? group : 0, decay: DECAY_MAX, mode: "oneshot" };
+}
 
 /**
  * Slices between `markers` on consecutive pads from `firstPad`, keeping each pad's colour. Slices past pad 16 are dropped.

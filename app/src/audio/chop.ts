@@ -1,4 +1,5 @@
 // Slicing a sample into pad regions (fractions 0..1 of the buffer).
+import { MAX_KEY_CHOPS } from "../state/types";
 
 export type Slice = [start: number, end: number];
 
@@ -94,7 +95,7 @@ export function clampView(a: number, span: number, min: number): [number, number
 }
 
 /** Most chops a session makes: the keys play them (25 keys, more with the octave buttons). */
-export const MAX_CHOPS = 32;
+export const MAX_CHOPS = MAX_KEY_CHOPS;
 
 /**
  * Per-slice settings after the markers changed. Same count: a marker moved, so they stay. Otherwise each new slice

@@ -4,13 +4,13 @@
 // in beats and the tempo to stretch it to (Scene). Chop: scroll, zoom, pick and move markers, the number of steps, how
 // they're placed (equal steps, or at the hits), and the selected chop's pitch and choke.
 import { MAX_CHOPS, addMarker, beatsLabel, clampView, detectOnsets, equalSlices, guessBeats, remapSliceOpts, removeMarker, slicesFromMarkers, sourceBpm, trimRegion, zeroCrossing } from "../audio/chop";
-import { DECAY_MAX } from "../audio/dsp";
 import { engine } from "../audio/engine";
+import { hpssAsync } from "../audio/hpss";
 import { computePeaks, type Peaks } from "../display/widgets";
 import { COLOR } from "../midi/protocol";
-import { freeChokeGroup } from "../state/pads";
+import { chopAsPad, freeChokeGroup } from "../state/pads";
 import { addTrack, defaultPad, drumTrack, get, set, updateTrack } from "../state/store";
-import { DEFAULT_SLICE, PAD_COUNT, type ChopSession, type Pad, type SliceOpts, type Track } from "../state/types";
+import { DEFAULT_SLICE, PAD_COUNT, type ChopSession, type Pad, type SliceOpts, type Stem, type Track, type TrackChops } from "../state/types";
 import { noteName } from "../ui/notes";
 import type { Param } from "../params";
 import { showTemp } from "./notify";
@@ -70,6 +70,12 @@ export function updateChop(patch: Partial<ChopSession> | ((c: ChopSession) => Pa
   if (next.markers !== c.markers && !p.slices) next.slices = remapSliceOpts(c.markers, c.slices, next.markers, DEFAULT_SLICE);
   if (next.sel !== null && (next.sel < 0 || next.sel >= next.markers.length)) next.sel = null;
   set({ chop: next });
+  // A chop track's keys follow the open chop: moved markers, pitch and choke (not an undo step of its own).
+  const rack = chopRack();
+  // Compared with the sample before the patch: a stem, a Keep or a Stretch moves the keys to the new one.
+  if (next.rack && rack?.chops?.sampleId === c.sampleId && (rack.chops.sampleId !== next.sampleId || rack.chops.markers !== next.markers || rack.chops.slices !== next.slices)) {
+    updateTrack(rack.id, { chops: trackChops(next, next.rack.group) }, false);
+  }
 }
 
 export const chopBuffer = () => {
@@ -157,6 +163,65 @@ function followLoop(c: ChopSession) {
   playing = { ...playing, offset: a, dur };
 }
 
+// ---------- stems ----------
+
+export const STEMS: Stem[] = ["full", "drums", "noDrums"];
+export const STEM_NAMES: Record<Stem, string> = { full: "Full", drums: "Drums", noDrums: "No drums" };
+
+/** The session's stems, if its sample is one of them (a Keep or Stretch makes a sample of its own). */
+const liveStems = (c: ChopSession) => (c.stems && STEMS.some((s) => c.stems![s] === c.sampleId) ? c.stems : undefined);
+
+/** The stem shown: Full until the sample is split. */
+export const shownStem = (c: ChopSession): Stem => STEMS.find((s) => liveStems(c)?.[s] === c.sampleId) ?? "full";
+
+let separating = false;
+export const chopSeparating = () => separating;
+
+/**
+ * Show a stem of the sample: its drums, or everything but them. The first time splits it (audio/hpss.ts, in a worker)
+ * and adds both to the library next to it. A stem is as long as the sample, so markers and chops stay where they are;
+ * a loop playing goes on with the stem.
+ */
+export async function chopStem(stem: Stem) {
+  let c = get().chop;
+  const buf = chopBuffer();
+  if (!c || !buf || separating || stem === shownStem(c)) return;
+  let stems = liveStems(c);
+  if (!stems) {
+    separating = true;
+    showTemp("Stems", "Separating...", { hold: true });
+    set({ status: "Separating the drums from the rest…" });
+    try {
+      const out = await hpssAsync(Array.from({ length: buf.numberOfChannels }, (_, ch) => buf.getChannelData(ch).slice()));
+      const info = get().samples[c.sampleId];
+      const name = (info?.name ?? "Sample").slice(0, 28);
+      const audio = (channels: Float32Array[]) => {
+        const b = new AudioBuffer({ length: buf.length, numberOfChannels: channels.length, sampleRate: buf.sampleRate });
+        channels.forEach((d, ch) => b.copyToChannel(d as Float32Array<ArrayBuffer>, ch));
+        return b;
+      };
+      stems = { full: c.sampleId, drums: await engine.addBuffer(`${name} drums`, audio(out.drums), info?.folder), noDrums: await engine.addBuffer(`${name} no drums`, audio(out.harmonic), info?.folder) };
+    } catch (err) {
+      set({ status: `Separation failed: ${(err as Error).message}` });
+      return showTemp("Stems", "Failed");
+    } finally {
+      separating = false;
+    }
+    // Closed or moved on meanwhile: the stems stay in the library, the session is left alone.
+    const now = get().chop;
+    if (now?.sampleId !== c.sampleId) return;
+    c = now;
+    set({ status: `${STEM_NAMES.drums} and ${STEM_NAMES.noDrums.toLowerCase()} added to the library` });
+  }
+  const looping = chopLooping();
+  updateChop({ sampleId: stems[stem], stems });
+  if (looping) {
+    chopStop();
+    chopToggleLoop();
+  }
+  showTemp("Stem", STEM_NAMES[stem], { encoder: 6 });
+}
+
 // ---------- chops on pads ----------
 
 /** Name for the next drum track made from a chop: "Chop 1", "Chop 2"… */
@@ -176,12 +241,8 @@ export function chopRack(s = get()): Track | null {
 /** "+3st Choke", "No choke". */
 export const sliceText = (o: SliceOpts) => `${o.pitch ? `${o.pitch > 0 ? "+" : ""}${o.pitch}st ` : ""}${o.choke ? "Choke" : "No choke"}`;
 
-/** Pad `i` playing chop k: its region, pitch and choke (`group` when it chokes), the rest a fresh pad. */
-function chopOnPad(c: ChopSession, k: number, i: number, color: number, group: number): Pad {
-  const [start, end] = slicesFromMarkers(c.markers)[k];
-  const o = c.slices[k] ?? DEFAULT_SLICE;
-  return { ...defaultPad(i), color, sampleId: c.sampleId, name: `Chop ${k + 1}`, start, end, pitch: o.pitch, choke: o.choke ? group : 0, decay: DECAY_MAX, mode: "oneshot" };
-}
+/** What a chop track keeps of the session for its keys. */
+export const trackChops = (c: ChopSession, group: number): TrackChops => ({ sampleId: c.sampleId, markers: c.markers, slices: c.slices, group });
 
 /**
  * Put chop k on pad `pad` of the session's rack, one undo step. The first one makes the rack: a new drum track, or with
@@ -192,12 +253,14 @@ export function assignChop(k: number, pad: number) {
   if (!c || k >= c.markers.length - 1) return;
   const rack = chopRack();
   if (rack && c.rack) {
-    updateTrack(rack.id, (t) => ({ ...t, kit: "", pads: t.pads.map((p, i) => (i === pad ? chopOnPad(c, k, i, p.color, c.rack!.group) : p)) }), true);
+    const group = c.rack.group;
+    // A chop track's keys keep every chop; a kit track taken over with 8 tracks keeps its keys on its pads.
+    updateTrack(rack.id, (t) => ({ ...t, kit: "", pads: t.pads.map((p, i) => (i === pad ? chopAsPad(c, k, i, p.color, group) : p)), chops: t.chops && trackChops(c, group) }), true);
     return showTemp(`Chop ${k + 1} > Pad ${pad + 1}`, rack.name);
   }
   const empty = Array.from({ length: PAD_COUNT }, (_, i) => defaultPad(i));
   const name = nextChopName();
-  const id = addTrack("drum", { name, pads: empty.map((p, i) => (i === pad ? chopOnPad(c, k, i, p.color, 1) : p)) });
+  const id = addTrack("drum", { name, pads: empty.map((p, i) => (i === pad ? chopAsPad(c, k, i, p.color, 1) : p)), chops: trackChops(c, 1) });
   if (id) {
     updateChop({ rack: { id, group: 1 } });
     set({ status: `${name}: a new drum rack for your chops. Hold a key and tap a pad to add more.` });
@@ -206,7 +269,7 @@ export function assignChop(k: number, pad: number) {
   const t = drumTrack();
   const group = freeChokeGroup(t.pads);
   updateChop({ rack: { id: t.id, group } });
-  updateTrack(t.id, (x) => ({ ...x, kit: "", pads: x.pads.map((p, i) => (i === pad ? chopOnPad(c, k, i, p.color, group) : p)) }), true);
+  updateTrack(t.id, (x) => ({ ...x, kit: "", pads: x.pads.map((p, i) => (i === pad ? chopAsPad(c, k, i, p.color, group) : p)) }), true);
   showTemp(`Chop ${k + 1} > Pad ${pad + 1}`, `8 tracks: ${t.name}`);
 }
 
@@ -433,6 +496,12 @@ function sampleEncoder(c: ChopSession, buf: AudioBuffer, index: number, delta: n
       showTemp("Stretch to", `${bpmText(chopTempo(c, buf).bpm)} > ${bpmText(toBpm)} BPM`, { encoder: index });
       break;
     }
+    case 6: {
+      // Full, Drums, No drums: the first step off Full splits the sample.
+      const at = STEMS.indexOf(shownStem(c));
+      void chopStem(STEMS[Math.max(0, Math.min(STEMS.length - 1, at + Math.sign(delta)))]);
+      break;
+    }
   }
 }
 
@@ -509,6 +578,7 @@ export function chopParams(): Param[] {
       { name: "End", value: () => c.markers[n - 1], range: [0, 1], nudge: turn(3), format: () => secs(c.markers[n - 1]) },
       { name: "Length", value: () => t.beats, range: [1, 64], nudge: turn(4), format: () => beatsLabel(t.beats) },
       { name: "To BPM", value: () => c.toBpm, range: [40, 240], nudge: turn(5), format: () => bpmText(c.toBpm) },
+      { name: "Stem", value: () => STEMS.indexOf(shownStem(c)), range: [0, STEMS.length - 1], nudge: turn(6), format: () => (separating ? "..." : STEM_NAMES[shownStem(c)]) },
     ];
   }
   const k = selectedChop(c);

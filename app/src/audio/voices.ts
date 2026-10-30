@@ -2,7 +2,8 @@
 // mixer strip. Used by the live engine and by the offline renderer.
 import { defaultPad, inputOf, padAudible, padDucks, trackAudible, trackById } from "../state/store";
 import type { KeysInstrument, KeysLfo, NoteEvent, Pad, Project, SidechainInput, SynthParams, Track } from "../state/types";
-import { PAD_COUNT } from "../state/types";
+import { KEY_CHOP0, PAD_COUNT, isKeyChop } from "../state/types";
+import { chopAsPad } from "../state/pads";
 import { applyDuck, duckRamp } from "./duck";
 import { buildSampleVoice, buildSynthVoice, reverseBuffer, type Voice } from "./dsp";
 import { MasterBus, ReturnFx, TrackStrip } from "./trackFx";
@@ -133,14 +134,10 @@ export class Voices {
   pad(trackId: string, i: number, vel: number, when: number, lenSec?: number, pressure = false): Voice | null {
     const p = this.getProject();
     const t = trackById(p, trackId);
+    if (t && isKeyChop(i)) return this.keyChop(t, i, vel, when);
     const pad = t?.pads[i];
     if (!t || !pad || !this.buffer(pad.sampleId ?? "")) return null;
-    // Choke: same group cuts others in this rack (and itself, like an MPC mono pad).
-    if (pad.choke > 0) {
-      t.pads.forEach((other, j) => {
-        if (other.choke === pad.choke) this.padVoices.get(`${trackId}:${j}`)?.forEach((v) => v.stop(when, true));
-      });
-    }
+    if (pad.choke > 0) this.choke(t, pad.choke, when);
     // Pressure opens both filters: LP up towards 1, HP down towards 0.
     const press = pressure ? this.pressure[i] / 127 : 0;
     const effective = { ...pad, cutoff: Math.min(1, pad.cutoff + press * (1 - pad.cutoff)), hpCutoff: Math.max(0, pad.hpCutoff * (1 - press)) };
@@ -149,6 +146,25 @@ export class Voices {
     this.track(this.padVoices, `${trackId}:${i}`, v);
     if (p.sidechain.length) this.duck(inputOf(trackId, i), when);
     if (pad.mode === "gate" && lenSec !== undefined) v.stop(when + lenSec);
+    return v;
+  }
+
+  /** Choke group `group` of a rack: its pads and key chops in it stop (and the one hit, like an MPC mono pad). */
+  private choke(t: Track, group: number, when: number) {
+    const stop = (note: number) => this.padVoices.get(`${t.id}:${note}`)?.forEach((v) => v.stop(when, true));
+    t.pads.forEach((other, j) => other.choke === group && stop(j));
+    if (t.chops?.group === group) t.chops.slices.forEach((o, k) => o.choke && stop(KEY_CHOP0 + k));
+  }
+
+  /** Note KEY_CHOP0 + k of a chop track: chop k of its chops, played as its pad would be, into the track past the pad
+   *  buses (so no pad mute, solo or ducking). */
+  private keyChop(t: Track, note: number, vel: number, when: number): Voice | null {
+    const chops = t.chops, k = note - KEY_CHOP0;
+    if (!chops || k >= chops.markers.length - 1 || !this.buffer(chops.sampleId)) return null;
+    const pad = chopAsPad(chops, k, 0, 0, chops.group);
+    if (pad.choke > 0) this.choke(t, pad.choke, when);
+    const v = this.sampleVoice(t, KEYS_STEREO_OUT, chops.sampleId, pad, vel, when);
+    if (v) this.track(this.padVoices, `${t.id}:${note}`, v);
     return v;
   }
 

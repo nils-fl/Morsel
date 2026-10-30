@@ -103,7 +103,8 @@ export class TrackStrip {
     this.applyFx(t, bpm);
     if (this.vibrato && t.keys) this.vibrato.frequency.setTargetAtTime(t.keys.lfo.vibRate, now, TC);
     // Only the output in use is connected: a synth alone stays mono up to the pan, as on the node engine.
-    const keysOut = t.keys ? (t.keys.type === "synth" ? KEYS_MONO_OUT : KEYS_STEREO_OUT) : -1;
+    // A chop track's key chops come in on the keys input too.
+    const keysOut = t.keys ? (t.keys.type === "synth" ? KEYS_MONO_OUT : KEYS_STEREO_OUT) : t.chops ? KEYS_STEREO_OUT : -1;
     if (this.voices && keysOut !== this.keysOut) {
       if (this.keysOut >= 0) this.voices.node.disconnect(this.keysOut);
       if (keysOut >= 0) this.voices.node.connect(this.input, keysOut);

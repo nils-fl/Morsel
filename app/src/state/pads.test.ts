@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DECAY_MAX } from "../audio/dsp";
-import { padsFromNotes, padsFromSamples, slicePads } from "./pads";
+import { chopAsPad, padsFromNotes, padsFromSamples, slicePads } from "./pads";
 import { defaultPad } from "./store";
 import { PAD_COUNT } from "./types";
 
@@ -61,5 +61,13 @@ describe("padsFromNotes", () => {
     const hats = pads.filter((p) => p.sampleId === "c" || p.sampleId === "o");
     expect(hats.map((p) => p.choke)).toEqual([1, 1]);
     expect(pads.some((p) => p.sampleId === "x")).toBe(false);
+  });
+});
+
+describe("chopAsPad", () => {
+  it("is chop k of a chop as a pad: its region, pitch and choke group, a fresh pad otherwise", () => {
+    const chops = { sampleId: "x", markers: [0, 0.25, 1], slices: [{ pitch: 0, choke: false }, { pitch: -3, choke: true }] };
+    expect(chopAsPad(chops, 1, 5, 9, 2)).toEqual({ ...defaultPad(5), color: 9, sampleId: "x", name: "Chop 2", start: 0.25, end: 1, pitch: -3, choke: 2, decay: DECAY_MAX, mode: "oneshot" });
+    expect(chopAsPad(chops, 0, 0, 1, 2).choke).toBe(0);
   });
 });
