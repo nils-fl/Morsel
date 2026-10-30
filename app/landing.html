@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <meta name="theme-color" content="#e8ebf0" /><!-- tokens.css --bg -->
+    <meta name="theme-color" content="#f7f8fa" /><!-- tokens.css --panel -->
     <!-- An app installed while it was served at / starts here: on to the app. -->
     <script>
       if (matchMedia("(display-mode: standalone)").matches) location.replace("/app/");
@@ -25,207 +25,425 @@
     <link rel="stylesheet" href="/src/tokens.css" />
     <title>Morsel: a groovebox for the Launchkey Mini MK4</title>
     <style>
-      /* A light page with the Launchkey as the one dark thing on it: its screen and lit pads, like the link preview. */
-      /* Colours, type and corners: src/tokens.css, shared with the app. */
-      :root { font: 400 17px/1.6 var(--sans); color: var(--text); background: var(--bg); }
+      /* Ink on paper, and one dark object on it: a Launchkey you can play (src/landing.ts), with Morsel's own screens and
+         Factory kit. Everything else stays quiet. Colours, type and corners: src/tokens.css, shared with the app.
+         The layout is mobile first; from 900px it is a 12-column grid, headings in columns 1-4, content in 5-12. */
+      :root {
+        --paper: var(--panel);
+        --gap: 24px;
+        --edge: clamp(16px, 4vw, 40px);
+        --display: 800 clamp(42px, 6.6vw, 96px)/.94 var(--sans);
+        font: 400 17px/1.55 var(--sans);
+        color: var(--text);
+        background: var(--paper);
+        -webkit-font-smoothing: antialiased;
+      }
       * { box-sizing: border-box; }
-      body { margin: 0; background: var(--bg); }
+      body { margin: 0; background: var(--paper); }
       a { color: inherit; text-decoration-thickness: 1px; text-underline-offset: 3px; }
-      a:focus-visible, summary:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; border-radius: 2px; }
-      .wrap { width: min(1080px, 100%); margin: 0 auto; padding: 0 16px; }
+      :focus-visible { outline: 2px solid var(--text); outline-offset: 3px; border-radius: 3px; }
+      .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+      .wrap { width: min(1280px, 100%); margin-inline: auto; padding-inline: var(--edge); }
+      .grid { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: var(--gap); }
+      .grid > * { grid-column: var(--col, 1 / -1); min-width: 0; }
 
-      /* Hero: the name and both ways in on the left, the device on the right. */
-      .hero { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 56px; align-items: center; padding-block: 72px 88px; }
-      h1 { font: 400 clamp(56px, 9vw, 104px)/.9 var(--pixel); margin: 0 0 28px; letter-spacing: .02em; }
-      .lead { margin: 0 0 32px; font-size: 20px; line-height: 1.5; max-width: 30ch; }
-      .actions { display: flex; flex-wrap: wrap; gap: 12px; }
-      .note { margin: 20px 0 0; color: var(--muted); font-size: 15px; max-width: 42ch; }
-
-      /* Buttons are the device's buttons: a dark key with its LED lit in the pad colour of what it opens. */
+      /* Buttons: dark keys with an LED in the pad colour of what they open (green: the app, yellow: Live). */
       .btn {
-        display: inline-flex; align-items: center; gap: 12px; padding: 13px 20px 13px 16px; border-radius: var(--r-tile);
-        font: 600 16px/1 var(--sans); text-decoration: none; color: #fff; background: var(--device);
-        box-shadow: inset 0 1px 0 var(--device-edge), 0 2px 0 #0003;
+        display: inline-flex; align-items: center; gap: 11px; height: 48px; padding: 0 20px 0 17px; border-radius: 8px;
+        font: 600 16px/1 var(--sans); text-decoration: none; white-space: nowrap; color: #fff; background: var(--device);
+        box-shadow: inset 0 1px 0 #ffffff1f, 0 1px 0 #00000040, 0 6px 14px -8px #1d223080;
+        transition: background-color .15s;
       }
-      .btn::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--c); box-shadow: 0 0 8px var(--c); }
-      .btn:hover { background: #30343b; }
-      .btn:active { transform: translateY(1px); box-shadow: inset 0 1px 0 var(--device-edge); }
-      .btn:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
-      .btn.quiet { color: var(--text); background: var(--panel); box-shadow: inset 0 0 0 1px var(--line), 0 2px 0 #0000000d; }
+      .btn::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--led, var(--led-green)); box-shadow: 0 0 10px var(--led, var(--led-green)); }
+      .btn:hover { background: #31353c; }
+      .btn:active { translate: 0 1px; }
+      .btn.quiet { color: var(--text); background: transparent; box-shadow: inset 0 0 0 1px var(--line-hi); }
       .btn.quiet:hover { background: var(--panel-2); }
-      .btn.app { --c: var(--led-green); }
-      .btn.live { --c: var(--led-yellow); }
+      .btn.live { --led: var(--led-yellow); }
+      .btn.small { height: 38px; padding: 0 15px 0 13px; font-size: 15px; gap: 9px; }
 
-      .device {
-        background: linear-gradient(var(--device-edge), var(--device) 3px) var(--device); border-radius: var(--r-shell); padding: 22px;
-        display: grid; gap: 18px; box-shadow: 0 1px 0 #fff8 inset, 0 30px 60px -24px #1d22304d, 0 8px 18px -8px #1d223040;
+      .logo { font: 400 22px/1 var(--pixel); text-decoration: none; letter-spacing: .02em; }
+
+      /* Header: the name, and the way in. */
+      .top { display: flex; align-items: center; justify-content: space-between; height: 76px; }
+      .top nav { display: flex; align-items: center; gap: 28px; font-size: 15px; font-weight: 500; }
+      .top nav a:not(.btn) { text-decoration: none; color: var(--muted); }
+      .top nav a:not(.btn):hover { color: var(--text); }
+      .top nav a:not(.btn) { display: none; }
+
+      /* Hero: the claim, then the Launchkey itself. */
+      .hero { padding-block: 40px 0; row-gap: 28px; }
+      h1 { font: var(--display); font-stretch: 88%; letter-spacing: -.028em; margin: 0; text-wrap: balance; }
+      .lead { margin: 0 0 24px; font-size: 18px; line-height: 1.5; max-width: 40ch; }
+      .actions { display: flex; flex-wrap: wrap; gap: 10px; }
+      .need { margin: 14px 0 0; font-size: 14px; color: var(--muted); }
+      .stage { margin: 28px 0 0; }
+
+      /* ---------- the Launchkey ---------- */
+      .lk {
+        display: grid; gap: 18px; padding: 16px; border-radius: 16px;
+        grid-template-columns: minmax(0, 1fr); grid-template-areas: "screen" "encs" "pads" "ctl" "keys";
+        background: linear-gradient(180deg, #2c3037, var(--device) 30%);
+        box-shadow: inset 0 1px 0 #ffffff24, inset 0 -2px 0 #00000059, 0 28px 48px -28px #1b2030b3;
+        color: #a3aab4; -webkit-tap-highlight-color: transparent; user-select: none;
       }
-      .device img { width: 100%; height: auto; image-rendering: pixelated; border-radius: var(--r-tile); display: block; outline: 1px solid #0007; }
-      .pads { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; }
-      /* Step mode: lit pads are the steps that are on, and the playhead runs across them (16ths at 120 BPM). */
-      .pads i {
-        aspect-ratio: 1.5; border-radius: var(--r-ctl); border: 1.5px solid color-mix(in srgb, var(--c) 45%, transparent);
-        background: radial-gradient(circle at 50% 120%, color-mix(in srgb, var(--c) 20%, transparent), transparent 90%) #2c3036;
-        animation: head 2s step-end infinite; animation-delay: calc(var(--n) * 125ms);
+      :where(.lk) button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+      .lk :focus-visible { outline-color: #fff; }
+
+      .lk-screen { grid-area: screen; padding: 10px; border-radius: 8px; background: #0c0e10; box-shadow: inset 0 0 0 1px #000, 0 1px 0 #ffffff12; }
+      .lk-screen canvas { display: block; width: 100%; aspect-ratio: 2; border-radius: 3px; image-rendering: pixelated; filter: drop-shadow(0 0 5px #9cc9d438); }
+
+      .lk-encs { grid-area: encs; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; align-content: start; }
+      .enc { display: grid; justify-items: center; gap: 8px; cursor: ns-resize; touch-action: none; border-radius: 6px; }
+      .enc:focus-visible { outline-offset: 2px; }
+      .enc i {
+        --size: clamp(30px, 3.4vw, 46px);
+        width: var(--size); aspect-ratio: 1; border-radius: 50%; position: relative;
+        background: radial-gradient(circle at 50% 30%, #565c65, #2f333a 55%, #202328);
+        box-shadow: 0 0 0 3px #17191c, 0 0 0 4px #ffffff0f, 0 5px 8px #00000080;
+        rotate: calc(-135deg + var(--turn, .5) * 270deg);
       }
-      .pads i.on { background: color-mix(in srgb, var(--c) 88%, transparent); border-color: var(--c); box-shadow: 0 0 14px color-mix(in srgb, var(--c) 45%, transparent); }
-      @keyframes head { 0% { outline: 2px solid #fff; outline-offset: 1px; } 6.25% { outline: 0 solid transparent; } }
-      @media (prefers-reduced-motion: reduce) { .pads i { animation: none; } }
+      .enc i::before { content: ""; position: absolute; left: 50%; top: 9%; width: 3px; height: 30%; margin-left: -1.5px; border-radius: 2px; background: #eceff2; }
+      .enc span { font-size: var(--fs-xs); line-height: 1; }
 
-      /* The two ways in, side by side on one sheet. */
-      .ways { background: var(--panel); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-      .ways .wrap { display: grid; grid-template-columns: 1fr 1fr; }
-      .way { padding: 56px 48px 64px 0; display: flex; flex-direction: column; gap: 18px; }
-      .way + .way { padding: 56px 0 64px 48px; border-left: 1px solid var(--line); }
-      .way h2 { font: 700 26px/1.15 var(--sans); font-stretch: 118%; margin: 0; display: flex; align-items: center; gap: 12px; }
-      .way h2::before { content: ""; width: 12px; height: 12px; border-radius: 3px; background: var(--c); flex: none; }
-      .way.app { --c: var(--led-green); }
-      .way.live { --c: var(--led-yellow); }
-      .way p, .way ul, .way ol { margin: 0; color: var(--muted); max-width: 58ch; }
-      .way ul { padding-left: 1.1em; display: grid; gap: 8px; }
-      .way strong { color: var(--text); font-weight: 600; }
-      .way .btn { align-self: start; margin-top: 6px; }
-
-      details { border-top: 1px solid var(--line); padding-top: 16px; margin-top: 4px; }
-      summary { cursor: pointer; font-weight: 600; width: fit-content; }
-      details[open] summary { margin-bottom: 14px; }
-      details ol { padding-left: 1.4em; display: grid; gap: 10px; font-size: 15px; }
-      details ol li::marker { font: 600 14px var(--mono); color: var(--text); }
-      code { font: var(--fs-m)/1.5 var(--mono); color: var(--text); background: var(--bg); padding: 1px 5px; border-radius: 4px; word-break: break-word; }
-
-      /* Questions: one line each, the answer folds open (like How to install). */
-      .faq { padding-block: 64px 16px; }
-      .faq h2 { font: 700 26px/1.15 var(--sans); font-stretch: 118%; margin: 0 0 20px; }
-      .faq details { margin: 0; padding-block: 16px; }
-      .faq details:last-child { border-bottom: 1px solid var(--line); }
-      .faq details p { margin: 0; color: var(--muted); max-width: 70ch; }
-      .faq details strong { color: var(--text); font-weight: 600; }
-
-      footer { padding-block: 32px 48px; color: var(--muted); font-size: 13px; display: grid; gap: 6px; }
-      footer span { max-width: 90ch; }
-
-      @media (max-width: 860px) {
-        .hero { grid-template-columns: 1fr; gap: 40px; padding-block: 40px 56px; }
-        .device { order: -1; padding: 14px; gap: 12px; border-radius: var(--r-card); }
-        .pads { gap: 5px; }
-        .ways .wrap { grid-template-columns: 1fr; }
-        .way, .way + .way { padding: 40px 0; border-left: 0; }
-        .way + .way { border-top: 1px solid var(--line); }
+      .lk-pads { grid-area: pads; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; }
+      .lk-pads button {
+        --c: #888; --off: #2a2e34;
+        aspect-ratio: 1; border-radius: 5px; background: var(--off);
+        box-shadow: inset 0 0 0 1px #0000008c, inset 0 1px 0 #ffffff12, 0 2px 0 #00000080;
+        transition: background-color .08s, box-shadow .08s;
       }
+      .lk-pads button:active { translate: 0 1px; }
+      .lk-pads [data-s="dim"] { background: color-mix(in srgb, var(--c) 34%, var(--off)); }
+      /* The selected pad breathes, as on the Launchkey. */
+      .lk-pads [data-s="sel"] { background: color-mix(in srgb, var(--c) 72%, var(--off)); animation: breathe 1.6s ease-in-out infinite alternate; }
+      @keyframes breathe { from { background: color-mix(in srgb, var(--c) 50%, var(--off)); } }
+      .lk-pads [data-s="beat"] { background: color-mix(in srgb, #fff 9%, var(--off)); }
+      .lk-pads [data-s="on"] { background: color-mix(in srgb, var(--c) 86%, var(--off)); }
+      .lk-pads [data-s="hit"], .lk-pads [data-s="head"] {
+        background: var(--c); transition: none;
+        box-shadow: inset 0 0 0 1px #0000004d, 0 0 22px color-mix(in srgb, var(--c) 55%, transparent);
+      }
+      .lk-pads [data-s="head"] { --c: #f1f3f5; }
+
+      .lk-ctl { grid-area: ctl; display: flex; align-items: center; gap: 8px; }
+      .lk-key {
+        height: 38px; min-width: 46px; padding: 0 12px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+        background: #343840; box-shadow: inset 0 1px 0 #ffffff17, 0 2px 0 #000000a6; font-size: var(--fs-s); font-weight: 600;
+      }
+      .lk-key:active { translate: 0 1px; box-shadow: inset 0 1px 0 #ffffff17, 0 1px 0 #000000a6; }
+      .lk-key svg { width: 13px; height: 13px; fill: currentColor; }
+      .lk-play[aria-pressed="true"] { color: var(--led-green); }
+      .lk-rec[aria-pressed="true"] { color: #ff4d5a; }
+      .lk-key[aria-pressed="true"] svg { filter: drop-shadow(0 0 5px currentColor); }
+      .lk-modes { margin-left: auto; display: flex; padding: 3px; gap: 3px; border-radius: 9px; background: #17191c; box-shadow: inset 0 1px 2px #000; }
+      .lk-modes button { height: 32px; padding: 0 14px; border-radius: 6px; font-size: var(--fs-s); font-weight: 600; transition: background-color .15s, color .15s; }
+      .lk-modes button:hover { color: #e3e6ea; }
+      .lk-modes [aria-pressed="true"] { background: #3a3f47; color: #fff; box-shadow: inset 0 1px 0 #ffffff1a; }
+
+      /* 25 keys, C to C: white keys share the width, black keys sit on the joins (container units size them). */
+      .lk-keys { grid-area: keys; display: flex; gap: 2px; height: 76px; padding-top: 2px; border-radius: 6px; overflow: hidden; background: #0f1113; container-type: inline-size; position: relative; touch-action: manipulation; }
+      .lk-keys::after { content: ""; position: absolute; inset: 0 0 auto; height: 10px; background: linear-gradient(#00000080, transparent); pointer-events: none; z-index: 2; }
+      .lk-keys .w { flex: 1; border-radius: 0 0 4px 4px; background: linear-gradient(#dfe2e6, #f9fafb 80%, #e2e5e9); cursor: pointer; }
+      .lk-keys .b { width: 0; position: relative; z-index: 1; margin-inline: -1px; }
+      .lk-keys .b::before { content: ""; position: absolute; top: 0; left: calc(100cqw / 15 * -.29); width: calc(100cqw / 15 * .58); height: 60%; border-radius: 0 0 3px 3px; background: linear-gradient(#30343a, #17191c); box-shadow: 0 2px 2px #00000080; cursor: pointer; }
+      .lk-keys .w.down { background: linear-gradient(#c8ccd2, #e3e6ea); }
+      .lk-keys .b.down::before { background: #0b0c0e; }
+
+      .hint { margin: 18px 0 0; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 24px; font-size: 14px; color: var(--muted); }
+      .hint p { margin: 0; max-width: 70ch; }
+      .hint kbd { font: 500 12px/1 var(--mono); padding: 3px 5px; border-radius: 4px; background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line); color: var(--text); }
+      .hint .typing { display: none; }
+      @media (hover: hover) and (pointer: fine) { .hint .typing { display: block; } }
+
+      /* ---------- sections: a heading in the left columns, the content beside it ---------- */
+      .sec { padding-block: 96px 0; row-gap: 32px; }
+      .sec::before { content: ""; grid-column: 1 / -1; border-top: 1px solid var(--line); margin-bottom: 40px; }
+      h2 { font: 800 clamp(28px, 3.2vw, 40px)/1.02 var(--sans); font-stretch: 88%; letter-spacing: -.02em; margin: 0; text-wrap: balance; }
+      h3 { font: 700 21px/1.2 var(--sans); font-stretch: 94%; letter-spacing: -.01em; margin: 0; }
+      .sec p, .sec li, .sec dd { color: var(--muted); }
+      .sec strong { color: var(--text); font-weight: 600; }
+
+      /* What each part of the Launchkey does. */
+      .parts { margin: 0; }
+      .parts > div { display: grid; gap: 8px; padding-block: 22px; border-top: 1px solid var(--line); }
+      .parts > div:first-child { border-top: 0; padding-top: 0; }
+      .parts dt { display: flex; align-items: center; gap: 14px; }
+      .parts svg { flex: none; width: 34px; height: 34px; fill: none; stroke: var(--text); stroke-width: 1.5; stroke-linejoin: round; }
+      .parts dd { margin: 0; max-width: 56ch; }
+
+      /* The two ways to run it. */
+      .way { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; }
+      .way p, .way ul, .way ol { margin: 0; }
+      .way ul { padding-left: 1.1em; display: grid; gap: 6px; }
+      .way .btn { margin-top: 4px; }
+      .steps-title { width: 100%; margin: 12px 0 0; padding-top: 22px; border-top: 1px solid var(--line); font-size: 15px; font-weight: 600; }
+      .steps { list-style: none; padding: 0; counter-reset: n; display: grid; gap: 14px; font-size: 15px; }
+      .steps li { counter-increment: n; display: grid; grid-template-columns: 28px minmax(0, 1fr); }
+      .steps li::before { content: counter(n); font: 600 13px/1.7 var(--mono); color: var(--text); }
+      code { font: 13px/1.5 var(--mono); color: var(--text); overflow-wrap: anywhere; }
+      .path { display: grid; grid-template-columns: 64px minmax(0, 1fr); margin-top: 8px; padding: 8px 10px; border-radius: var(--r-tile); background: var(--bg); font-size: 12.5px; }
+      .path:first-of-type { margin-top: 12px; }
+      .path b { font: 500 12px/1.6 var(--sans); color: var(--muted); }
+
+      /* Questions: the answer folds open under its question. */
+      .qa details { border-top: 1px solid var(--line); }
+      .qa details:last-child { border-bottom: 1px solid var(--line); }
+      .qa summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 24px; padding-block: 18px; font-size: 18px; font-weight: 600; }
+      .qa summary::-webkit-details-marker { display: none; }
+      .qa summary::after {
+        content: ""; flex: none; width: 14px; height: 14px;
+        background: linear-gradient(currentColor 0 0) center / 14px 1.5px no-repeat, linear-gradient(currentColor 0 0) center / 1.5px 14px no-repeat;
+        transition: rotate .2s;
+      }
+      .qa details[open] summary::after { rotate: 45deg; }
+      .qa summary:hover { color: var(--muted); }
+      .qa details p { margin: -4px 0 22px; max-width: 64ch; }
+
+      /* The end: the hero's layout again, with the way in. */
+      .outro { padding-top: 96px; row-gap: 28px; }
+      .outro h2 { font: var(--display); font-size: clamp(36px, 5vw, 72px); font-stretch: 88%; letter-spacing: -.028em; }
+      .outro .lead { color: var(--text); }
+
+      footer { padding-block: 96px 48px; row-gap: 12px; font-size: 13px; color: var(--muted); }
+      footer::before { content: ""; grid-column: 1 / -1; border-top: 1px solid var(--line); margin-bottom: 28px; }
+      footer p { margin: 0; max-width: 80ch; }
+      footer .logo { font-size: 18px; color: var(--text); }
+
+      @media (min-width: 700px) {
+        .lk { padding: 24px; gap: 20px 40px; border-radius: 20px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.9fr); grid-template-areas: "screen encs" "screen pads" "ctl pads" "keys keys"; }
+        .lk-pads { gap: 9px; align-self: end; }
+        .lk-pads button { aspect-ratio: 1.22; border-radius: 6px; }
+        .lk-ctl { align-self: end; }
+        .lk-keys { height: clamp(84px, 9vw, 120px); margin-top: 6px; }
+      }
+      @media (min-width: 900px) {
+        .grid { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+        .top nav a:not(.btn) { display: inline; }
+        .hero { padding-top: 64px; }
+        .hero h1 { --col: 1 / span 8; }
+        .intro { --col: 9 / span 4; align-self: end; }
+        .stage { margin-top: 48px; }
+        .sec { padding-top: 136px; }
+        .sec h2 { --col: 1 / span 4; }
+        .parts, .qa { --col: 5 / span 8; }
+        .parts > div { grid-template-columns: repeat(8, minmax(0, 1fr)); column-gap: var(--gap); }
+        .parts dt { grid-column: span 3; align-self: start; }
+        .parts dd { grid-column: span 5; }
+        .way { --col: 5 / span 4; }
+        .way + .way { --col: 9 / span 4; }
+        .outro { padding-top: 160px; }
+        .outro h2 { --col: 1 / span 8; }
+        footer { padding-top: 120px; }
+        footer .logo { --col: 1 / span 4; }
+        footer p { --col: 5 / span 8; }
+      }
+      @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
     </style>
   </head>
   <body>
+    <header class="top wrap">
+      <a class="logo" href="/">Morsel</a>
+      <nav aria-label="Page">
+        <a href="#launchkey">The Launchkey</a>
+        <a href="#get">Get it</a>
+        <a href="#faq">Questions</a>
+        <a class="btn small" href="/app/">Open Morsel</a>
+      </nav>
+    </header>
+
     <main>
-      <section class="hero wrap">
-        <div>
-          <h1>Morsel</h1>
+      <section class="hero wrap grid">
+        <h1>A groovebox for the Launchkey&nbsp;Mini</h1>
+        <div class="intro">
           <p class="lead">
-            A groovebox for the Novation Launchkey Mini MK4 25. Morsel takes over its pads, encoders, buttons and screen
-            and makes it a sampler, step sequencer and song arranger.
+            Morsel turns the pads, knobs and screen of the Launchkey Mini MK4 25 into a sampler, step sequencer and song
+            arranger. Free, in Chrome or in Ableton Live 12.
           </p>
           <div class="actions">
-            <a class="btn app" href="/app/">Open Morsel</a>
+            <a class="btn" href="/app/">Open Morsel</a>
             <a class="btn quiet live" href="#live">Get it for Live 12</a>
           </div>
-          <p class="note">Runs in Chrome or Edge on a computer. Without a Launchkey you can still look around.</p>
         </div>
-        <div class="device">
-          <img src="/boot-animation.gif" width="540" height="284" alt="The Launchkey's screen starting Morsel: a blob eats a waveform, burps, and the MORSEL logo bounces in" />
-          <div class="pads" aria-hidden="true">
-            <i class="on" style="--c:#ff3b3b;--n:0"></i><i style="--c:#ff3b3b;--n:1"></i><i style="--c:#ff8a1f;--n:2"></i><i class="on" style="--c:#ff8a1f;--n:3"></i>
-            <i class="on" style="--c:#ffe83b;--n:4"></i><i style="--c:#ffe83b;--n:5"></i><i class="on" style="--c:#9cff3b;--n:6"></i><i style="--c:#2fe05a;--n:7"></i>
-            <i class="on" style="--c:#3be7ff;--n:8"></i><i style="--c:#3be7ff;--n:9"></i><i class="on" style="--c:#3ba4ff;--n:10"></i><i style="--c:#3b5bff;--n:11"></i>
-            <i class="on" style="--c:#8a3bff;--n:12"></i><i style="--c:#8a3bff;--n:13"></i><i class="on" style="--c:#ff3bf0;--n:14"></i><i class="on" style="--c:#ff3b8a;--n:15"></i>
+
+        <figure class="stage">
+          <div class="lk" id="lk" role="group" aria-label="A Launchkey to try Morsel on">
+            <div class="lk-screen"><canvas width="512" height="256" aria-hidden="true"></canvas></div>
+            <div class="lk-encs">
+              <div class="enc" role="slider" tabindex="0" aria-label="Tempo"><i></i><span>Tempo</span></div>
+              <div class="enc" role="slider" tabindex="0" aria-label="Swing"><i></i><span>Swing</span></div>
+              <div class="enc" role="slider" tabindex="0" aria-label="Filter"><i></i><span>Filter</span></div>
+              <div class="enc" role="slider" tabindex="0" aria-label="Echo"><i></i><span>Echo</span></div>
+              <div class="enc" role="slider" tabindex="0" aria-label="Tune"><i></i><span>Tune</span></div>
+              <div class="enc" role="slider" tabindex="0" aria-label="Decay"><i></i><span>Decay</span></div>
+              <div class="enc" role="slider" tabindex="0" aria-label="Level"><i></i><span>Level</span></div>
+              <div class="enc" role="slider" tabindex="0" aria-label="Volume"><i></i><span>Volume</span></div>
+            </div>
+            <div class="lk-pads">
+              <button></button><button></button><button></button><button></button><button></button><button></button><button></button><button></button>
+              <button></button><button></button><button></button><button></button><button></button><button></button><button></button><button></button>
+            </div>
+            <div class="lk-ctl">
+              <button class="lk-key lk-play" aria-pressed="false" aria-label="Play"><svg viewBox="0 0 12 12"><path d="M2 1l9 5-9 5z" /></svg></button>
+              <button class="lk-key lk-rec" aria-pressed="false" aria-label="Record"><svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" /></svg></button>
+              <div class="lk-modes" role="group" aria-label="Pad mode">
+                <button data-mode="pads" aria-pressed="true">Pads</button>
+                <button data-mode="steps" aria-pressed="false">Steps</button>
+              </div>
+            </div>
+            <div class="lk-keys" aria-hidden="true">
+              <i class="w"></i><i class="b"></i><i class="w"></i><i class="b"></i><i class="w"></i><i class="w"></i><i class="b"></i><i class="w"></i><i class="b"></i><i class="w"></i><i class="b"></i><i class="w"></i>
+              <i class="w"></i><i class="b"></i><i class="w"></i><i class="b"></i><i class="w"></i><i class="w"></i><i class="b"></i><i class="w"></i><i class="b"></i><i class="w"></i><i class="b"></i><i class="w"></i>
+              <i class="w"></i>
+            </div>
+          </div>
+          <figcaption class="hint">
+            <p>Press play to hear the beat. Tap a pad to hear its sound, then switch to Steps: the pads become that sound's 16 steps.</p>
+            <p class="typing">Keys <kbd>A</kbd> to <kbd>K</kbd> play the keyboard.</p>
+          </figcaption>
+          <p class="sr" id="lk-say" aria-live="polite"></p>
+        </figure>
+      </section>
+
+      <section class="sec wrap grid" id="launchkey" aria-labelledby="launchkey-h">
+        <h2 id="launchkey-h">What it does with the Launchkey</h2>
+        <dl class="parts">
+          <div>
+            <dt><svg viewBox="0 0 34 34" aria-hidden="true"><rect x="2" y="8" width="6.5" height="7" rx="1.2" /><rect x="10.5" y="8" width="6.5" height="7" rx="1.2" /><rect x="19" y="8" width="6.5" height="7" rx="1.2" /><rect x="27.5" y="8" width="4.5" height="7" rx="1.2" /><rect x="2" y="19" width="6.5" height="7" rx="1.2" /><rect x="10.5" y="19" width="6.5" height="7" rx="1.2" /><rect x="19" y="19" width="6.5" height="7" rx="1.2" /><rect x="27.5" y="19" width="4.5" height="7" rx="1.2" /></svg><h3>Pads</h3></dt>
+            <dd>Play a kit of 16 sounds, write steps, mute tracks, switch patterns and play the chops of a sample. They light up in each sound's colour.</dd>
+          </div>
+          <div>
+            <dt><svg viewBox="0 0 34 34" aria-hidden="true"><circle cx="17" cy="17" r="11" /><path d="M17 17V8" /><path d="M5 27l-2 2M29 27l2 2" /></svg><h3>Knobs</h3></dt>
+            <dd>Eight encoders on pages: a pad's tuning, decay and filter, eight effects on every track, the mix and the tempo.</dd>
+          </div>
+          <div>
+            <dt><svg viewBox="0 0 34 34" aria-hidden="true"><rect x="2" y="7" width="30" height="20" rx="2" /><path d="M2 12h30" /><path d="M6 21l3-4 3 5 3-7 3 6 3-3 3 4 3-2" /></svg><h3>Screen</h3></dt>
+            <dd>Shows what you're working on: the sound's waveform, the steps, and what every knob is set to. The same screens as on the Launchkey above.</dd>
+          </div>
+          <div>
+            <dt><svg viewBox="0 0 34 34" aria-hidden="true"><rect x="2" y="8" width="30" height="18" rx="2" /><path d="M8 26V8M14 26V8M20 26V8M26 26V8" /><path d="M6 8v10h4V8M18 8v10h4V8M24 8v10h4V8" fill="currentColor" /></svg><h3>Keys</h3></dt>
+            <dd>Play a keys track, a synth with presets or a sample of your own, and record it into the pattern. On a drum track they play the pads.</dd>
+          </div>
+          <div>
+            <dt><svg viewBox="0 0 34 34" aria-hidden="true"><path d="M4 9l11 8-11 8z" /><circle cx="25" cy="17" r="6" /></svg><h3>Play and Record</h3></dt>
+            <dd>Record what you play into the loop, or sample a mic, a browser tab or Morsel itself and chop it onto the pads.</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="sec wrap grid" id="get" aria-labelledby="get-h">
+        <h2 id="get-h">Two ways to run it</h2>
+
+        <article class="way">
+          <h3>In Chrome or Edge</h3>
+          <p>
+            All of Morsel: everything on the Launchkey, and on screen an editor for the sequencer, chopping, the mixer and
+            the song.
+          </p>
+          <ul>
+            <li>Plug in the Launchkey and open Morsel in <strong>Chrome or Edge</strong> on a computer.</li>
+            <li>Nothing to install, and it works offline once it has loaded.</li>
+            <li>Your samples and projects stay in your browser.</li>
+          </ul>
+          <a class="btn" href="/app/">Open Morsel</a>
+        </article>
+
+        <article class="way" id="live">
+          <h3>In Ableton Live 12</h3>
+          <p>
+            A control surface script that gives Live the same Launchkey: Morsel's pad modes and encoder pages, step
+            sequencing, clip launching, Live's browser and chopping a sample onto a Drum Rack, all on the Launchkey's
+            screen. Works with Live 12 Lite, which comes with the Launchkey.
+          </p>
+          <a class="btn live" href="/download/morsel-for-live.zip" download>Download for Live</a>
+          <h4 class="steps-title" id="install-h">How to install</h4>
+          <ol class="steps" aria-labelledby="install-h">
+            <li>
+              <span>
+                Unzip it and put the <strong>Morsel</strong> folder into <strong>Remote Scripts</strong> in Live's User Library
+                (make the folder if it isn't there):
+                <code class="path"><b>Mac</b>~/Music/Ableton/User Library/Remote Scripts</code>
+                <code class="path"><b>Windows</b>Documents\Ableton\User Library\Remote Scripts</code>
+              </span>
+            </li>
+            <li><span>Restart Live.</span></li>
+            <li><span>In Settings → Link, Tempo &amp; MIDI, remove the Launchkey Mini MK4 control surface and add <strong>Morsel</strong>, with Input <strong>Launchkey Mini MK4 25 (DAW Out)</strong> and Output <strong>Launchkey Mini MK4 25 (DAW In)</strong>.</span></li>
+            <li><span>Under the ports, set the <strong>DAW Out</strong> input to Track and Remote on, and keep Track on for <strong>MIDI Out</strong>.</span></li>
+          </ol>
+        </article>
+      </section>
+
+      <section class="sec wrap grid" id="faq" aria-labelledby="faq-h">
+        <h2 id="faq-h">Questions</h2>
+        <div class="qa">
+          <details>
+            <summary>Do I need a Launchkey?</summary>
+            <p>
+              To play it, yes: Morsel is made for the pads, encoders, buttons and screen of the <strong>Launchkey Mini MK4 25</strong>.
+              Without one you can still look around: load samples, click the pads on screen and program steps.
+            </p>
+          </details>
+          <details>
+            <summary>Does it work with other Launchkeys?</summary>
+            <p>It's made and tested with the Launchkey Mini MK4 25. Other models aren't supported.</p>
+          </details>
+          <details>
+            <summary>Which browsers work?</summary>
+            <p>
+              <strong>Chrome or Edge</strong> (or another Chromium browser, like Brave or Arc) on a computer. Morsel talks to the
+              Launchkey and its screen over Web MIDI, which Safari doesn't have. Phones and tablets aren't supported.
+            </p>
+          </details>
+          <details>
+            <summary>Where are my samples and projects?</summary>
+            <p>
+              In your browser, on your computer. Nothing is uploaded and there's no account. Clearing the browser's data for
+              this site deletes them, so keep a copy with <strong>Project → Export…</strong> in the app.
+            </p>
+          </details>
+          <details>
+            <summary>Does it work offline?</summary>
+            <p>Once it has loaded, yes. Chrome and Edge can also install it as an app.</p>
+          </details>
+          <details>
+            <summary>Can I use Morsel and Ableton Live at the same time?</summary>
+            <p>
+              Not on the same Launchkey: only one of them can have its DAW mode. Close Live before you open Morsel, or use
+              Morsel for Live inside Live instead.
+            </p>
+          </details>
+          <details>
+            <summary>Which Live does Morsel for Live need?</summary>
+            <p>
+              <strong>Live 12</strong>, Lite included (the Launchkey comes with it). It works on its own: you don't need the
+              browser app for it.
+            </p>
+          </details>
+          <details>
+            <summary>What does it cost?</summary>
+            <p>Nothing. Morsel is free, with no ads and no account, under the MIT licence.</p>
+          </details>
+        </div>
+      </section>
+      <section class="outro wrap grid" aria-labelledby="outro-h">
+        <h2 id="outro-h">Plug in the Launchkey and&nbsp;play</h2>
+        <div class="intro">
+          <p class="lead">Open Morsel in Chrome or Edge. It loads the Factory kit, and you're playing.</p>
+          <div class="actions">
+            <a class="btn" href="/app/">Open Morsel</a>
+            <a class="btn quiet live" href="#live">Get it for Live 12</a>
           </div>
         </div>
       </section>
-
-      <section class="ways">
-        <div class="wrap">
-          <article class="way app">
-            <h2>In your browser</h2>
-            <ul>
-              <li>Drum and keys tracks, step sequencing and live recording, chopping samples onto pads, an effects rack per track and songs from patterns.</li>
-              <li>Plug in the Launchkey and open Morsel in <strong>Chrome or Edge</strong> on a computer.</li>
-              <li>Nothing to install. Your samples and projects stay in your browser.</li>
-            </ul>
-            <a class="btn app" href="/app/">Open Morsel</a>
-          </article>
-
-          <article class="way live" id="live">
-            <h2>In Ableton Live 12</h2>
-            <p>
-              A control surface script that gives Live the same Launchkey: Morsel's pad modes and encoder pages, step
-              sequencing, clip launching, Live's browser and chopping a sample onto a Drum Rack, all on the Launchkey's
-              screen. Works with Live 12 Lite, which comes with the Launchkey.
-            </p>
-            <a class="btn live" href="/download/morsel-for-live.zip" download>Download for Live</a>
-            <details>
-              <summary>How to install</summary>
-              <ol>
-                <li>Unzip it and put the <strong>Morsel</strong> folder into <code>Remote Scripts</code> in Live's User Library (make the folder if it isn't there): on a Mac <code>~/Music/Ableton/User Library/Remote Scripts</code>, on Windows <code>Documents\Ableton\User Library\Remote Scripts</code>.</li>
-                <li>Restart Live.</li>
-                <li>In Settings → Link, Tempo &amp; MIDI, remove the Launchkey Mini MK4 control surface and add <strong>Morsel</strong>, with Input <strong>Launchkey Mini MK4 25 (DAW Out)</strong> and Output <strong>Launchkey Mini MK4 25 (DAW In)</strong>.</li>
-                <li>Under the ports, set the <strong>DAW Out</strong> input to Track and Remote on, and keep Track on for <strong>MIDI Out</strong>.</li>
-              </ol>
-            </details>
-          </article>
-        </div>
-      </section>
-
-      <section class="faq wrap" aria-labelledby="faq">
-        <h2 id="faq">Questions</h2>
-        <details>
-          <summary>Do I need a Launchkey?</summary>
-          <p>
-            To play it, yes: Morsel is made for the pads, encoders, buttons and screen of the <strong>Launchkey Mini MK4 25</strong>.
-            Without one you can still look around: load samples, click the pads on screen and program steps.
-          </p>
-        </details>
-        <details>
-          <summary>Does it work with other Launchkeys?</summary>
-          <p>It's made and tested with the Launchkey Mini MK4 25. Other models aren't supported.</p>
-        </details>
-        <details>
-          <summary>Which browsers work?</summary>
-          <p>
-            <strong>Chrome or Edge</strong> (or another Chromium browser, like Brave or Arc) on a computer. Morsel talks to the
-            Launchkey and its screen over Web MIDI, which Safari doesn't have. Phones and tablets aren't supported.
-          </p>
-        </details>
-        <details>
-          <summary>Where are my samples and projects?</summary>
-          <p>
-            In your browser, on your computer. Nothing is uploaded and there's no account. Clearing the browser's data for
-            this site deletes them, so keep a copy with <strong>Project → Export…</strong> in the app.
-          </p>
-        </details>
-        <details>
-          <summary>Does it work offline?</summary>
-          <p>Once it has loaded, yes. Chrome and Edge can also install it as an app.</p>
-        </details>
-        <details>
-          <summary>Can I use Morsel and Ableton Live at the same time?</summary>
-          <p>
-            Not on the same Launchkey: only one of them can have its DAW mode. Close Live before you open Morsel, or use
-            Morsel for Live inside Live instead.
-          </p>
-        </details>
-        <details>
-          <summary>Which Live does Morsel for Live need?</summary>
-          <p>
-            <strong>Live 12</strong>, Lite included (the Launchkey comes with it). It works on its own: you don't need the
-            browser app for it.
-          </p>
-        </details>
-        <details>
-          <summary>What does it cost?</summary>
-          <p>Nothing. Morsel is free, with no ads and no account, under the MIT licence.</p>
-        </details>
-      </section>
     </main>
-    <footer class="wrap">
-      <span>MIT licence. Morsel is an independent project and isn't affiliated with Novation, Focusrite or Ableton. Launchkey is a trademark of Focusrite Audio Engineering Ltd; Ableton and Live are trademarks of Ableton AG.</span>
+
+    <footer class="wrap grid">
+      <a class="logo" href="/">Morsel</a>
+      <p>
+        Free under the MIT licence. Morsel is an independent project and isn't affiliated with Novation, Focusrite or
+        Ableton. Launchkey is a trademark of Focusrite Audio Engineering Ltd; Ableton and Live are trademarks of Ableton AG.
+      </p>
     </footer>
+    <script type="module" src="/src/landing.ts"></script>
   </body>
 </html>
