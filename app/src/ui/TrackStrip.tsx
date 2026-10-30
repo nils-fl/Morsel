@@ -31,7 +31,7 @@ export function TrackStrip() {
           <i>{i + 1}</i>
           <span>{KIND_ICON[t.kind]} {t.name}</span>
           {(t.id === drum || t.id === keys) && (
-            <em title={t.id === drum ? `Pads${t.id === keys ? " and keybed" : ""} play this track` : "Keybed plays this track"}>{t.id === drum ? "PADS" : "KEYS"}</em>
+            <em title={t.id === drum ? `Pads${t.id === keys ? " and keybed" : ""} play this track` : "Keybed plays this track"}>{t.id === drum ? "Pads" : "Keys"}</em>
           )}
         </button>
       ))}

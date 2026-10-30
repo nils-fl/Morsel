@@ -41,8 +41,8 @@ const contrast = (a: number[], b: number[]) => {
   const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p);
   return (x + 0.05) / (y + 0.05);
 };
-/** The panel and text colours of each theme (index.css --panel / --text). */
-const THEME = { dark: { panel: "#181c30", text: "#e8eaf6" }, light: { panel: "#f7f8fd", text: "#161a2e" } };
+/** The panel and text colours of each theme (tokens.css --panel / --text). */
+const THEME = { dark: { panel: "#181c30", text: "#e8eaf6" }, light: { panel: "#f7f8fa", text: "#191c22" } };
 
 /**
  * A track colour as the page accent: moved toward the theme's text colour just far enough to read at 4.5:1 on the

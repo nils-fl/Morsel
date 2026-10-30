@@ -7,8 +7,8 @@ import { defineConfig, type Plugin } from 'vite'
 
 // Public files the app doesn't need offline (the link preview is for crawlers, the GIF for the landing page).
 const NOT_PRECACHED = new Set(['og-image.png', 'boot-animation.gif', '.DS_Store'])
-/** Built files that aren't the app's: the landing page and the downloads. */
-const notTheApp = (name: string) => name === 'landing.html' || name.startsWith('download/')
+/** Built files that aren't the app's: the landing page (and its stylesheet) and the downloads. */
+const notTheApp = (name: string) => name === 'landing.html' || name.startsWith('assets/landing-') || name.startsWith('download/')
 
 /** The Live script for the landing page's download (worker/index.ts counts it): live/Morsel as Morsel/ in a zip. */
 function liveScriptZip(): Plugin {

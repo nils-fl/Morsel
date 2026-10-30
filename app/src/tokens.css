@@ -1,0 +1,104 @@
+/* Morsel's design tokens, shared by the app (index.css) and the landing page (landing.html).
+   One idea runs through both: a light page with the Launchkey as the one dark thing on it, its screen and lit pads.
+   Colour means sound (tracks, pads, LEDs); ink means text and selection.
+   The light paper's hex is repeated where CSS can't reach: theme-color in index.html and landing.html, and
+   manifest.webmanifest. Change those with --bg. */
+:root {
+  /* Type: Archivo for words, mono for numbers and code, Silkscreen only for the logo and the Launchkey screen. */
+  --sans: "Archivo", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --pixel: "Silkscreen", var(--mono);
+  /* Type scale: 11px is the smallest text; only pixel-font imitations of the device go below it. */
+  --fs-xs: 11px; /* labels, captions, badges */
+  --fs-s: 12px; /* controls, lists */
+  --fs-m: 13px; /* body, panel titles */
+  --fs-l: 15px; /* dialog and guide headings */
+
+  /* One corner scale: controls, tiles (pads, strips, waveforms), cards (panels, popovers), the shell and the device. */
+  --r-ctl: 4px;
+  --r-tile: 6px;
+  --r-card: 10px;
+  --r-shell: 14px;
+
+  /* The hardware, the same in both themes: its body, the screen and its dots. */
+  --device: #23262c;
+  --device-edge: #3a3f47;
+  --screen-bg: #15191c;
+  --screen-fg: #9cc9d4;
+  /* LEDs on the landing page's buttons: the pad colours of what they open. */
+  --led-green: #2fe05a;
+  --led-yellow: #f5d000;
+
+  /* Dark theme: deep navy panels, vivid accents close to the Launchkey's own LEDs. */
+  --bg: #0f1220;
+  --panel: #181c30;
+  --panel-2: #1e2339;
+  --line: #2a2f4a;
+  --line-hi: #3d4366;
+  --text: #e8eaf6;
+  --muted: #8e94b8;
+  --dim: #5c6288;
+
+  /* Accents: each reads at 4.5:1 or more as text on the panels and under --ink when filled. */
+  --amber: #ffb547;
+  --orange: #ff9a4d;
+  --yellow: #ffe14d;
+  --lime: #b6f24a;
+  --cyan: #3fd6ff;
+  --blue: #6f9bff;
+  --violet: #b48cff;
+  --magenta: #ff6fb0;
+  --white: #eef0fa;
+  --rec: #ff6b78;
+  --ok: #3ddc97;
+  /* Solo is a bright yellow fill with dark text in both themes, like a highlighter. */
+  --solo: #ffe14d;
+  --solo-ink: #0f1220;
+  /* How much of a track / pad colour its lines and small numbers keep (the rest is the text colour). */
+  --edge-keep: 100%;
+  --ink: #0f1220; /* text on filled colour (meters, sliders) */
+
+  --wave-bg: #0c0f1b;
+  --grid: rgba(255, 255, 255, .05); /* faint grid lines on canvases */
+  --shade: rgba(0, 0, 0, .35); /* dims a waveform outside its region */
+  --view-hi: rgba(232, 234, 246, .1); /* visible window on the chop overview */
+  --scrim: rgba(20, 22, 25, .7); /* behind dialogs */
+
+  color-scheme: dark;
+}
+/* Light theme (the default): neutral cool paper and ink, so the pad colours read true; the accents deepened so they
+   still read as text. The Launchkey screen stays dark, like the device. */
+:root[data-theme="light"] {
+  --bg: #e8ebf0;
+  --panel: #f7f8fa;
+  --panel-2: #ffffff;
+  --line: #d5dae1;
+  --line-hi: #b6bdc8;
+  --text: #191c22;
+  --muted: #535a67;
+  --dim: #868d99;
+
+  --amber: #a85800;
+  --orange: #b44a06;
+  --yellow: #8a6a00; /* gold: only for small marks (favourite stars, the guide's Track mode) */
+  --lime: #4d7c0f;
+  --cyan: #00799e;
+  --blue: #2851d8;
+  --violet: #6a3fd6;
+  --magenta: #c2185b;
+  --white: #22262d; /* the "strong" contrast colour: markers, playhead, outlines */
+  --rec: #cc2040;
+  --ok: #0b7a4f;
+  --solo: #ffd23f;
+  /* Track and pad colours are made for dark panels; on paper their lines and numbers take some of the text colour. */
+  --edge-keep: 70%;
+  --ink: #ffffff;
+
+  --wave-bg: #eff1f4;
+  --grid: rgba(25, 28, 34, .06);
+  --shade: rgba(255, 255, 255, .35);
+  --view-hi: rgba(25, 28, 34, .08);
+  --scrim: rgba(30, 34, 42, .4);
+
+  color-scheme: light;
+}
