@@ -1,8 +1,9 @@
-// Renders the Launchkey start-up animation (src/display/bootAnim.ts) to docs/boot-animation.gif for the README.
+// Renders the Launchkey start-up animation (src/display/bootAnim.ts) to docs/boot-animation.gif for the README, and
+// public/boot-animation.gif for the landing page (landing.html).
 // The frames come from the same code the device screen uses, drawn as the on-screen dot-matrix preview.
 // Needs ffmpeg on the PATH. Run: npm run boot-gif
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +11,7 @@ import { createServer } from "vite";
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const out = resolve(appDir, "../docs/boot-animation.gif");
+const landingCopy = resolve(appDir, "public/boot-animation.gif");
 
 const FPS = 25;
 const HOLD_LAST_MS = 1200; // pause on the logo before the GIF loops
@@ -71,7 +73,8 @@ try {
   ], { stdio: "inherit" });
   rmSync(dir, { recursive: true, force: true });
   if (ff.status !== 0) throw new Error("ffmpeg failed (is it installed?)");
-  console.log(`Wrote ${out} (${width}x${height}, ${frames} frames + ${HOLD_LAST_MS} ms hold)`);
+  copyFileSync(out, landingCopy);
+  console.log(`Wrote ${out} and ${landingCopy} (${width}x${height}, ${frames} frames + ${HOLD_LAST_MS} ms hold)`);
 } finally {
   await vite.close();
 }

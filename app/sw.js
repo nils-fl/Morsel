@@ -1,9 +1,11 @@
 // Morsel's service worker: keeps the app and its fonts in the browser, so it starts (and installs as an app) without
 // a network. The serviceWorker plugin in vite.config.ts fills in the build (below) and writes it to dist/sw.js; main.tsx
-// registers it in production builds.
+// registers it in production builds. The app lives under /app/ (the landing page is at /).
 const { version, files, fontCss } = __BUILD__;
 const APP = `morsel-${version}`;
 const FONTS = "morsel-fonts";
+// The app's page: every page under it is the same index.html.
+const APP_PAGE = "/app/";
 // How long a page load waits for the network before it starts from the cached app.
 const PAGE_TIMEOUT_MS = 3000;
 
@@ -27,7 +29,10 @@ self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;
   const url = new URL(req.url);
-  if (url.origin === location.origin) e.respondWith(req.mode === "navigate" ? page(req) : asset(req));
+  if (url.origin === location.origin) {
+    if (req.mode !== "navigate") e.respondWith(asset(req));
+    else e.respondWith(url.pathname.startsWith(APP_PAGE) ? page(req) : sitePage(req));
+  }
   else if (url.hostname === "fonts.googleapis.com") e.respondWith(fontCssFor(req, e));
   else if (url.hostname === "fonts.gstatic.com") e.respondWith(font(req));
 });
@@ -49,11 +54,20 @@ async function cacheFonts() {
 async function page(req) {
   const cache = await caches.open(APP);
   const net = fetch(req).then((res) => {
-    if (res.ok) void cache.put("/", res.clone()); // a single-page app: every page is index.html
+    if (res.ok) void cache.put(APP_PAGE, res.clone());
     return res;
   });
   const res = await Promise.race([net.catch(() => null), new Promise((r) => setTimeout(r, PAGE_TIMEOUT_MS))]);
-  return res ?? (await cache.match("/")) ?? net;
+  return res ?? (await cache.match(APP_PAGE)) ?? net;
+}
+
+/** The site's other pages (the landing page) from the network; offline, the app, so an app installed when it was at / still starts. */
+async function sitePage(req) {
+  try {
+    return await fetch(req);
+  } catch (err) {
+    return (await caches.match(APP_PAGE)) ?? Promise.reject(err);
+  }
 }
 
 /** Built files have content hashes in their names, so a cached copy is always right. */

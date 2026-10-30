@@ -3,7 +3,7 @@
   "short_name": "Morsel",
   "description": "A browser groovebox for the Novation Launchkey Mini MK4: sampler, step sequencer and song arranger.",
   "id": "/",
-  "start_url": "/",
+  "start_url": "/app/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#e8eaed",

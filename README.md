@@ -6,6 +6,8 @@
 
 A browser-based groovebox for the **Novation Launchkey Mini MK4 25**. Morsel puts the Launchkey in DAW mode over Web MIDI and takes over its pads, encoders, buttons and screen, turning it into a standalone sampler, step sequencer and song arranger. You don't need a DAW.
 
+**Try it:** [morsel.n-flaschel.workers.dev](https://morsel.n-flaschel.workers.dev/) in Chrome or Edge, with the Launchkey plugged in. Nothing to install; your samples and projects stay in your browser. The same page has **Morsel for Live** to download.
+
 ## Features
 
 - **16-pad sampler**: velocity-sensitive pads with start/end, pitch, attack/decay, HP/LP filters with resonance, pan, volume and choke group (pads in a group cut each other off). Pad pressure (aftertouch) opens the filters on note-repeat hits.
@@ -89,7 +91,7 @@ npm install
 npm run dev
 ```
 
-Open the URL Vite prints and allow MIDI (with SysEx) access when the browser asks. The dot next to the Morsel logo turns green once the Launchkey is found.
+Or open the [hosted app](https://morsel.n-flaschel.workers.dev/app/), built from `main` on every push. Open the URL Vite prints and allow MIDI (with SysEx) access when the browser asks. The dot next to the Morsel logo turns green once the Launchkey is found.
 
 Load samples by dropping audio files onto an on-screen pad, or use **Import folder** to add a whole folder to the browser.
 
@@ -97,7 +99,7 @@ Load samples by dropping audio files onto an on-screen pad, or use **Import fold
 
 ## Ableton Live
 
-The repo also holds **Morsel for Live** (`live/`), a control surface script for Ableton Live 12 that makes the Launchkey work in Live the way it does in Morsel: the same pad modes, encoder pages, Shift layer and screen, with Live's tracks, clips, Drum Racks, browser and Simpler underneath, and chopping with the wave on the Launchkey's screen. It doesn't need the app. Setup and controls are in [live/README.md](live/README.md).
+The repo also holds **Morsel for Live** (`live/`), a control surface script for Ableton Live 12 that makes the Launchkey work in Live the way it does in Morsel: the same pad modes, encoder pages, Shift layer and screen, with Live's tracks, clips, Drum Racks, browser and Simpler underneath, and chopping with the wave on the Launchkey's screen. It doesn't need the app. Download it from the [landing page](https://morsel.n-flaschel.workers.dev/) (a zip of `live/Morsel`, built with the site). Setup and controls are in [live/README.md](live/README.md).
 
 **Live's sounds in Morsel.** The Launchkey comes with Ableton Live Lite, and its library has drum kits and sampled instruments Morsel can play. **Ableton Live** in the library panel connects it: the desktop app finds it in Applications; in a browser the folder picker opens, and you press ⌘⇧G, paste the path (it's copied for you) and choose *Core Library*. It then shows as *Ableton Live*:
 - **Live Kits**: Live's Drum Racks (the 505 to 909 Core Kits, acoustic, electronic and sampled kits). Loading one (double-click, the menu, dropping it on the pads, or Func in Browse on the Launchkey) puts its sounds on a drum track's pads in Live's layout (kick on pad 1), with Live's pad names.
@@ -145,10 +147,20 @@ Run these inside `app/`:
 | `npm run ableton-ref` | Measure Ableton Live's Core Library (drum one-shots, Drum Racks, Drift presets) into `reference/` as a tuning reference (needs Ableton Live and ffmpeg; only measurements are written, `reference/` is git-ignored). An optional argument points at another Core Library folder |
 | `npm run measure` | Render the stock kits and synth presets in Node, compare them with `reference/` and write `reference/report.md`: each kit pad against the reference one-shots of its category, each preset folder against Drift's |
 | `npm run kits -- "<packs folder>"` | Build kit files from a folder of sample packs into `kits/` (needs ffmpeg). Each pack's drum one-shots are sorted by name into kick, snare, clap, hats, … and laid out like the Factory kit; big packs get an A and a B kit. Import them with *Import kits…* |
-| `npm run boot-gif` | Re-render `docs/boot-animation.gif` from the start-up animation code (needs ffmpeg) |
-| `npm run og-image` | Re-render the link preview `public/og-image.png`, `public/apple-touch-icon.png` and the app icons `public/icon-192.png` / `icon-512.png` and the desktop app's `electron/icon.png` (from `public/favicon.svg`) (needs rsvg-convert) |
-| `npm run deploy` | Build and deploy to Cloudflare as the `morsel` Worker (static assets, see `app/wrangler.jsonc`). Log in once with `npx wrangler login` |
+| `npm run boot-gif` | Re-render `docs/boot-animation.gif` from the start-up animation code, and its copy `public/boot-animation.gif` for the landing page (needs ffmpeg) |
+| `npm run og-image` | Re-render the link preview `public/og-image.png`, GitHub's social preview `docs/social-preview.png` (the same picture at 1280×640), `public/apple-touch-icon.png` and the app icons `public/icon-192.png` / `icon-512.png` and the desktop app's `electron/icon.png` (from `public/favicon.svg`) (needs rsvg-convert) |
+| `npm run deploy` | Build and deploy to Cloudflare as the `morsel` Worker (see [Hosting](#hosting)). Log in once with `npx wrangler login` |
 | `npm run preview:worker` | Build and serve it locally in the Worker runtime |
+| `npm run stats [days]` | The site's counts for the last 30 days (or `days`): landing page visits, app opens, Live script downloads and app sessions with a Launchkey, per day, with where visitors came from and their countries (see [Hosting](#hosting)) |
+
+## Hosting
+
+The site is the `morsel` Cloudflare Worker (`app/wrangler.jsonc`), built from `main` on every push. It serves `app/dist`:
+- `/` is the landing page (`app/landing.html`), with the link to the app and the Live script's download.
+- `/app/` is the app (`app/index.html`). An app installed when it was at `/` starts there and is sent on to `/app/`.
+- `/download/morsel-for-live.zip` is `live/Morsel` (the `.py` files), zipped by the build (`app/vite.config.ts`). Cloudflare's build watches `app/**` and `live/**`, so a change to the script updates the download.
+
+`app/worker/index.ts` counts landing page visits, app opens and downloads, and the app reports when a Launchkey connects (`app/src/platform/stats.ts`, a beacon to `/api/event`; not in dev or the desktop app). Each count is an event name, the visitor's country and the site they came from, written to Workers Analytics Engine (dataset `morsel_events`). No cookies, nothing stored on the visitor's device, no IP addresses. To read them, `npm run stats` needs `CLOUDFLARE_ACCOUNT_ID` (on the Workers overview page) and `CLOUDFLARE_API_TOKEN`: a token (My Profile → API Tokens → Create Token → Custom) with Account → Account Analytics → Read.
 
 ## Project layout
 
@@ -164,6 +176,8 @@ app/src/
   ui/        React panels (Pads, Sequencer, Keys, Mixer, Song/Matrix, Guide, Lab, Preferences)
   platform/  Desktop app or browser, and the desktop app's bridge
   params.ts  Encoder pages and parameters
+app/landing.html  The landing page (served at /, see Hosting)
+app/worker/  The Cloudflare Worker: routes, the download and the counts
 app/electron/  Desktop app: main process (window, menu, files, settings), preload bridge, packaging
 live/        Morsel for Live: the Ableton Live control surface script (Python), its tests and README
 kits/        Saved kit files (*.morsel-kit, git-ignored: they embed samples)
@@ -185,3 +199,9 @@ Both are zip files (rename one to `.zip` to look inside) with a `morsel.json` an
 `samples` maps each sample id to `{ name, file }`, where `file` is its WAV in the zip. A WAV swapped in by hand loads too (16, 24 or 32-bit, or 32-bit float), at its own sample rate.
 
 Older exports still import: single JSON files (`*.morsel.json`, `*.morsel-kit.json`) with the samples as base64 16-bit PCM per channel, including those from before the rename to Morsel (`*.launchkit.json`, `*.launchkit-kit.json`).
+
+## Licence
+
+Morsel is released under the [MIT Licence](LICENSE).
+
+Morsel is an independent project and isn't affiliated with, endorsed by or supported by Novation, Focusrite or Ableton. Launchkey is a trademark of Focusrite Audio Engineering Ltd; Ableton and Live are trademarks of Ableton AG. No Novation or Ableton sounds or code are included: Morsel's stock kits are synthesized, and Live's library is only read from your own installation (see [Ableton Live](#ableton-live)).

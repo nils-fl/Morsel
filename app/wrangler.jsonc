@@ -1,10 +1,17 @@
-// Cloudflare Worker that serves the built app (dist/) as static assets. Deploy: npm run deploy
+// Cloudflare Worker that serves the built site (dist/): the landing page at /, the app at /app/ and the Live script's
+// zip, counting visits and downloads (worker/index.ts). Deploy: push main (Cloudflare builds it), or npm run deploy.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "morsel",
+  "main": "worker/index.ts",
   "compatibility_date": "2026-10-18",
   "assets": {
     "directory": "./dist",
-    "not_found_handling": "single-page-application"
-  }
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    // Everything else is served straight from dist/.
+    "run_worker_first": ["/", "/app", "/app/*", "/download/*", "/api/*"]
+  },
+  // Visits, downloads and Launchkey connections (npm run stats). Created on the first write.
+  "analytics_engine_datasets": [{ "binding": "EVENTS", "dataset": "morsel_events" }]
 }

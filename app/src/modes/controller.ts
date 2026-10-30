@@ -2,6 +2,7 @@
 import { addDrumTrack, allPresets, bendKeys, currentKit, finishChop, keepRegion, keyOff, keyOn, modKeys, kitNames, liveWhen, openInChop, playPad, releasePad, setRepeatLatch, stretchChop, toggleSampling, togglePlay, toggleRecord } from "../actions";
 import { engine } from "../audio/engine";
 import { launchkey } from "../midi/launchkey";
+import { countOnce } from "../platform/stats";
 import { keyVelocity, padVelocity } from "../midi/velocity";
 import { CC, COLOR, type LedMode, type PadLayout } from "../midi/protocol";
 import { DUCK_PAGE, PAGES, STEP_PAGE, fixPage, inputLabel, keysSampleList, padLabel, pagesFor, presetLabel, stepPage, stepPageLabel, turnEncoder } from "../params";
@@ -222,6 +223,7 @@ export function initController() {
       case "connection":
         set({ connected: e.connected, status: e.connected ? "Launchkey connected" : "Launchkey disconnected" });
         if (e.connected) {
+          countOnce("launchkey");
           launchkey.setLayout(layoutFor(s.hwMode));
           lastStationary = "";
           // Plugged in later: play the intro for it. Right after the page loads the device connects while the

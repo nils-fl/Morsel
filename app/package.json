@@ -2,6 +2,7 @@
   "name": "morsel",
   "private": true,
   "version": "0.1.0",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=20.11"
@@ -19,6 +20,7 @@
     "deploy": "npm run build && wrangler deploy",
     "preview:worker": "npm run build && wrangler dev",
     "og-image": "node scripts/og-image.mjs",
+    "stats": "node scripts/stats.mjs",
     "desktop:dev": "node scripts/electron.mjs dev",
     "desktop:build": "npm run build && node scripts/electron.mjs build",
     "desktop:dist": "npm run desktop:build && electron-builder --mac --config electron/builder.yml"

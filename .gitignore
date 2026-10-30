@@ -13,3 +13,6 @@ kits/*.launchkit-kit.json
 # Measurements of third-party sounds (Ableton, Novation) used to tune the stock sounds
 reference/
 .pytest_cache/
+
+# Claude Code session state
+.claude/scheduled_tasks.lock
