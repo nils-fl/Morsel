@@ -678,27 +678,30 @@ export const stockLengths = (kit: string) => KITS[kit]?.sounds.map(([, len]) => 
 export async function renderStockKit(kit: string): Promise<{ name: string; buffer: AudioBuffer }[]> {
   const def = KITS[kit];
   if (!def) throw new Error(`No stock kit ${kit}`);
-  return Promise.all(
-    def.sounds.map(async ([name, len, gen, fx]) => {
-      // Rendered with room to spare; trimmed() then cuts it where it has actually faded out.
-      const ctx = new OfflineAudioContext(1, Math.ceil((len * 1.5 + 0.3) * SR), SR);
-      const all: Fx = { ...def.fx, ...fx };
-      // The voice plays into a bus; a room (when asked for) is mixed in from it.
-      const bus = ctx.createGain();
-      bus.connect(ctx.destination);
-      if (all.room) {
-        const conv = ctx.createConvolver();
-        conv.buffer = roomIR(ctx, ROOM_SECONDS);
-        const wet = ctx.createGain();
-        wet.gain.value = all.room;
-        chain(bus, conv, wet, ctx.destination);
-      }
-      gen(ctx, bus);
-      const buffer = await ctx.startRendering();
-      const data = buffer.getChannelData(0);
-      applyFx(data, all);
-      normalize(data, PEAK);
-      return { name, buffer: trimmed(buffer) };
-    }),
-  );
+  return Promise.all(def.sounds.map(async ([name, len, gen, fx]) => ({ name, buffer: await renderSound(len, gen, { ...def.fx, ...fx }) })));
+}
+
+/** One note (C4) of the Factory kit's Stab, for playing tunes: the Stab pad itself is a whole chord, so transposed
+ *  keys would stack chords. The landing page's keys play this. */
+export const renderStabNote = () => renderSound(0.8, chord([60], "sawtooth", 0.5), KITS.Factory.fx ?? {});
+
+async function renderSound(len: number, gen: Gen, fx: Fx): Promise<AudioBuffer> {
+  // Rendered with room to spare; trimmed() then cuts it where it has actually faded out.
+  const ctx = new OfflineAudioContext(1, Math.ceil((len * 1.5 + 0.3) * SR), SR);
+  // The voice plays into a bus; a room (when asked for) is mixed in from it.
+  const bus = ctx.createGain();
+  bus.connect(ctx.destination);
+  if (fx.room) {
+    const conv = ctx.createConvolver();
+    conv.buffer = roomIR(ctx, ROOM_SECONDS);
+    const wet = ctx.createGain();
+    wet.gain.value = fx.room;
+    chain(bus, conv, wet, ctx.destination);
+  }
+  gen(ctx, bus);
+  const buffer = await ctx.startRendering();
+  const data = buffer.getChannelData(0);
+  applyFx(data, fx);
+  normalize(data, PEAK);
+  return trimmed(buffer);
 }

@@ -1,7 +1,7 @@
 // The landing page's Launchkey: Morsel in miniature, with the app's own screens (display/) and Factory kit (audio/kit.ts).
 // Pads mode plays the kit's 16 sounds; Steps mode puts the selected sound's 16 steps on the pads; the encoders set the
 // tempo, swing, a master filter and echo, the selected sound's tune, decay and level, and the volume.
-import { renderStockKit, stockSounds } from "./audio/kit";
+import { renderStabNote, renderStockKit, stockSounds } from "./audio/kit";
 import { BOOT_MS, bootFrame } from "./display/bootAnim";
 import { Frame, H, W } from "./display/frame";
 import { encoderScreen, padScreen, stepScreen } from "./display/screens";
@@ -56,7 +56,12 @@ const kit: Promise<{ buffers: AudioBuffer[]; peaks: Peaks[] }> = renderStockKit(
 let peaks: Peaks[] | null = null;
 kit.then((k) => (peaks = k.peaks), () => {});
 
-interface Audio { ctx: AudioContext; buffers: AudioBuffer[]; bus: GainNode; send: GainNode; delay: DelayNode; filter: BiquadFilterNode; out: GainNode }
+// The keys play one note of the Stab: the pad is a whole chord, and three keys of it would stack three chords.
+const keyNote = renderStabNote();
+// A chord on the keys is several voices at once: each a bit quieter than the Stab pad, so they don't clip together.
+const KEY_LEVEL = 0.6;
+
+interface Audio { ctx: AudioContext; buffers: AudioBuffer[]; keyNote: AudioBuffer; bus: GainNode; send: GainNode; delay: DelayNode; filter: BiquadFilterNode; out: GainNode }
 let audio: Audio | null = null;
 let starting: Promise<Audio> | null = null;
 
@@ -72,8 +77,8 @@ function start(): Promise<Audio> {
     bus.connect(filter);
     bus.connect(send).connect(delay).connect(fb).connect(delay);
     delay.connect(filter).connect(out).connect(ctx.destination);
-    const { buffers } = await kit;
-    audio = { ctx, buffers, bus, send, delay, filter, out };
+    const [{ buffers }, note] = await Promise.all([kit, keyNote]);
+    audio = { ctx, buffers, keyNote: note, bus, send, delay, filter, out };
     applyMix();
     return audio;
   })();
@@ -99,16 +104,17 @@ function applyMix() {
 const hits = NAMES.map(() => -Infinity);
 let openHat: GainNode | null = null;
 
-/** Play a pad at audio time `t`; a key passes its own rate (and doesn't light the pad). */
+/** Play a pad at audio time `t`; a key passes its own rate and plays the Stab's single note (and doesn't light the pad). */
 function trigger(a: Audio, pad: number, t: number, keyRate?: number) {
   const rate = keyRate ?? 2 ** (tune[pad] / 12);
+  const buffer = keyRate === undefined ? a.buffers[pad] : a.keyNote;
   const src = a.ctx.createBufferSource();
-  src.buffer = a.buffers[pad];
+  src.buffer = buffer;
   src.playbackRate.value = rate;
   const g = a.ctx.createGain();
-  const peak = Math.pow(level[pad] / 100, 1.5);
+  const peak = Math.pow(level[pad] / 100, 1.5) * (keyRate === undefined ? 1 : KEY_LEVEL);
   g.gain.setValueAtTime(peak, t);
-  const len = (a.buffers[pad].duration / rate) * (decay[pad] / 100);
+  const len = (buffer.duration / rate) * (decay[pad] / 100);
   if (decay[pad] < 100) {
     g.gain.setValueAtTime(peak, t + len * 0.6);
     g.gain.linearRampToValueAtTime(0, t + len);
