@@ -14,6 +14,7 @@ import {
 } from "../state/store";
 import type { HwMode, KeysInstrument, NoteEvent, Track, TrackKind } from "../state/types";
 import { noteForKeysPad, stepForPad } from "./stepMap";
+import { enterStepTab, leaveStepTab } from "./stepTab";
 import { noteName } from "../ui/notes";
 import { activeOverlay, releaseHold, showTemp, type Overlay } from "./notify";
 import { chopAddMarker, chopEncoder, chopKeyDown, chopKeyUp, chopKeysReleased, chopMarkerArrows, chopPad, chopPadLeds, chopRemoveMarker, chopSetPage, chopStepMarker, chopStop, chopTogglePlay, chopView } from "./chop";
@@ -63,6 +64,8 @@ export function setHwMode(mode: HwMode) {
     if (get().encPage === STEP_PAGE) set({ encPage: pageBeforeStep ?? 0 });
     fixPage();
   }
+  if (mode === "step") enterStepTab();
+  else if (!TEMPORARY.includes(mode)) leaveStepTab();
   launchkey.setLayout(layoutFor(mode));
   // The Func cycle shows where you are in it ("Mode 2/5"); Browse and Chop sit outside it.
   const at = MODES.indexOf(mode);

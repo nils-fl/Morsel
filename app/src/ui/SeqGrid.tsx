@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { sequencer } from "../seq/sequencer";
-import { BAR_TICKS, GRID_OPTIONS, MAX_BARS, PPQN, QUANTIZE_OPTIONS, gridLabel, humanizeEvents, maxNudge, quantizeEvents } from "../seq/timing";
+import { BAR_TICKS, GRID_OPTIONS, MAX_BARS, PPQN, QUANTIZE_OPTIONS, gridLabel, humanizeEvents, maxNudge, pageSteps, quantizeEvents } from "../seq/timing";
 import { clearTrack, clipOf, clipStep, copyClip, copyPattern, doubleClip, patternHasNotes, selectedTrack, set, setClipGrid, setTrackBars, togglePadFlag, toggleStep, toggleTrackFlag, trackBars, updateClip, updatePattern, useApp } from "../state/store";
 import { PAD_COUNT } from "../state/types";
 import { noteName } from "./notes";
@@ -46,11 +46,21 @@ export function SeqGrid() {
     setFollowed(playWindow);
     if (playWindow >= 0) setView(playWindow);
   }
+  // In Step mode the steps on the Launchkey's pads are marked, and the view goes to them when they change.
+  const padsFirst = useApp((s) => (s.hwMode === "step" ? s.stepPage * pageSteps(span) : -1));
+  const padsEnd = padsFirst < 0 ? -1 : padsFirst + pageSteps(span);
+  const padsWindow = padsFirst < 0 ? -1 : Math.floor(padsFirst / windowSteps);
+  const [padsFollowed, setPadsFollowed] = useState(-1);
+  if (padsWindow !== padsFollowed) {
+    setPadsFollowed(padsWindow);
+    if (padsWindow >= 0) setView(padsWindow);
+  }
   const shown = Math.min(view, windows - 1);
   const first = shown * windowSteps;
   const cells = Math.min(windowSteps, (bars * BAR_TICKS) / span - first);
   const stepsShown = Array.from({ length: cells }, (_, i) => first + i);
-  const mark = (s: number) => `${(s * span) % PPQN === 0 ? "beat" : ""} ${(s * span) % BAR_TICKS === 0 ? "bar" : ""} ${s === playStep ? "now" : ""}`;
+  const mark = (s: number) =>
+    `${(s * span) % PPQN === 0 ? "beat" : ""} ${(s * span) % BAR_TICKS === 0 ? "bar" : ""} ${s === playStep ? "now" : ""} ${s >= padsFirst && s < padsEnd ? "pads" : ""}`;
   const firstBar = shown * viewBars(span) + 1;
   const lastBar = Math.min(bars, firstBar + viewBars(span) - 1);
   const drum = track.kind === "drum";
@@ -142,7 +152,7 @@ export function SeqGrid() {
       <div className="seq-grid" style={{ "--steps": cells } as React.CSSProperties}>
         {/* Bar.beat over every beat; the step playing is lit. */}
         <div className="seq-row seq-ruler" aria-hidden>
-          <span />
+          <span className="seq-pads-label">{padsFirst >= 0 && padsFirst >= first && padsFirst < first + cells ? "Pads ▸" : ""}</span>
           <span />
           <span />
           <div className="seq-cells">

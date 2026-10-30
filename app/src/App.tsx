@@ -279,7 +279,7 @@ function TopBar({ onGuide, onPrefs }: { onGuide: () => void; onPrefs: () => void
               <span className="bar-label" title="What the Launchkey's pads and encoders do right now">Launchkey</span>
               <div className="hw-modes">
                 {(["play", "step", "track", "mute", "pattern", "browse"] as HwMode[]).map((m) => (
-                  <button key={m} className={s.hwMode === m ? "on" : ""} onClick={() => setHwMode(m)}>{m}</button>
+                  <button key={m} className={s.hwMode === m ? "on" : ""} title={m === "step" ? "Step: the pads are 16 steps of the selected track (marked on the Sequencer tab, which opens)" : undefined} onClick={() => setHwMode(m)}>{m}</button>
                 ))}
               </div>
             </div>
