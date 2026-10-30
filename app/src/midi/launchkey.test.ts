@@ -42,3 +42,14 @@ describe("the device's own pad modes (chords)", () => {
     expect(lk.nativePads).toBeNull();
   });
 });
+
+describe("pad LEDs", () => {
+  it("stops a pulsing pad with a lit colour before turning it off (static 0 alone leaves it pulsing)", () => {
+    const { lk, sent } = device();
+    lk.setPads(Array.from({ length: 16 }, () => ({ color: 3, mode: "pulse" as const })));
+    sent.length = 0;
+    lk.setPads(Array.from({ length: 16 }, (_, i) => ({ color: i === 0 ? 5 : 0 })));
+    expect(sent.length).toBe(1 + 15 * 2);
+    expect(sent.slice(1, 3).map((m) => m[2])).toEqual([1, 0]);
+  });
+});

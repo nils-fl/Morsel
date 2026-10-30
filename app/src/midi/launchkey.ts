@@ -245,10 +245,14 @@ export class Launchkey {
     const { color, mode } = this.padColors[pad];
     const key = `${this.layout}:${pad}`;
     const sig = color * 4 + (mode === "static" ? 0 : mode === "flash" ? 1 : 2);
-    if (this.sentColors.get(key) === sig) return;
+    const prev = this.sentColors.get(key);
+    if (prev === sig) return;
     this.sentColors.set(key, sig);
     // Flash/pulse alternate with the static colour, so set static first.
     if (mode !== "static") this.send(padLedMessage(this.layout, pad, 0));
+    // Static 0 (a note-off) leaves a flashing / pulsing pad going (Chop's pads after the key is let go): a lit static
+    // colour stops it first.
+    else if (color === 0 && prev !== undefined && prev % 4 !== 0) this.send(padLedMessage(this.layout, pad, 1));
     this.send(padLedMessage(this.layout, pad, color, mode));
   }
 
