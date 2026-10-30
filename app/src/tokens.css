@@ -1,3 +1,5 @@
+@import "./fonts.css";
+
 /* Morsel's design tokens, shared by the app (index.css) and the landing page (landing.html).
    One idea runs through both: a light page with the Launchkey as the one dark thing on it, its screen and lit pads.
    Colour means sound (tracks, pads, LEDs); ink means text and selection.

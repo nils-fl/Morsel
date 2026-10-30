@@ -22,9 +22,6 @@
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="The Morsel logo on the Launchkey's dot-matrix screen above a row of lit pads" />
     <meta name="twitter:card" content="summary_large_image" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..700&family=JetBrains+Mono:wght@400;600;700&family=Silkscreen&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/src/tokens.css" />
     <title>Morsel: a groovebox for the Launchkey Mini MK4</title>
     <style>
@@ -95,6 +92,14 @@
       details ol { padding-left: 1.4em; display: grid; gap: 10px; font-size: 15px; }
       details ol li::marker { font: 600 14px var(--mono); color: var(--text); }
       code { font: var(--fs-m)/1.5 var(--mono); color: var(--text); background: var(--bg); padding: 1px 5px; border-radius: 4px; word-break: break-word; }
+
+      /* Questions: one line each, the answer folds open (like How to install). */
+      .faq { padding-block: 64px 16px; }
+      .faq h2 { font: 700 26px/1.15 var(--sans); font-stretch: 118%; margin: 0 0 20px; }
+      .faq details { margin: 0; padding-block: 16px; }
+      .faq details:last-child { border-bottom: 1px solid var(--line); }
+      .faq details p { margin: 0; color: var(--muted); max-width: 70ch; }
+      .faq details strong { color: var(--text); font-weight: 600; }
 
       footer { padding-block: 32px 48px; color: var(--muted); font-size: 13px; display: grid; gap: 6px; }
       footer span { max-width: 90ch; }
@@ -167,10 +172,60 @@
           </article>
         </div>
       </section>
+
+      <section class="faq wrap" aria-labelledby="faq">
+        <h2 id="faq">Questions</h2>
+        <details>
+          <summary>Do I need a Launchkey?</summary>
+          <p>
+            To play it, yes: Morsel is made for the pads, encoders, buttons and screen of the <strong>Launchkey Mini MK4 25</strong>.
+            Without one you can still look around: load samples, click the pads on screen and program steps.
+          </p>
+        </details>
+        <details>
+          <summary>Does it work with other Launchkeys?</summary>
+          <p>It's made and tested with the Launchkey Mini MK4 25. Other models aren't supported.</p>
+        </details>
+        <details>
+          <summary>Which browsers work?</summary>
+          <p>
+            <strong>Chrome or Edge</strong> (or another Chromium browser, like Brave or Arc) on a computer. Morsel talks to the
+            Launchkey and its screen over Web MIDI, which Safari doesn't have. Phones and tablets aren't supported.
+          </p>
+        </details>
+        <details>
+          <summary>Where are my samples and projects?</summary>
+          <p>
+            In your browser, on your computer. Nothing is uploaded and there's no account. Clearing the browser's data for
+            this site deletes them, so keep a copy with <strong>Project → Export…</strong> in the app.
+          </p>
+        </details>
+        <details>
+          <summary>Does it work offline?</summary>
+          <p>Once it has loaded, yes. Chrome and Edge can also install it as an app.</p>
+        </details>
+        <details>
+          <summary>Can I use Morsel and Ableton Live at the same time?</summary>
+          <p>
+            Not on the same Launchkey: only one of them can have its DAW mode. Close Live before you open Morsel, or use
+            Morsel for Live inside Live instead.
+          </p>
+        </details>
+        <details>
+          <summary>Which Live does Morsel for Live need?</summary>
+          <p>
+            <strong>Live 12</strong>, Lite included (the Launchkey comes with it). It works on its own: you don't need the
+            browser app for it.
+          </p>
+        </details>
+        <details>
+          <summary>What does it cost?</summary>
+          <p>Nothing. Morsel is free, with no ads and no account, under the MIT licence.</p>
+        </details>
+      </section>
     </main>
     <footer class="wrap">
       <span>MIT licence. Morsel is an independent project and isn't affiliated with Novation, Focusrite or Ableton. Launchkey is a trademark of Focusrite Audio Engineering Ltd; Ableton and Live are trademarks of Ableton AG.</span>
-      <span>Visits and downloads are counted without cookies: nothing is stored on your device and no IP addresses are kept.</span>
     </footer>
   </body>
 </html>

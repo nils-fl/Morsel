@@ -46,7 +46,7 @@ function serviceWorker(): Plugin {
       root = config.root
       publicDir = config.publicDir
     },
-    // After index.html is written into the bundle, so its font links can be read.
+    // After the other plugins have added their files (index.html, the fonts), so the list has them all.
     generateBundle: {
       order: 'post',
       handler(_, bundle) {
@@ -62,11 +62,7 @@ function serviceWorker(): Plugin {
           hash.update(readFileSync(resolve(publicDir, name)))
           files.push(`/${name}`)
         }
-        const html = bundle['index.html']
-        const fontCss = html?.type === 'asset'
-          ? [...String(html.source).matchAll(/href="(https:\/\/fonts\.googleapis\.com\/[^"]+)"/g)].map((m) => m[1].replaceAll('&amp;', '&'))
-          : []
-        const build = { version: hash.digest('hex').slice(0, 12), files, fontCss }
+        const build = { version: hash.digest('hex').slice(0, 12), files }
         const source = readFileSync(resolve(root, 'sw.js'), 'utf8').replace('__BUILD__', JSON.stringify(build))
         this.emitFile({ type: 'asset', fileName: 'sw.js', source })
       },
