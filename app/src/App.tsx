@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { togglePlay, toggleRecord } from "./actions";
+import { shareTab, togglePlay, toggleRecord, unshareTab } from "./actions";
+import { TAB_WORDS } from "./audio/recorder";
 import { currentFrame, setHwMode } from "./modes/controller";
 import { ScreenPreview } from "./ui/ScreenPreview";
 import { toggleTheme } from "./ui/theme";
@@ -200,6 +201,18 @@ function NumberField({ value, min, max, step, onCommit }: { value: number; min: 
   );
 }
 
+/** Sharing a tab (or the Mac's sound) needs a click on the page; after that the Launchkey samples from it. */
+function ShareButton() {
+  const shared = useApp((s) => s.tabShared);
+  const busy = useApp((s) => s.sampling !== "idle");
+  return (
+    <button
+      className={`share ${shared ? "on" : "primary"}`} disabled={busy} onClick={() => (shared ? unshareTab() : void shareTab())}
+      title={shared ? `${TAB_WORDS.shared}: Shift + Record on the Launchkey samples from it. Click to stop.` : TAB_WORDS.hint}
+    >{shared ? `● ${TAB_WORDS.button}` : TAB_WORDS.button}</button>
+  );
+}
+
 function TopBar({ onGuide, onPrefs }: { onGuide: () => void; onPrefs: () => void }) {
   // Only what the bar shows: the whole store would redraw it on every recorded note and knob move.
   const s = useApp(useShallow((s) => ({
@@ -224,6 +237,7 @@ function TopBar({ onGuide, onPrefs }: { onGuide: () => void; onPrefs: () => void
             <button className={s.playing ? "on" : ""} onClick={togglePlay} title="Play / stop (Space)">{s.playing ? "■ Stop" : "▶ Play"}</button>
             <button className={`rec ${s.recording ? "on" : ""}`} onClick={toggleRecord} title="Record (R)">{s.countIn ? "Count-in…" : "● Rec"}</button>
             <button className={s.metronome ? "on" : ""} onClick={() => set({ metronome: !s.metronome })} title="Metronome">Click</button>
+            <ShareButton />
             <span className="bar-sep" />
             <label className="field inline">
               <span>BPM</span>

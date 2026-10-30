@@ -291,6 +291,8 @@ main .panels > .section + .section::before { content: ""; position: absolute; le
 .dot.ok { background: var(--ok); }
 .transport, .patterns, .hw-modes { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .transport { --page: var(--amber); }
+/* Sampling's colour, as the Chop tab: the share is where a take into Chop starts. */
+.transport .share { --page: var(--orange); }
 /* Every deck row ends on the encoder strip's right edge: the patterns and the Launchkey modes share the full width
    equally, and the track row's actions sit at its end. */
 .patterns { --page: var(--cyan); gap: 3px; display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); }

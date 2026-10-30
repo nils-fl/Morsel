@@ -164,7 +164,8 @@ export async function shareTab() {
     set({ tabShared: false, status: `${TAB_WORDS.failed}: ${(err as Error).message}` });
     return false;
   }
-  set({ tabShared: true, status: `${TAB_WORDS.shared} – Shift + Record on the Launchkey starts and stops takes` });
+  // Shared to sample from it: takes come from the tab from now on.
+  set({ tabShared: true, sampleSource: "tab", status: `${TAB_WORDS.shared} – Shift + Record on the Launchkey starts and stops takes` });
   return true;
 }
 

@@ -184,7 +184,7 @@ async function loadItem(e: Exclude<Entry, { kind: "folder" }>): Promise<{ popup:
 }
 
 /**
- * Shift + Encoder page ⌄: open the highlighted sample in Chop with its hits marked (on the keys), without loading it
+ * Shift + Encoder page ⌄: open the highlighted sample in Chop (on its Sample page), without loading it
  * onto a pad or the keys. The sample already open in Chop stays as it is. Resolves true when Chop has it.
  */
 export async function browseChop(): Promise<boolean> {

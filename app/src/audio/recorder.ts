@@ -38,14 +38,14 @@ let tabStream: MediaStream | null = null;
 /** The words for the "tab" source: a browser tab, or in the desktop app the Mac's sound output (electron/main.ts). */
 export const TAB_WORDS = isNative()
   ? {
-      source: "System audio", share: "Capture system audio…", shared: "System audio captured", stopped: "System audio capture stopped",
-      failed: "System audio capture failed", first: "Capture system audio on screen first (Sample → Capture system audio…)",
+      source: "System audio", share: "Capture system audio…", button: "System audio", shared: "System audio captured", stopped: "System audio capture stopped",
+      failed: "System audio capture failed", first: "Capture system audio first (System audio, at the top of the page)",
       hint: "Capture the Mac's sound once (macOS asks to allow Morsel under Screen & System Audio Recording). After that the Launchkey runs the takes.",
       noAudio: "No system audio – allow Morsel under Screen & System Audio Recording in System Settings",
     }
   : {
-      source: "Browser tab (YouTube…)", share: "Share tab…", shared: "Tab shared", stopped: "Tab sharing stopped",
-      failed: "Tab share failed", first: "Share the tab on screen first (Sample → Share tab…)",
+      source: "Browser tab (YouTube…)", share: "Share tab…", button: "Share tab", shared: "Tab shared", stopped: "Tab sharing stopped",
+      failed: "Tab share failed", first: "Share the tab first (Share tab, at the top of the page)",
       hint: "Share the YouTube tab once (tick “Share tab audio” in Chrome's picker). After that the Launchkey runs the takes.",
       noAudio: "No audio shared – tick 'Share tab audio' in the picker",
     };

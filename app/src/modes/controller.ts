@@ -84,7 +84,7 @@ export function exitChopHw() {
   setHwMode(get().prevHwMode);
 }
 
-/** Shift + Pad down: chop the selected pad's sample, or go back to the open chop when the pad is empty or holds the same sample. */
+/** Shift + Encoder page ⌄: chop the selected pad's sample, or go back to the open chop when the pad is empty or holds the same sample. */
 function hwOpenChop() {
   const s = get();
   const pad = drumPads(s)[s.selectedPad];
