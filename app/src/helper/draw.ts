@@ -4,7 +4,7 @@ import { duckGainAt } from "../audio/duck";
 import type { DuckView } from "../display/screens";
 import { highpassDb, lowpassDb, type DuckCurve, type FilterCurve, type Peaks } from "../display/widgets";
 import {
-  GRAB_LANE, HEADER, INFO, LANE, OVERVIEW, PAD, SH, STRIP, SW, TITLE_H, WAVE, gridCell, mainRect, stripCell, xOf, type Rect,
+  GRAB_LANE, HEADER, INFO, LANE, OVERVIEW, PAD, SH, STRIP, SW, TITLE_H, WAVE, gridCell, mainRect, padCell, stripCell, xOf, type Rect,
 } from "./layout";
 import { P } from "./palette";
 import type { BigCell, EncCell, Header, HelperView, ListMain, Main, Popup } from "./view";
@@ -254,10 +254,9 @@ function encoders(g: G, m: Extract<Main, { kind: "encoders" }>, area: Rect) {
 /** 16 cells laid out like the pads: cells 8-15 on top, 0-7 below. */
 function grid(g: G, m: Extract<Main, { kind: "grid" }>, area: Rect) {
   titleLine(g, area.y, m.heading, m.info);
-  const top = area.y + TITLE_H + 4, gap = 6, w = (SW - 2 * PAD - 7 * gap) / 8, h = (area.y + area.h - top - 10 - gap) / 2;
   m.cells.forEach((c: BigCell | null, i) => {
     if (!c) return;
-    const r = { x: PAD + (i % 8) * (w + gap), y: i >= 8 ? top : top + h + gap, w, h };
+    const r = padCell(i, area);
     rect(g, r, c.fill ? P.fill : P.panel);
     if (c.dim) frame(g, r, P.accent, 2);
     const ink = c.fill ? P.bg : P.text;

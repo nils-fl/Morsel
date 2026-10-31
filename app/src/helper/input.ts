@@ -2,11 +2,14 @@
 // box's touch panel later. In the chop view it does what the Sample tab's editor does (ui/ChopEditor.tsx): grab a
 // marker and drag it, drag empty waveform to scroll, tap to add a marker; a long press on a marker removes it (no
 // double-click on a touch screen). Dragging an encoder cell up or down turns that encoder, exactly as turning it on the Launchkey.
+// In Perform mode the 16 cells are pads: hold one to play its effect (a touch has no pressure: a fixed amount), Shift
+// held latches a Pad FX instead.
 import { addMarker, clampView, moveMarker, removeMarker, zeroCrossing } from "../audio/chop";
 import { chopBuffer, minSpan, updateChop } from "../modes/chop";
 import { turnHwEncoder } from "../modes/controller";
+import { performPadDown, performPadUp, performToggleLatch } from "../modes/perform";
 import { get } from "../state/store";
-import { GRAB_LANE, GRAB_WAVE, LANE, OVERVIEW, WAVE, encoderAt, fracAt, inRect, markerAt } from "./layout";
+import { GRAB_LANE, GRAB_WAVE, LANE, OVERVIEW, WAVE, encoderAt, fracAt, inRect, mainRect, markerAt, padCellAt } from "./layout";
 import type { HelperView } from "./view";
 
 /** Markers stay at least this far apart (seconds), as in the editor. */
@@ -35,7 +38,8 @@ type Gesture =
   | { kind: "marker"; i: number; x0: number; moved: boolean }
   | { kind: "tap" | "pan"; x0: number; view: [number, number] }
   | { kind: "overview" }
-  | { kind: "enc"; i: number; y: number };
+  | { kind: "enc"; i: number; y: number }
+  | { kind: "perform"; pad: number };
 
 let gesture: Gesture | null = null;
 let longPress: ReturnType<typeof setTimeout> | null = null;
@@ -63,14 +67,18 @@ function centreOverview(x: number) {
   updateChop({ view: clampView(f - span / 2, span, ctx.min) });
 }
 
+/** Velocity of a touch on a Perform cell: a touch has no pressure, so the effect plays at this fixed amount. */
+const TOUCH_VEL = 100;
+
 /** A pointer (finger, mouse) going down, moving or coming up at (x, y) on the helper screen. `fine`: Shift held. */
 export function helperPointer(phase: "down" | "move" | "up", x: number, y: number, fine = false) {
-  if (phase === "down") return down(x, y);
+  if (phase === "down") return down(x, y, fine);
   const g = gesture;
   if (!g) return;
   if (phase === "move") return move(g, x, y, fine);
   cancelLongPress();
   gesture = null;
+  if (g.kind === "perform") return performPadUp(g.pad);
   if (g.kind !== "tap") return;
   // A tap on empty waveform adds a marker there.
   const ctx = chopContext();
@@ -80,12 +88,22 @@ export function helperPointer(phase: "down" | "move" | "up", x: number, y: numbe
   updateChop({ markers: next, sel: next !== ctx.c.markers ? next.indexOf(m) : null });
 }
 
-function down(x: number, y: number) {
+function down(x: number, y: number, fine = false) {
   cancelLongPress();
+  if (gesture?.kind === "perform") performPadUp(gesture.pad);
   gesture = null;
   const enc = encoderUnder(x, y);
   if (enc >= 0) {
     gesture = { kind: "enc", i: enc, y };
+    return;
+  }
+  if (shown?.main.kind === "grid" && get().hwMode === "perform") {
+    const pad = padCellAt(mainRect(!!shown.strip), x, y);
+    if (pad < 0) return;
+    // Shift: latch a Pad FX on or off (as Shift-click on the Perform tab); else hold to play it.
+    if (fine && get().perform.bank === "pad") return performToggleLatch(pad);
+    performPadDown(pad, TOUCH_VEL);
+    gesture = { kind: "perform", pad };
     return;
   }
   const ctx = chopShown() ? chopContext() : null;
@@ -113,6 +131,7 @@ function down(x: number, y: number) {
 }
 
 function move(g: Gesture, x: number, y: number, fine: boolean) {
+  if (g.kind === "perform") return;
   if (g.kind === "enc") {
     const d = Math.trunc((g.y - y) / DETENT_PX);
     if (!d) return;
@@ -156,5 +175,6 @@ export function helperWheel(x: number, y: number, detents: number, fine = false)
 /** Drop a gesture in progress (the pointer was lost, or the screen was hidden). */
 export function helperCancel() {
   cancelLongPress();
+  if (gesture?.kind === "perform") performPadUp(gesture.pad);
   gesture = null;
 }

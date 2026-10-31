@@ -28,6 +28,19 @@ export function gridCell(i: number): Rect {
   return { x: GRID.x + (i % 4) * (w + GRID_GAP), y: GRID.y + Math.floor(i / 4) * (h + GRID_GAP), w, h };
 }
 
+/** One of the 16 pad cells of a grid main area (Mute, Pattern, Perform), laid out like the pads: 8-15 on top, 0-7
+ *  below. `area` is the main area (mainRect). */
+export function padCell(i: number, area: Rect): Rect {
+  const top = area.y + TITLE_H + 4, gap = 6, w = (SW - 2 * PAD - 7 * gap) / 8, h = (area.y + area.h - top - 10 - gap) / 2;
+  return { x: PAD + (i % 8) * (w + gap), y: i >= 8 ? top : top + h + gap, w, h };
+}
+
+/** The pad cell under (x, y), or -1. */
+export function padCellAt(area: Rect, x: number, y: number) {
+  for (let i = 0; i < 16; i++) if (inRect(padCell(i, area), x, y)) return i;
+  return -1;
+}
+
 /** The encoder under (x, y): in the big grid when the main area is the encoders, else in the strip; -1 for none. */
 export function encoderAt(on: "grid" | "strip", x: number, y: number): number {
   for (let i = 0; i < 8; i++) if (inRect(on === "grid" ? gridCell(i) : stripCell(i), x, y)) return i;

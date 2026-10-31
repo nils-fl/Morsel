@@ -21,6 +21,13 @@ vi.mock("../modes/controller", () => ({
   trackLabel: () => "T1 Drums",
 }));
 vi.mock("../modes/notify", () => ({ activeOverlay: () => hw.overlay }));
+// Perform's pads: what the helper screen's touches play.
+const pf = vi.hoisted(() => ({ calls: [] as string[] }));
+vi.mock("../modes/perform", () => ({
+  performPadDown: (p: number) => pf.calls.push(`down ${p}`),
+  performPadUp: (p: number) => pf.calls.push(`up ${p}`),
+  performToggleLatch: (p: number) => pf.calls.push(`latch ${p}`),
+}));
 
 import { newChop } from "../modes/chop";
 import { BAR_TICKS } from "../seq/timing";
@@ -28,7 +35,7 @@ import { DRUMS_ID, KEYS_ID, defaultProject, get, set, updateTrack } from "../sta
 import type { NoteEvent } from "../state/types";
 import { drawHelper } from "./draw";
 import { LONG_PRESS_MS, helperCancel, helperPointer, helperShown, helperWheel } from "./input";
-import { LANE, WAVE, encoderAt, gridCell, markerAt, stripCell, xOf } from "./layout";
+import { LANE, WAVE, encoderAt, gridCell, mainRect, markerAt, padCell, stripCell, xOf } from "./layout";
 import { stepOverview, trackRows } from "./overview";
 import { PALETTE } from "./palette";
 import { buildView, rangePeaks, type HelperView, type Main } from "./view";
@@ -48,6 +55,7 @@ function session(view: [number, number] = [0, 1]) {
 beforeEach(() => {
   set({ project: defaultProject(), undo: [], redo: [], selectedTrack: DRUMS_ID, drumTrack: DRUMS_ID, keysTrack: KEYS_ID, hwMode: "play", chop: null, shift: false });
   hw.turned.length = 0;
+  pf.calls.length = 0;
   hw.model = null;
   hw.overlay = null;
   helperCancel();
@@ -289,5 +297,46 @@ describe("helper drawing", () => {
     const p = rangePeaks(Float32Array.from([0.5, -0.5, 0.2, 0.9]), 0, 4, 2);
     expect([...p.max]).toEqual([0.5, 0.8999999761581421]);
     expect([...p.min]).toEqual([-0.5, 0]);
+  });
+});
+
+describe("helper touch in Perform mode", () => {
+  /** The Perform grid on screen (with the encoder strip under it), and the centre of pad cell i. */
+  function perform() {
+    set({ hwMode: "perform" });
+    const cells = Array.from({ length: 16 }, () => ({ label: "", sub: "", fill: false, mark: false, dim: false }));
+    helperShown({ main: { kind: "grid", heading: "Pad FX", info: "", cells }, strip: { cells: cells8(3) } });
+    const area = mainRect(true);
+    return (i: number) => {
+      const r = padCell(i, area);
+      return [r.x + r.w / 2, r.y + r.h / 2] as const;
+    };
+  }
+
+  it("holding a cell plays its pad until let go (pads 9-16 on top)", () => {
+    const at = perform();
+    helperPointer("down", ...at(12));
+    helperPointer("move", at(12)[0] + 20, at(12)[1]);
+    helperPointer("up", ...at(12));
+    expect(pf.calls).toEqual(["down 12", "up 12"]);
+    expect(padCell(12, mainRect(true)).y).toBeLessThan(padCell(4, mainRect(true)).y);
+  });
+
+  it("Shift-tap latches instead, and a lost pointer lets go", () => {
+    const at = perform();
+    helperPointer("down", ...at(5), true);
+    helperPointer("up", ...at(5), true);
+    helperPointer("down", ...at(2));
+    helperCancel();
+    expect(pf.calls).toEqual(["latch 5", "down 2", "up 2"]);
+  });
+
+  it("the encoder strip still turns encoders in Perform mode", () => {
+    perform();
+    const r = stripCell(1);
+    helperPointer("down", r.x + r.w / 2, r.y + 20);
+    helperPointer("move", r.x + r.w / 2, r.y - 20);
+    expect(pf.calls).toEqual([]);
+    expect(hw.turned.length).toBeGreaterThan(0);
   });
 });
