@@ -63,7 +63,7 @@ In Play, Track and Clips, encoders on a Live parameter (the device pages, TRK an
 
 **Scale**: the Launchkey's Scale mode follows Live 12's song scale (root and scale), and picking a scale on the Launchkey sets Live's.
 
-The selected track is armed automatically, so the keybed and Record follow it. Pads show Live's track, clip and pad colours as the nearest of the device's own colours (as Live's own Launchkey script does). Drum Rack pads that only have the track's colour (Live's default) get Morsel's pad colours.
+The selected track is armed automatically, so the keybed and Record follow it. Pads show Live's track, clip and pad colours. In the drum layout a lit pad gets Live's exact colour; otherwise (pulsing and flashing pads, the other layout) it gets the nearest of the device's own colours, as Live's own Launchkey script does. Drum Rack pads that only have the track's colour (Live's default) get Morsel's pad colours.
 
 ## Differences from Morsel
 - Undo is Live's global undo, not per track.

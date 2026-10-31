@@ -105,3 +105,30 @@ describe("pad LEDs going out of step", () => {
     now.mockRestore();
   });
 });
+
+describe("the device's mode labels", () => {
+  const isConfig = (m: number[], target: number) => m[6] === 0x04 && m[7] === target;
+  const textOf = (m: number[], target: number) => (m[6] === 0x06 && m[7] === target ? String.fromCharCode(...m.slice(9, -1)) : null);
+
+  it("on connect, turns their popup off before writing them (a new arrangement clears the text)", () => {
+    const { lk, sent } = device();
+    (lk as unknown as { handshake: () => void }).handshake();
+    for (const target of [0x22, 0x23, 0x25]) {
+      const config = sent.findIndex((m) => isConfig(m, target));
+      const text = sent.findIndex((m) => textOf(m, target) !== null);
+      expect(sent[config]).toEqual([0xf0, 0, 0x20, 0x29, 2, 0x13, 4, target, 1, 0xf7]);
+      expect(text).toBeGreaterThan(config);
+    }
+  });
+
+  it("puts the Shift lines in the device's Shift popup: the top one as the encoder label, the other as the pad label", () => {
+    const { lk, sent } = device();
+    lk.shiftCover = ["Play=Met Rec=Smp", "Fn=Undo Scn=Clr"];
+    expect(sent.map((m) => textOf(m, 0x25)).filter(Boolean)).toEqual(["Play=Met Rec=Smp"]);
+    expect(sent.map((m) => textOf(m, 0x23)).filter(Boolean)).toEqual(["Fn=Undo Scn=Clr"]);
+    expect(sent.map((m) => textOf(m, 0x22)).filter(Boolean)).toEqual(["Fn=Undo Scn=Clr"]);
+    sent.length = 0;
+    lk.shiftCover = ["Play=Met Rec=Smp", "Fn=Undo Scn=Clr"]; // set on every render: sent only when it changes
+    expect(sent).toEqual([]);
+  });
+});

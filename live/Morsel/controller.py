@@ -29,10 +29,12 @@ LAYOUT_FIX_INTERVAL = 1.0  # s between layout resends, so a device that keeps re
 LED_RESEND_DELAY = 0.15  # s after a layout switch: the device drops LED messages while it switches
 TEMP_TIMEOUT_TENTHS = 10  # the device's temporary display: 1 s
 # The shift map is drawn on the screen while Shift is held. The device still draws its own "Plugin | Drum" over it
-# (DISABLE_DAW_LABEL doesn't stop that, tested 2026-10-28), so the map goes to the temporary target too, which covers
-# it (as Morsel's "bitmap" shift cover does; protocol_notes.md): at once, then again at these times.
+# (nothing turns that off: firmware_notes.md), so the map goes to the temporary target too, which covers it (as
+# Morsel's "bitmap" shift cover does; protocol_notes.md): at once, then again at these times.
 SHIFT_COVER_AT = (0.0, 0.1, 0.25, 0.5)  # s after Shift goes down
 SHIFT_COVER_EVERY = 0.7  # s, then, while held
+# What the device's popup says instead (its encoder-mode label over its pad-mode label), as the shift map's header.
+SHIFT_LABELS = ("MORSEL", "SHIFT")
 MAX_TRACKS = 8
 MAX_SCENES = 16
 ERASE_AHEAD = 0.1  # beats: erase a little ahead of the playhead, so a note about to sound goes too
@@ -199,9 +201,16 @@ class Controller(object):
         # Arrangement with both auto bits clear: the device never pops up its own per-encoder display.
         for i in range(8):
             self.send(P.display_config_sysex(P.display_encoder(i), P.ARRANGEMENT_NAME_VALUE))
-        # From Live's own Launchkey script: the keybed on the DAW port, and its "Plugin | DAW" label off.
+        # From Live's own Launchkey script: the keybed on the DAW port.
         self.send(P.keyboard_to_daw(True))
-        self.send(P.DISABLE_DAW_LABEL)
+        # The mode labels: no "Pad Mode" popup on a layout switch, and Morsel's words in the device's Shift popup
+        # ("Plugin | Drum") for the moment before the shift map covers it. Config before text: a new arrangement
+        # clears it.
+        for target in P.LABELS:
+            self.send(P.display_config_sysex(target, P.ARRANGEMENT_NAME_VALUE))
+        self.send(P.display_text_sysex(P.LABEL_ENCODER, 0, SHIFT_LABELS[0]))
+        self.send(P.display_text_sysex(P.LABEL_PAD_DRUM, 0, SHIFT_LABELS[1]))
+        self.send(P.display_text_sysex(P.LABEL_PAD_DAW, 0, SHIFT_LABELS[1]))
         self.scale_sent = None  # send Live's scale again
         self.sender.reset()
         self.sent_pads.clear()
@@ -1141,14 +1150,19 @@ class Controller(object):
                 self.send(P.button_led_message(cc, value))
 
     def set_pad(self, pad, color, mode="static"):
-        """`color`: a palette index, or a Live colour (colors.rgb), which goes as its nearest palette colour: RGB
-        SysEx doesn't light the pads in DAW mode (tested 2026-10-28), and Live's own script uses the palette too."""
+        """`color`: a palette index, or a Live colour (colors.rgb). A static Live colour on the drum layout goes as
+        RGB (protocol.pad_rgb_sysex); otherwise it goes as its nearest palette colour: flash and pulse take palette
+        colours only, and RGB on the DAW layout is untested."""
         key = (self.layout, pad)
         sig = (color, mode)
         if self.sent_pads.get(key) == sig:
             return
         self.sent_pads[key] = sig
         if is_rgb(color):
+            if mode == "static" and self.layout == "drum":
+                # An RGB colour isn't animated, so it also stops a pulse.
+                self.send(P.pad_rgb_sysex(self.layout, pad, color[1]))
+                return
             color = nearest_color(color[1])
         # Flash / pulse alternate with the static colour, so set static first.
         if mode != "static":

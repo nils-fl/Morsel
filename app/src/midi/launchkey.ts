@@ -1,5 +1,5 @@
 import {
-  ARRANGEMENT, BUTTON_BY_CC, CC, CH, DAW_MODE_OFF, DAW_MODE_ON, DISPLAY, FEATURE_CC, PAD_LAYOUT, PAD_LAYOUT_DRUM_ON_DAW,
+  ARRANGEMENT, BUTTON_BY_CC, CC, CH, DAW_MODE_OFF, DAW_MODE_ON, DISPLAY, FEATURE_CC, LABEL, PAD_LAYOUT, PAD_LAYOUT_DRUM_ON_DAW,
   bitmapSysex, buttonLedMessage, cc7, displayConfigSysex, isBitmapAck, displayTextSysex, padFromNote, padLedMessage, relativeDelta,
   type Button, type LedMode, type PadLayout,
 } from "./protocol";
@@ -35,6 +35,7 @@ const SHIFT_COVER_KEEP_MS = 700;
  * "bitmap" draws the screen (the shift map) into the temporary popup itself; "text" shows our two-line text
  * popup (shiftCover); "cancel" closes the device popup and redraws the stationary bitmap; "off" leaves it.
  * Measured 2026-10-20: "bitmap" covers it (the shift map shows while Shift is held); "cancel" doesn't hide it.
+ * Its two labels are shiftCover's lines in every mode (setShiftLabels), so with "off" the popup is Morsel's.
  */
 export type ShiftCover = "bitmap" | "text" | "cancel" | "off";
 export const SHIFT_COVERS: ShiftCover[] = ["bitmap", "text", "cancel", "off"];
@@ -75,7 +76,7 @@ export class Launchkey {
   connected = false;
   logRaw = false;
   /** The two lines of the device text popup shown while Shift is held (set by the controller per mode). */
-  shiftCover: [string, string] = ["Shift", ""];
+  private shiftLines: [string, string] = ["Shift", ""];
   /** How the device's own Shift popup is covered (see ShiftCover); picked in Preferences or the Lab. */
   shiftCoverMode: ShiftCover = shiftCoverPref.get();
   /** The picked device's name, or "" for the first Launchkey found. */
@@ -185,6 +186,10 @@ export class Launchkey {
     // Config = arrangement with both auto bits (6: on change, 5: on touch) clear, so it never pops up;
     // feedback is drawn by the app instead. (0x00 only cancels a showing display.)
     for (let i = 0; i < 8; i++) this.send(displayConfigSysex(DISPLAY.encoder(i), ARRANGEMENT.nameValue));
+    // The same for the mode labels: no "Pad Mode" popup on a layout switch. Before their text, which a new
+    // arrangement clears.
+    for (const target of Object.values(LABEL)) this.send(displayConfigSysex(target, ARRANGEMENT.nameValue));
+    this.sendShiftLabels();
     clearTimeout(this.bmpTimer);
     this.bitmapSupported = null;
     this.bmpInFlight = false;
@@ -325,6 +330,28 @@ export class Launchkey {
     cover();
     for (const ms of SHIFT_COVER_RETRY_MS) this.shiftTimers.push(window.setTimeout(cover, ms));
     this.shiftTimers.push(window.setInterval(cover, SHIFT_COVER_KEEP_MS));
+  }
+
+  get shiftCover(): [string, string] {
+    return this.shiftLines;
+  }
+
+  set shiftCover(lines: [string, string]) {
+    if (lines[0] === this.shiftLines[0] && lines[1] === this.shiftLines[1]) return;
+    this.shiftLines = lines;
+    this.sendShiftLabels();
+  }
+
+  /**
+   * The device's own Shift popup shows the encoder-mode label over the pad-mode label, and a DAW can write both
+   * (firmware_notes.md, measured 2026-10-31): Morsel's two lines go there, so the moment before the cover, or all of
+   * it with "off", reads like Morsel rather than "Plugin | Drum".
+   */
+  private sendShiftLabels() {
+    const [top, bottom] = this.shiftLines;
+    this.send(displayTextSysex(LABEL.encoder, 0, top));
+    this.send(displayTextSysex(LABEL.padDrum, 0, bottom));
+    this.send(displayTextSysex(LABEL.padDaw, 0, bottom));
   }
 
   setShiftCover(mode: ShiftCover) {

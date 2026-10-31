@@ -692,6 +692,29 @@ def test_drum_pads_in_the_track_colour_get_morsels_pad_colours():
     assert leds[0] == (P.PAD_COLORS[0], "pulse") and leds[1] == (P.PAD_COLORS[1], "static")
 
 
+def test_a_live_colour_lights_a_drum_pad_in_rgb_unless_it_pulses():
+    host, c = setup()
+    assert c.layout == "drum"
+    host.sent.clear()
+    c.sent_pads.clear()
+    c.render_leds()
+    assert P.pad_rgb_sysex("drum", 1, 0xFF0000) in host.sent  # pad 1's chain is red, static
+    assert not [m for m in host.sent if m[:2] == (0x99, P.note_for_pad("drum", 1))]  # not as a palette colour too
+    host.sent.clear()
+    c.set_pad(1, ("rgb", 0xFF0000), "pulse")  # pulse takes a palette colour
+    assert P.pad_led_message("drum", 1, nearest_color(0xFF0000), "pulse") in host.sent
+
+
+def test_connect_writes_the_mode_labels_after_turning_their_popup_off():
+    host = FakeHost()
+    Controller(host).connect()
+    for target in P.LABELS:
+        config = host.sent.index(P.display_config_sysex(target, P.ARRANGEMENT_NAME_VALUE))
+        text = [i for i, m in enumerate(host.sent) if m[:8] == P.SYSEX_HEADER + (0x06, target)]
+        assert text and text[0] > config
+    assert P.display_text_sysex(P.LABEL_PAD_DRUM, 0, "SHIFT") in host.sent
+
+
 def test_shift_map_covers_the_devices_own_overlay():
     host, c = setup()
     temp = P.SYSEX_HEADER + (0x09, P.DISPLAY_TEMPORARY)

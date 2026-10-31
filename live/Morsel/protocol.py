@@ -68,6 +68,15 @@ def pad_led_message(layout, pad, color, mode="static"):
     return (0x90 | (base + LED_CH_OFFSET[mode]), note_for_pad(layout, pad), color & 0x7F)
 
 
+def pad_rgb_sysex(layout, pad, color):
+    """A pad in RGB, from a Live colour (0xRRGGBB). The byte after 0x01 picks the LED table (0x6_ = drum-layout pads,
+    0x4_ = DAW-layout pads) and the kind (_3 = RGB); 0x43 on the drum layout lights nothing (firmware_notes.md,
+    measured 2026-10-31). Static only: flash and pulse take palette colours."""
+    spec = 0x63 if layout == "drum" else 0x43
+    r, g, b = (color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF
+    return SYSEX_HEADER + (0x01, spec, note_for_pad(layout, pad), r >> 1, g >> 1, b >> 1, 0xF7)
+
+
 def button_led_message(cc, brightness):
     """Monochrome button LEDs: CC on ch4, value = brightness."""
     return (0xB3, cc, brightness & 0x7F)
@@ -82,8 +91,6 @@ def live_connection(on):
     as 14 (measured 2026-10-28), not as the 15 the drum layout reports under Live, so a pick can be told apart."""
     return SYSEX_HEADER + (0x02, 0x7F if on else 0x00, 0xF7)
 
-
-DISABLE_DAW_LABEL = SYSEX_HEADER + (0x04, 0x22, 0x01, 0xF7)  # display target 0x22 (the "Plugin | DAW" label): off
 
 
 def keyboard_to_daw(on):
@@ -106,6 +113,21 @@ def display_encoder(i):
 
 def display_config_sysex(target, config):
     return SYSEX_HEADER + (0x04, target, config & 0x7F, 0xF7)
+
+
+# DAW mode labels (firmware_notes.md): the device's Shift popup shows the encoder-mode label over the pad-mode label,
+# and a mode change pops them up. A DAW can write its own text into them. 0x22 = pad layout 2 ("DAW"), 0x23 = the
+# drum layout in DAW mode, reported as 15 ("Drum"), 0x25 = encoder mode 2 ("Plugin"), the one DAW mode starts in.
+LABEL_PAD_DAW = 0x22
+LABEL_PAD_DRUM = 0x23
+LABEL_ENCODER = 0x25
+LABELS = (LABEL_PAD_DAW, LABEL_PAD_DRUM, LABEL_ENCODER)
+
+
+def display_text_sysex(target, field, text):
+    """Text for a display target's field: ASCII (and the device glyphs 0x1B-0x1E), at most 16 characters."""
+    chars = tuple(c if 0x20 <= c <= 0x7E or 0x1B <= c <= 0x1E else 0x3F for c in (ord(ch) for ch in text[:16]))
+    return SYSEX_HEADER + (0x06, target, field & 0x7F) + chars + (0xF7,)
 
 
 ARRANGEMENT_NAME_VALUE = 1  # with both auto-popup bits clear: the device never shows its own popups

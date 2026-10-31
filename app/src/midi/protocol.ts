@@ -87,8 +87,11 @@ export function buttonLedMessage(cc: number, brightness: number): number[] {
   return [0xb3, cc, brightness & 0x7f];
 }
 
+// The byte after 0x01 picks the LED table (high nibble: 4 = DAW-layout pads, 6 = drum-layout pads) and the kind
+// (low nibble: 3 = RGB). 0x43 on the drum layout lights nothing; 0x63 does (firmware_notes.md, measured 2026-10-31).
 export function padRgbSysex(layout: PadLayout, pad: number, r: number, g: number, b: number): number[] {
-  return [...SYSEX_HEADER, 0x01, 0x43, noteForPad(layout, pad), r & 0x7f, g & 0x7f, b & 0x7f, 0xf7];
+  const spec = layout === "drum" ? 0x63 : 0x43;
+  return [...SYSEX_HEADER, 0x01, spec, noteForPad(layout, pad), r & 0x7f, g & 0x7f, b & 0x7f, 0xf7];
 }
 
 export const DAW_MODE_ON = [0x9f, 0x0c, 0x7f];
@@ -97,6 +100,14 @@ export const cc7 = (cc: number, v: number) => [0xb0 | CH.feature, cc, v & 0x7f];
 
 // Display. Targets: 0x15..0x1C encoders, 0x20 stationary, 0x21 global temporary.
 export const DISPLAY = { stationary: 0x20, temporary: 0x21, encoder: (i: number) => 0x15 + i } as const;
+
+/**
+ * DAW mode labels (firmware_notes.md): the device's Shift overlay shows the encoder-mode label over the pad-mode
+ * label, and a mode change pops them up. A DAW can write its own text into them. 0x22 = pad layout 2 ("DAW"),
+ * 0x23 = the drum layout in DAW mode, reported as 15 ("Drum"), 0x25 = encoder mode 2 ("Plugin"), the one DAW mode
+ * starts in. With the arrangement's auto-show bits clear, the mode-change popup stays away (measured 2026-10-31).
+ */
+export const LABEL = { padDaw: 0x22, padDrum: 0x23, encoder: 0x25 } as const;
 
 export function displayConfigSysex(target: number, config: number): number[] {
   return [...SYSEX_HEADER, 0x04, target, config & 0x7f, 0xf7];

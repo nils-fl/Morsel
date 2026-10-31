@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { addMarker, clampView, detectOnsets, equalSlices, moveMarker, removeMarker, slicesFromMarkers, zeroCrossing } from "./audio/chop";
-import { DAW_NOTES, DRUM_NOTES, displayTextSysex, noteForPad, padFromNote, padLedMessage, relativeDelta } from "./midi/protocol";
+import { DAW_NOTES, DRUM_NOTES, displayTextSysex, noteForPad, padFromNote, padLedMessage, padRgbSysex, relativeDelta } from "./midi/protocol";
 import { padForStep, stepForPad } from "./modes/stepMap";
 import { BAR_TICKS, GRID_OPTIONS, humanizeEvents, MAX_NUDGE, PPQN, pageSteps, quantizeEvents, quantizeTick, rowSteps, STEP_TICKS, swingOffsetTicks } from "./seq/timing";
 import { rootFromName } from "./ui/notes";
@@ -20,6 +20,9 @@ describe("protocol", () => {
   it("builds LED messages on the right channel", () => {
     expect(padLedMessage("drum", 0, 5)).toEqual([0x99, 36, 5]);
     expect(padLedMessage("daw", 0, 5, "pulse")).toEqual([0x92, 112, 5]);
+    // RGB: the drum-layout pads are LED table 2 (0x6_), the DAW-layout pads table 0 (0x4_).
+    expect(padRgbSysex("drum", 0, 127, 0, 64)).toEqual([0xf0, 0, 0x20, 0x29, 2, 0x13, 1, 0x63, 36, 127, 0, 64, 0xf7]);
+    expect(padRgbSysex("daw", 8, 1, 2, 3)).toEqual([0xf0, 0, 0x20, 0x29, 2, 0x13, 1, 0x43, 96, 1, 2, 3, 0xf7]);
   });
   it("builds display text and replaces non-ASCII", () => {
     expect(displayTextSysex(0x21, 1, "Aé")).toEqual([0xf0, 0, 0x20, 0x29, 2, 0x13, 6, 0x21, 1, 0x41, 0x3f, 0xf7]);

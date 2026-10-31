@@ -189,7 +189,7 @@ export function Lab() {
           <p className="hint">
             How Morsel covers the Launchkey's own “Plugin | Drum” popup while Shift is held. Pick one, switch to another tab
             (the Lab pauses Morsel's screen), then hold Shift. Bitmap = the shift map as the popup, Text = two lines of text,
-            Close = close the popup and redraw, Off = the device's own popup.
+            Close = close the popup and redraw, Off = the device's own popup, with Morsel's two lines in it.
           </p>
           <div className="row">
             {SHIFT_COVERS.map((m) => (
