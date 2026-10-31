@@ -5,6 +5,9 @@ import {
 } from "./protocol";
 import { isString, oneOf, pref } from "../state/prefs";
 
+/** How often static pad colours are sent again whether or not they changed (setPads). */
+const HEAL_MS = 2000;
+
 export type LaunchkeyEvent =
   | { type: "pad"; pad: number; velocity: number; on: boolean }
   | { type: "padPressure"; pad: number; pressure: number }
@@ -64,6 +67,10 @@ export class Launchkey {
   private bmpLast: { packed: Uint8Array; target: number } | null = null;
   private bmpTimer = 0;
   private resendTimer = 0;
+  /** Shift held: the device shows its own pad-mode picker on the pads. */
+  private shiftDown = false;
+  /** When static pads were last sent again regardless of the cache (setPads). */
+  private lastHeal = 0;
   private textResendTimer = 0;
   connected = false;
   logRaw = false;
@@ -169,6 +176,7 @@ export class Launchkey {
     this.send(cc7(CC.padLayout, PAD_LAYOUT.drum));
     this.layout = "drum";
     this.nativePads = null;
+    this.shiftDown = false;
     // Stationary display: two lines (name + value). Temporary: same arrangement.
     this.send(displayConfigSysex(DISPLAY.stationary, ARRANGEMENT.nameValue));
     this.send(displayConfigSysex(DISPLAY.temporary, ARRANGEMENT.nameValue));
@@ -184,11 +192,23 @@ export class Launchkey {
     this.refreshLeds();
     // Like a layout switch: LED messages sent while the device is still entering DAW mode can be
     // dropped, and the sent-colour cache would never resend them.
+    this.resendSoon(300);
+  }
+
+  /** Send every pad again in a moment, cache or not (the device may have dropped what came while it was busy). */
+  private resendSoon(ms: number) {
     clearTimeout(this.resendTimer);
     this.resendTimer = window.setTimeout(() => {
       this.sentColors.clear();
       this.refreshLeds();
-    }, 300);
+    }, ms);
+  }
+
+  /** Send every pad again, now and in a moment: after something else had the pads (the Shift picker, the Lab). */
+  resync() {
+    this.sentColors.clear();
+    this.refreshLeds();
+    this.resendSoon(150);
   }
 
   release() {
@@ -211,15 +231,9 @@ export class Launchkey {
     this.layout = layout;
     this.nativePads = null;
     this.send(cc7(CC.padLayout, PAD_LAYOUT[layout]));
-    this.sentColors.clear();
-    this.refreshLeds();
     // The device can drop LED messages that arrive while it is still switching layout, and the
     // sent-colour cache would then never resend them. Send everything again once it has settled.
-    clearTimeout(this.resendTimer);
-    this.resendTimer = window.setTimeout(() => {
-      this.sentColors.clear();
-      this.refreshLeds();
-    }, 150);
+    this.resync();
   }
 
   /** Monochrome button LED (CC on ch4, value = brightness). Measured working for the encoder page arrows. */
@@ -236,12 +250,19 @@ export class Launchkey {
 
   setPads(colors: { color: number; mode?: LedMode }[]) {
     colors.forEach((c, i) => (this.padColors[i] = { color: c.color, mode: c.mode ?? "static" }));
+    // A safety net for a message the device missed (e.g. while a screen bitmap streams in): every couple of seconds
+    // the static pads go out again. Flashing and pulsing ones are left alone: sending them restarts their animation.
+    const now = performance.now();
+    if (now - this.lastHeal > HEAL_MS) {
+      this.lastHeal = now;
+      for (const [key, sig] of this.sentColors) if (sig % 4 === 0) this.sentColors.delete(key);
+    }
     this.refreshLeds();
   }
 
   private flushPad(pad: number) {
-    // The device's own pad mode draws its own pads.
-    if (this.nativePads !== null) return;
+    // The device's own pad mode draws its own pads, and while Shift is held its pad-mode picker does.
+    if (this.nativePads !== null || this.shiftDown) return;
     const { color, mode } = this.padColors[pad];
     const key = `${this.layout}:${pad}`;
     const sig = color * 4 + (mode === "static" ? 0 : mode === "flash" ? 1 : 2);
@@ -417,6 +438,7 @@ export class Launchkey {
             this.emit({ type: "nativePads", value: d2 });
           }
         } else if (d1 === CC.shift) {
+          this.shiftDown = d2 > 0;
           this.coverShiftOverlay(d2 > 0);
           this.emit({ type: "button", button: "shift", down: d2 > 0 });
         }

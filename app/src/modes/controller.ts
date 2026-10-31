@@ -590,8 +590,12 @@ function onPad(pad: number, vel: number) {
 function onButton(button: string, down: boolean) {
   const s = get();
   if (button === "shift") {
-    // Shift let go without picking one of the device's own pad modes: put back the layout the mode needs.
-    if (!down && launchkey.nativePads === null && launchkey.layout !== layoutFor(s.hwMode)) launchkey.setLayout(layoutFor(s.hwMode));
+    // Shift let go without picking one of the device's own pad modes: put back the layout the mode needs, or (same
+    // layout) send the pads again, which the device's pad-mode picker had while Shift was held.
+    if (!down && launchkey.nativePads === null) {
+      if (launchkey.layout !== layoutFor(s.hwMode)) launchkey.setLayout(layoutFor(s.hwMode));
+      else launchkey.resync();
+    }
     return set({ shift: down });
   }
   // Shift + the encoder page arrows: Browse (any track) and Chop (drum tracks) on / off. Checked before Browse takes the arrows.
@@ -760,6 +764,8 @@ export function pauseLeds(paused: boolean) {
     lastStationary = "";
     bitmapActive = false;
     launchkey.clearBitmap();
+    // The Lab drove the pads (some by raw sysex the colour cache never saw).
+    launchkey.resync();
   }
 }
 
