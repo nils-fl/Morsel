@@ -1,5 +1,5 @@
 import {
-  ARRANGEMENT, BUTTON_BY_CC, CC, CH, DAW_MODE_OFF, DAW_MODE_ON, DISPLAY, FEATURE_CC, PAD_LAYOUT,
+  ARRANGEMENT, BUTTON_BY_CC, CC, CH, DAW_MODE_OFF, DAW_MODE_ON, DISPLAY, FEATURE_CC, PAD_LAYOUT, PAD_LAYOUT_DRUM_ON_DAW,
   bitmapSysex, buttonLedMessage, cc7, displayConfigSysex, isBitmapAck, displayTextSysex, padFromNote, padLedMessage, relativeDelta,
   type Button, type LedMode, type PadLayout,
 } from "./protocol";
@@ -17,7 +17,7 @@ export type LaunchkeyEvent =
   | { type: "encoder"; index: number; delta: number }
   | { type: "button"; button: Button; down: boolean }
   | { type: "layout"; layout: PadLayout }
-  /** The device switched the pads to one of its own modes (chords, arp, custom: CC 29 value `value`, measured 15 for a chord mode). */
+  /** The device switched the pads to one of its own modes (chords, arp, custom: CC 29 value `value`, e.g. 14 for Chord Map). */
   | { type: "nativePads"; value: number }
   | { type: "connection"; connected: boolean }
   | { type: "raw"; port: string; data: number[] };
@@ -426,7 +426,8 @@ export class Launchkey {
     } else if (status === 0xb0) {
       if (ch === CH.feature) {
         if (d1 === CC.padLayout) {
-          const layout = d2 === PAD_LAYOUT.daw ? "daw" : d2 === PAD_LAYOUT.drum ? "drum" : null;
+          // In DAW mode the drum layout is reported as 15. Taken for a device mode, it stopped the pad LEDs on connect.
+          const layout = d2 === PAD_LAYOUT.daw ? "daw" : d2 === PAD_LAYOUT.drum || d2 === PAD_LAYOUT_DRUM_ON_DAW ? "drum" : null;
           if (layout) {
             this.layout = layout;
             this.nativePads = null;

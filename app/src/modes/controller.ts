@@ -255,7 +255,7 @@ export function initController() {
         break;
       }
       case "nativePads":
-        // The device's own pad mode (its chords, measured as 15): leave it the pads. Their notes come in on the
+        // The device's own pad mode (its chords, e.g. Chord Map = 14): leave it the pads. Their notes come in on the
         // keys port and play the keys track. Func, a mode change or a drum track takes them back.
         showTemp("Pads", "Launchkey mode");
         break;

@@ -19,8 +19,8 @@ function device() {
 describe("the device's own pad modes (chords)", () => {
   it("leaves it the pads: no pad LEDs while it has them", () => {
     const { lk, sent, events, receive } = device();
-    receive(0xb6, 29, 15); // measured: a chord mode picked with Shift + pad
-    expect(events.at(-1)).toEqual({ type: "nativePads", value: 15 });
+    receive(0xb6, 29, 14); // measured under Live: Chord Map picked with Shift + pad
+    expect(events.at(-1)).toEqual({ type: "nativePads", value: 14 });
     sent.length = 0;
     lk.setPads(Array.from({ length: 16 }, () => ({ color: 5 })));
     expect(sent).toEqual([]);
@@ -28,16 +28,27 @@ describe("the device's own pad modes (chords)", () => {
 
   it("takes them back with setLayout, even to the layout it had before", () => {
     const { lk, sent, receive } = device();
-    receive(0xb6, 29, 15);
+    receive(0xb6, 29, 14);
     sent.length = 0;
     lk.setLayout("drum");
     expect(sent[0]).toEqual([0xb6, 29, 1]);
     expect(lk.nativePads).toBeNull();
   });
 
+  it("takes 15 for the drum layout, as the device reports it in DAW mode (measured on connect: 2, then 15 three times)", () => {
+    const { lk, sent, events, receive } = device();
+    receive(0xb6, 29, 2);
+    for (let i = 0; i < 3; i++) receive(0xb6, 29, 15);
+    expect(events.at(-1)).toEqual({ type: "layout", layout: "drum" });
+    expect(lk.nativePads).toBeNull();
+    sent.length = 0;
+    lk.setPads(Array.from({ length: 16 }, () => ({ color: 5 })));
+    expect(sent.filter((m) => m[0] === 0x99)).toHaveLength(16);
+  });
+
   it("reports Morsel's own layouts as before", () => {
     const { lk, events, receive } = device();
-    receive(0xb6, 29, 15);
+    receive(0xb6, 29, 14);
     receive(0xb6, 29, 2);
     expect(events.at(-1)).toEqual({ type: "layout", layout: "daw" });
     expect(lk.nativePads).toBeNull();

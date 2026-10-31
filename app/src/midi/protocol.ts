@@ -34,6 +34,8 @@ export const CC = {
 } as const;
 
 export const PAD_LAYOUT = { drum: 1, daw: 2 } as const;
+/** What the device reports for the drum layout in DAW mode (pads on the DAW port): a request for 1 becomes 15 (firmware). */
+export const PAD_LAYOUT_DRUM_ON_DAW = 15;
 
 export type Button =
   | "shift" | "play" | "record" | "encPageUp" | "encPageDown"
