@@ -284,7 +284,7 @@ The ack goes out on the port the bitmap came in on, after the frame is drawn (co
   modes (code, strings).
 - No new DAW-mode commands are visible from strings. A code-level diff wasn't done.
 
-## For Morsel to try (not measured)
+## For Morsel to try
 
 Tried in the Lab on 2026-10-31 (see `protocol_notes.md`): 1, 2 (with `06 23`), 3, 4, 5 and 9 work. But 9 can't be
 used: the device echoes `B6 3F 00` straight back, and letting go of Shift afterwards reports nothing, because the

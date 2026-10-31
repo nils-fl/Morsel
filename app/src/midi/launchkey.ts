@@ -35,7 +35,7 @@ const SHIFT_COVER_KEEP_MS = 700;
  * "bitmap" draws the screen (the shift map) into the temporary popup itself; "text" shows our two-line text
  * popup (shiftCover); "cancel" closes the device popup and redraws the stationary bitmap; "off" leaves it.
  * Measured 2026-10-20: "bitmap" covers it (the shift map shows while Shift is held); "cancel" doesn't hide it.
- * Its two labels are shiftCover's lines in every mode (setShiftLabels), so with "off" the popup is Morsel's.
+ * Its two labels are shiftCover's lines in every mode (sendShiftLabels), so with "off" the popup is Morsel's.
  */
 export type ShiftCover = "bitmap" | "text" | "cancel" | "off";
 export const SHIFT_COVERS: ShiftCover[] = ["bitmap", "text", "cancel", "off"];
