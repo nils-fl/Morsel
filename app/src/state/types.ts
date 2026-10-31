@@ -1,3 +1,5 @@
+import type { PerformSettings } from "../audio/perform/catalog";
+
 export const PAD_COUNT = 16;
 export const MAX_TRACKS = 8;
 export const PATTERN_COUNT = 16;
@@ -213,6 +215,8 @@ export interface Project {
   masterLevel: number;
   /** The master's glue compressor: off by default (it pumps the mix); on for the old, glued sound. */
   masterGlue: boolean;
+  /** The Perform effects' settings (Pad FX, Flex Beat, Knob FX). What is playing right now isn't saved. */
+  perform: PerformSettings;
 }
 
 /** A sidechain input: one pad of a drum track, as `${trackId}:${pad}`. */
@@ -230,11 +234,11 @@ export interface TrackDuck {
   pads?: boolean[];
 }
 
-export type HwMode = "play" | "step" | "track" | "mute" | "pattern" | "browse" | "chop";
+export type HwMode = "play" | "step" | "track" | "mute" | "pattern" | "perform" | "browse" | "chop";
 
 /** "Track" shows the selected track: the drum rack or the keys instrument. */
 // The guide is an overlay (Guide button, ?) and the Lab opens from Preferences, so the tabs are all about the music.
-export const TABS = ["Track", "Chop", "Sequencer", "Mixer", "Song"] as const;
+export const TABS = ["Track", "Chop", "Sequencer", "Mixer", "Perform", "Song"] as const;
 export type Tab = (typeof TABS)[number];
 
 /** The synthesized kit that is always there, listed first among the kits (its samples live in the library folder of the same name). */

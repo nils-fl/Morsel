@@ -287,6 +287,7 @@ export function shiftRows(mode: HwMode, kind: TrackKind, sampling: boolean, onFo
   // Browse keeps Scene as "up a folder" with Shift held too.
   if (mode === "browse") return [play, rec, ["Func", !onFolder ? "Load + exit" : kind === "drum" ? "Folder>pads" : "Folder>multi"], ["Scene", "Up folder"], ["Enc ^", "Exit browse"], ["Enc v", "Chop sample"]];
   if (mode === "chop") return [play, rec, ["Func", "Undo"], ["Scene", "Remove marker"], ["Enc 8", "Choke all"], ["Enc v", "Exit chop"]];
+  if (mode === "perform") return [play, rec, ["Func", "Undo"], ["Scene", "All FX off"], track, kind === "drum" ? ["Enc ^v", "Browse/Sample"] : ["Enc ^", "Browse"]];
   return [
     play,
     rec,
@@ -301,6 +302,7 @@ export function shiftRows(mode: HwMode, kind: TrackKind, sampling: boolean, onFo
 export function shiftCoverText(mode: HwMode, kind: TrackKind, onFolder = true): [string, string] {
   if (mode === "browse") return [!onFolder ? "Fn=Load + exit" : kind === "drum" ? "Fn=Folder>pads" : "Fn=Folder>multi", "Enc^=Exit v=Smpl"];
   if (mode === "chop") return ["Scn=Del marker", "Encv=Exit chop"];
+  if (mode === "perform") return ["Play=Met Rec=Smp", "Fn=Undo Scn=Off"];
   return ["Play=Met Rec=Smp", "Fn=Undo Scn=Clr"];
 }
 

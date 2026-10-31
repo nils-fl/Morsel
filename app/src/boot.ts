@@ -60,7 +60,10 @@ export async function boot() {
     if (s.project.tracks !== prev.project.tracks) void engine.ensureAll(usedSampleIds(s.project));
     const p = s.project, q = prev.project;
     if (p.tracks !== q.tracks) fixSelection();
-    if (p.tracks !== q.tracks || p.returns !== q.returns || p.bpm !== q.bpm) engine.voices.updateMix();
+    // The master's level and glue and the Perform settings are mixer settings too.
+    if (p.tracks !== q.tracks || p.returns !== q.returns || p.bpm !== q.bpm || p.masterLevel !== q.masterLevel || p.masterGlue !== q.masterGlue || p.perform !== q.perform) {
+      engine.voices.updateMix();
+    }
     dirty = true;
     clearTimeout(timer);
     timer = window.setTimeout(save, 500);

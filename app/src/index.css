@@ -985,3 +985,44 @@ kbd { font-family: var(--mono); font-size: var(--fs-xs); text-transform: upperca
   .bar-deck { display: contents; }
   .bar-enc { padding-left: 0; }
 }
+
+/* ---------- helper screen ---------- */
+/* The second screen's picture (ui/HelperScreen.tsx) over the whole window, at the largest 5:3 size that fits. Under
+   Morsel's own dialogs (z-index 50) and the library drawer (40), so they still open over it. Always dark. */
+.helper-overlay {
+  position: fixed; inset: 0; z-index: 35; display: grid; place-items: center; background: #050607; overflow: hidden;
+}
+.helper-screen { display: block; touch-action: none; cursor: crosshair; user-select: none; }
+.helper-close {
+  position: absolute; top: 6px; right: 6px; width: 32px; height: 32px; padding: 0; border-radius: 50%;
+  border: 1px solid #323b43; background: rgba(13, 16, 19, .7); color: #a9b3bc; font-size: 20px; line-height: 1;
+  opacity: .5; transition: opacity .15s;
+}
+.helper-close:hover, .helper-close:focus-visible { opacity: 1; }
+
+/* Perform tab: the 16 effects as pads (9-16 on top, as on the Launchkey), in their family's colour. */
+.perform-panel { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+@media (max-width: 900px) { .perform-panel { grid-template-columns: minmax(0, 1fr); } }
+.perform-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; }
+.perform-pad {
+  position: relative; display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between;
+  min-height: 64px; padding: 6px; border: 1px solid var(--line); border-left: 3px solid var(--fx); border-radius: var(--r-tile);
+  background: var(--panel); color: var(--text); text-align: left; touch-action: none; user-select: none;
+}
+.perform-pad:hover { border-color: var(--line-hi); border-left-color: var(--fx); }
+.perform-pad.on { background: var(--fx); border-color: var(--fx); color: var(--ink); }
+.perform-pad.bypassed { border-style: dashed; color: var(--muted); }
+.perform-pad.selected { box-shadow: inset 0 0 0 1px var(--fx); }
+.perform-pad.latched .perform-latch { animation: perform-pulse 1s ease-in-out infinite alternate; }
+.perform-num { font-family: var(--mono); font-size: var(--fs-xs); opacity: 0.7; }
+.perform-name { font-size: var(--fs-xs); font-weight: 600; line-height: 1.15; hyphens: auto; }
+.perform-latch { position: absolute; top: 5px; right: 6px; font-size: var(--fs-xs); font-family: var(--mono); }
+@keyframes perform-pulse { from { opacity: 1; } to { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .perform-pad.latched .perform-latch { animation: none; } }
+.perform-pick { display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 6px; }
+.perform-pick .chip.on { background: var(--page); color: var(--on-pad, var(--ink)); }
+.seg { display: inline-flex; gap: 0; }
+.seg button { border-radius: 0; font-size: var(--fs-xs); padding: 2px 8px; }
+.seg button:first-child { border-radius: var(--r-ctl) 0 0 var(--r-ctl); }
+.seg button:last-child { border-radius: 0 var(--r-ctl) var(--r-ctl) 0; }
+.seg button.on { background: var(--page); border-color: var(--page); color: var(--on-pad, var(--ink)); }

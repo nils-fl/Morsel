@@ -1,6 +1,8 @@
 // The worklet engine's processors. The voice processor, one per mixer strip, plays the voices the main thread sends,
 // each into its own output (a drum pad's bus, or the keys input), sample-accurately in the audio thread. The master
-// processor limits the mix. The crush processor holds samples (a track's Bitcrush, its lower sample rate).
+// processor limits the mix. The crush processor holds samples (a track's Bitcrush, its lower sample rate). The perform
+// processor plays the live effects (Pad FX, Flex Beat, Knob FX) on the mix.
+import { PERFORM_PROCESSOR_NAME, PerformCore, type FromPerform, type ToPerform } from "../perform/performCore";
 import { CRUSH_PROCESSOR_NAME, CrushCore } from "./crushCore";
 import { MASTER_PROCESSOR_NAME, MasterCore } from "./masterCore";
 import { Expression, PROCESSOR_NAME, SampleVoice, SynthVoice, type FromProcessor, type SampleData, type ToProcessor, type Voice } from "./voiceCore";
@@ -125,3 +127,21 @@ class CrushProcessor extends AudioWorkletProcessor {
 }
 
 registerProcessor(CRUSH_PROCESSOR_NAME, CrushProcessor);
+
+class PerformProcessor extends AudioWorkletProcessor {
+  private core = new PerformCore(sampleRate);
+
+  constructor() {
+    super();
+    this.port.onmessage = (e: MessageEvent<ToPerform>) => this.core.message(e.data);
+    this.core.onFlexEnd = () => this.port.postMessage({ t: "flexEnd" } satisfies FromPerform);
+  }
+
+  process(inputs: Float32Array[][], outputs: Float32Array[][]) {
+    const out = outputs[0];
+    this.core.process(inputs[0] ?? [], out, out[0].length, currentFrame);
+    return true;
+  }
+}
+
+registerProcessor(PERFORM_PROCESSOR_NAME, PerformProcessor);

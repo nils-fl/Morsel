@@ -3,6 +3,7 @@
 import { DEFAULT_MASTER_LEVEL, FX_KINDS, PAD_COUNT, type FxKind, type Returns, type Track } from "../state/types";
 import { MOD_VIB_CENTS } from "./dsp";
 import { Echo, Room, TC, fxChain, makeUnit, type FxUnit } from "./fxUnits";
+import { PerformNode } from "./perform/performNode";
 import { MASTER_PROCESSOR_NAME, type MasterMeter } from "./worklet/masterCore";
 import { KEYS_MONO_OUT, KEYS_STEREO_OUT, VoiceNode } from "./worklet/voiceNode";
 
@@ -170,15 +171,22 @@ export class TrackStrip {
 const GLUE_MAKEUP_DB = 4.2;
 
 /**
- * The master bus: level, an optional glue compressor (off by default: it pumps), then a look-ahead peak limiter at
- * −0.3 dBFS that leaves everything below it untouched. The limiter runs in the master worklet when the context has
- * it, else on a hard-set DynamicsCompressor (which can let a peak through in its first millisecond).
+ * The master bus: level, the Perform effects (live engine only), an optional glue compressor (off by default: it
+ * pumps), then a look-ahead peak limiter at −0.3 dBFS that leaves everything below it untouched. The limiter runs in
+ * the master worklet when the context has it, else on a hard-set DynamicsCompressor (which can let a peak through in
+ * its first millisecond).
  */
 export class MasterBus {
   /** Tracks and returns connect here. */
   readonly input: GainNode;
+  /** After the level and the Perform effects: what a take from the master records. */
+  readonly post: GainNode;
+  /** Auditions (browser previews, chop auditions): at the master level, past the Perform effects and the glue. */
+  readonly previewIn: GainNode;
   /** After the glue: sounds that shouldn't pump with the mix (the metronome) join here. */
   readonly limiterIn: AudioNode;
+  /** The live effects on the mix (Pad FX, Flex Beat, Knob FX); null in bounces and on the node engine. */
+  readonly perform: PerformNode | null;
   /** Output peak and deepest limiter gain since the last report (live worklet engine; else stays at rest). */
   meter: MasterMeter = { peak: 0, gain: 1 };
   private ctx: BaseAudioContext;
@@ -190,6 +198,13 @@ export class MasterBus {
     this.ctx = ctx;
     this.input = ctx.createGain();
     this.input.gain.value = DEFAULT_MASTER_LEVEL;
+    this.post = ctx.createGain();
+    this.previewIn = ctx.createGain();
+    this.previewIn.gain.value = DEFAULT_MASTER_LEVEL;
+    // Live moves aren't recorded, so a bounce has no Perform engine: the mix goes straight on.
+    this.perform = worklet && live ? new PerformNode(ctx) : null;
+    if (this.perform) this.input.connect(this.perform.node).connect(this.post);
+    else this.input.connect(this.post);
     const glue = (this.glue = ctx.createDynamicsCompressor());
     glue.threshold.value = -14;
     glue.knee.value = 6;
@@ -221,19 +236,21 @@ export class MasterBus {
       this.limiterIn = limit;
     }
     this.glueOut.connect(this.limiterIn);
+    this.previewIn.connect(this.limiterIn);
     this.setGlue(false);
   }
 
-  /** Glue on: the level goes through the compressor; off: straight to the limiter. */
+  /** Glue on: the mix goes through the compressor; off: straight to the limiter. */
   private setGlue(on: boolean) {
     if (on === this.glueOn) return;
     this.glueOn = on;
-    this.input.disconnect();
-    this.input.connect(on ? this.glue : this.limiterIn);
+    this.post.disconnect();
+    this.post.connect(on ? this.glue : this.limiterIn);
   }
 
   update(level: number, glue = false) {
     this.input.gain.setTargetAtTime(level, this.ctx.currentTime, TC);
+    this.previewIn.gain.setTargetAtTime(level, this.ctx.currentTime, TC);
     this.setGlue(glue);
   }
 }

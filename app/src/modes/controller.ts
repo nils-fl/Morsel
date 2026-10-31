@@ -5,7 +5,7 @@ import { launchkey } from "../midi/launchkey";
 import { countOnce } from "../platform/stats";
 import { keyVelocity, padVelocity } from "../midi/velocity";
 import { CC, COLOR, type LedMode, type PadLayout } from "../midi/protocol";
-import { DUCK_PAGE, PAGES, STEP_PAGE, fixPage, inputLabel, keysSampleList, padLabel, pagesFor, presetLabel, stepPage, stepPageLabel, turnEncoder } from "../params";
+import { DUCK_PAGE, PAGES, PERFORM_PAGE, STEP_PAGE, fixPage, inputLabel, keysSampleList, padLabel, pagesFor, presetLabel, stepPage, stepPageLabel, turnEncoder } from "../params";
 import { makeTicker, sequencer } from "../seq/sequencer";
 import { PPQN, REPEAT_OPTIONS, maxNudge, pageSteps, rowSteps } from "../seq/timing";
 import {
@@ -14,30 +14,37 @@ import {
 } from "../state/store";
 import { KEY_CHOP0, isKeyChop, type HwMode, type KeysInstrument, type NoteEvent, type Track, type TrackKind } from "../state/types";
 import { noteForKeysPad, stepForPad } from "./stepMap";
+import { FLEX_NAMES, FLEX_SHORT, MAX_PAD_FX, PAD_FX, type FxDef } from "../audio/perform/catalog";
+import { performBank, performLatch, performPadDown, performPadUp, performPressure, performReleaseHeld, performAllOff, sounding, summary, syncPerformGrid } from "./perform";
 import { enterStepTab, leaveStepTab } from "./stepTab";
 import { noteName } from "../ui/notes";
 import { activeOverlay, releaseHold, showTemp, type Overlay } from "./notify";
 import { CHOP_KEY0, newChop, chopAddMarker, chopEncoder, chopKeyDown, chopKeyUp, chopKeysReleased, chopMarkerArrows, chopPad, chopPadLeds, chopRemoveMarker, chopSetPage, chopStepMarker, chopStop, chopTogglePlay, chopView } from "./chop";
 import { browseCan, browseChop, browseKeys, browseDisplay, browseEncoder, browseEnter, browseLeds, browseOnFolder, browseOnSample, browseShiftEnter, browsePad, browseUp, browseView, enterBrowse, exitBrowse } from "./browse";
 import { H, W, type Frame } from "../display/frame";
-import { browserScreen, chopScreen, duckScreen, encoderScreen, gridScreen, keysScreen, padScreen, shiftCoverText, shiftEncHint, shiftRows, shiftScreen, stepScreen } from "../display/screens";
+import {
+  browserScreen, chopScreen, duckScreen, encoderScreen, gridScreen, keysScreen, padScreen, shiftCoverText, shiftEncHint, shiftRows, shiftScreen, stepScreen,
+  type BrowserView, type ChopScreenView, type DuckView, type EncoderView, type GridView, type KeysView, type PadView, type ShiftView, type StepView,
+} from "../display/screens";
 import { HEADER_H, computePeaks, duckPanel, filterPanel, overlayBar, type Peaks } from "../display/widgets";
 import { BOOT_BURP_MS, BOOT_EAT_MS, BOOT_MS, bootFrame } from "../display/bootAnim";
 
-const MODES: HwMode[] = ["play", "step", "track", "mute", "pattern"];
-const MODE_NAMES: Record<HwMode, string> = { play: "Play", step: "Step", track: "Track", mute: "Mute", pattern: "Pattern", browse: "Browse", chop: "Sample" };
+const MODES: HwMode[] = ["play", "step", "track", "mute", "pattern", "perform"];
+const MODE_NAMES: Record<HwMode, string> = { play: "Play", step: "Step", track: "Track", mute: "Mute", pattern: "Pattern", perform: "Perform", browse: "Browse", chop: "Sample" };
 /** Modes entered on top of another one; leaving them returns to prevHwMode. */
 const TEMPORARY: HwMode[] = ["browse", "chop"];
 
 
-/** Play and Chop use the drum layout (velocity, pressure); every other mode lights the pads in DAW layout. */
-const layoutFor = (mode: HwMode): PadLayout => (mode === "play" || mode === "chop" ? "drum" : "daw");
+/** Play, Chop and Perform use the drum layout (velocity, pressure); every other mode lights the pads in DAW layout. */
+const layoutFor = (mode: HwMode): PadLayout => (mode === "play" || mode === "chop" || mode === "perform" ? "drum" : "daw");
 // -Infinity, not 0: after a page reload the device reports its layout within the first second
 // (performance.now() starts at the reload), and that first report must not be ignored.
 let lastLayoutFix = -Infinity;
 
 /** Encoder page to go back to when leaving Step mode (which opens its own Step page). */
 let pageBeforeStep: number | null = null;
+/** The same for Perform mode and its Perform page. */
+let pageBeforePerform: number | null = null;
 
 /** Turn encoder `index` of encoder page `page` and show its value on the screen: the Launchkey's encoders and the
  *  on-screen knobs (ui/EncoderStrip.tsx) both come here. */
@@ -62,6 +69,15 @@ export function setHwMode(mode: HwMode) {
     set({ encPage: STEP_PAGE });
   } else if (prev === "step") {
     if (get().encPage === STEP_PAGE) set({ encPage: pageBeforeStep ?? 0 });
+    fixPage();
+  }
+  if (mode === "perform") {
+    pageBeforePerform = get().encPage;
+    set({ encPage: PERFORM_PAGE });
+  } else if (prev === "perform") {
+    // Pads held as the mode changes let go of their effects; latched ones keep sounding.
+    performReleaseHeld();
+    if (get().encPage === PERFORM_PAGE) set({ encPage: pageBeforePerform ?? 0 });
     fixPage();
   }
   if (mode === "step") enterStepTab();
@@ -148,6 +164,7 @@ function stopErase(held: Map<number, { track: string; note: number }>, at: numbe
 /** A pad let go: stop its voice and its note repeat, whatever mode we are in now. */
 function padReleased(pad: number) {
   heldPads.delete(pad);
+  performPadUp(pad);
   stopErase(erasingPads, pad);
   const step = heldSteps.get(pad);
   if (step) {
@@ -266,6 +283,10 @@ export function initController() {
         } else padReleased(e.pad);
         break;
       case "padPressure": {
+        if (get().hwMode === "perform") {
+          performPressure(e.pad, e.pressure);
+          break;
+        }
         engine.voices.pressure[e.pad] = e.pressure;
         // Note repeat: press harder for louder repeats (recorded that way too).
         const rp = sequencer.repeatPads.get(`${playingPads.get(e.pad)}:${e.pad}`);
@@ -285,28 +306,9 @@ export function initController() {
           showTemp("Mod", `${Math.round((e.value / 127) * 100)}%`);
         }
         break;
-      case "encoder": {
-        if (s.hwMode === "step" && heldSteps.size && e.index < HELD_EDITS.length) {
-          editHeldSteps(e.index, e.delta, s.shift);
-          break;
-        }
-        if (s.hwMode === "browse") {
-          browseEncoder(e.index, e.delta, s.shift);
-          break;
-        }
-        if (s.hwMode === "chop") {
-          chopEncoder(e.index, e.delta, s.shift);
-          break;
-        }
-        if (s.hwMode === "track" && newTrack && e.index === 0) {
-          // Setting up a new track: encoder 1 picks the kind (right = Keys, left = Drums).
-          newTrack.kind = e.delta > 0 ? "keys" : "drum";
-          showNewTrack();
-          break;
-        }
-        turnPageEncoder(s.encPage, e.index, e.delta, s.shift);
+      case "encoder":
+        turnHwEncoder(e.index, e.delta, s.shift);
         break;
-      }
       case "button":
         onButton(e.button, e.down);
         break;
@@ -324,6 +326,23 @@ const selectKeys = new Map<number, number>();
 const drumKeys = new Map<number, { track: string; pad: number }>();
 /** Keys held in Browse on a keys track, auditioning the highlighted sound: the track they play on. */
 const auditionKeys = new Map<number, string>();
+
+/**
+ * Encoder `index` turned by `delta` detents (`fine`: Shift), whatever the mode: the Launchkey's encoders and the helper
+ * screen's encoder cells both come here.
+ */
+export function turnHwEncoder(index: number, delta: number, fine: boolean) {
+  const s = get();
+  if (s.hwMode === "step" && heldSteps.size && index < HELD_EDITS.length) return editHeldSteps(index, delta, fine);
+  if (s.hwMode === "browse") return browseEncoder(index, delta, fine);
+  if (s.hwMode === "chop") return chopEncoder(index, delta, fine);
+  if (s.hwMode === "track" && newTrack && index === 0) {
+    // Setting up a new track: encoder 1 picks the kind (right = Keys, left = Drums).
+    newTrack.kind = delta > 0 ? "keys" : "drum";
+    return showNewTrack();
+  }
+  turnPageEncoder(s.encPage, index, delta, fine);
+}
 
 /** "Kick" for the selected pad on a drum track, the track name for a keys track. */
 const trackItemName = (s: AppState, t: Track) => (t.kind === "drum" ? t.pads[s.selectedPad].name : t.name);
@@ -473,6 +492,9 @@ function onPad(pad: number, vel: number) {
       break;
     case "chop":
       chopPad(pad, vel, liveWhen());
+      break;
+    case "perform":
+      performPadDown(pad, vel);
       break;
     case "play": {
       if (funcHeld) {
@@ -649,6 +671,18 @@ function onButton(button: string, down: boolean) {
     showTemp(`Track ${n}/${get().project.tracks.length}`, `${t.name} (${t.kind === "drum" ? "drums" : "keys"})`);
     return;
   }
+  if (s.hwMode === "perform" && !s.shift) {
+    // Perform owns Scene (latch the held Pad FX; on the Flex Beat bank: one-shot / loop) and Pad ⌃ / ⌄ (the banks).
+    if (button === "scene") return void (down && performLatch());
+    if (button === "padUp" || button === "padDown") return void (down && performBank(button === "padUp" ? "pad" : "flex"));
+  }
+  if (s.hwMode === "perform" && s.shift && button === "scene") {
+    if (down) {
+      performAllOff();
+      showTemp("Perform", "All off");
+    }
+    return;
+  }
   if (button === "scene") {
     // Hold for note repeat (Play, playing or stopped) or song-append (Pattern); Shift+Scene clears the selected track in this pattern.
     if (s.shift) {
@@ -756,6 +790,7 @@ let lastStationary = "";
 let ledsPaused = false;
 let bitmapActive = false;
 let frame: Frame | null = null;
+let model: ScreenModel | null = null;
 
 /** Let the Lab page drive the pad LEDs and screen directly. */
 export function pauseLeds(paused: boolean) {
@@ -771,6 +806,10 @@ export function pauseLeds(paused: boolean) {
 
 /** The screen the controller is currently drawing (for the on-screen preview). */
 export const currentFrame = () => frame;
+/** The steps held down in Step mode (for the helper screen's bar overview). */
+export const heldStepList = () => [...heldSteps.values()].map(({ pattern, track, tick }) => ({ pattern, track, tick }));
+/** What that screen shows, as data (for the helper screen); null during the start-up animation. */
+export const currentModel = () => model;
 
 const peakCache = new Map<string, Peaks>();
 function peaksFor(id: string | null): Peaks | null {
@@ -793,7 +832,7 @@ function keysSoundName(s: AppState, k: KeysInstrument) {
 }
 
 /** "T2 Keys 1": the selected track's number and name, for the screen headers. */
-function trackLabel(s: AppState) {
+export function trackLabel(s: AppState) {
   const t = selectedTrack(s);
   return `T${s.project.tracks.indexOf(t) + 1} ${t.name}`;
 }
@@ -879,14 +918,40 @@ function playheadStep(s: AppState) {
   return step >= 0 && step < g.page ? step : -1;
 }
 
-/** Graphic screen for the current mode, or null when there is nothing to draw yet (Chop before its buffer). */
-function screenFor(s: AppState, overlay: Overlay | null): Frame | null {
+/** What the screen shows, as data: the Launchkey draws it at 128x64 (renderModel), the helper screen at 800x480. */
+export type ScreenModel =
+  | { kind: "browser"; v: BrowserView }
+  | { kind: "pad"; v: PadView }
+  | { kind: "keys"; v: KeysView }
+  | { kind: "duck"; v: DuckView }
+  | { kind: "encoders"; v: EncoderView }
+  | { kind: "grid"; mode: "track" | "mute" | "pattern" | "perform"; v: GridView }
+  | { kind: "step"; v: StepView }
+  | { kind: "chop"; v: ChopScreenView }
+  | { kind: "shift"; v: ShiftView };
+
+export function renderModel(m: ScreenModel): Frame {
+  switch (m.kind) {
+    case "browser": return browserScreen(m.v);
+    case "pad": return padScreen(m.v);
+    case "keys": return keysScreen(m.v);
+    case "duck": return duckScreen(m.v);
+    case "encoders": return encoderScreen(m.v);
+    case "grid": return gridScreen(m.v);
+    case "step": return stepScreen(m.v);
+    case "chop": return chopScreen(m.v);
+    case "shift": return shiftScreen(m.v);
+  }
+}
+
+/** The screen for the current mode, or null when there is nothing to draw yet (Chop before its buffer). */
+function screenModel(s: AppState, overlay: Overlay | null): ScreenModel | null {
   const p = s.project;
   const status = statusText(s);
   switch (s.hwMode) {
     case "browse": {
       const v = browseView();
-      return browserScreen({ ...v, track: trackLabel(s) });
+      return { kind: "browser", v: { ...v, track: trackLabel(s) } };
     }
     case "play": {
       const t = selectedTrack(s);
@@ -894,7 +959,7 @@ function screenFor(s: AppState, overlay: Overlay | null): Frame | null {
       // The instrument's own pages show the instrument (pad waveform, preset / sample list, duck curve);
       // the shared pages (LFO, Track FX, Mix, Global) show their 8 encoders.
       if (onEncoderScreen(s)) {
-        return encoderScreen({
+        return { kind: "encoders", v: {
           title: trackLabel(s),
           status,
           tag: page.tag,
@@ -906,12 +971,12 @@ function screenFor(s: AppState, overlay: Overlay | null): Frame | null {
             const [lo, hi] = prm.range ?? [0, 1];
             return { name: prm.name, value: prm.format(), level: (prm.value() - lo) / (hi - lo || 1) };
           }),
-        });
+        } };
       }
       if (page.tag === "KIT") {
         // No highlight when the pads aren't a saved kit (a chop, a folder, hand-picked samples).
         const kits = kitNames();
-        return keysScreen({
+        return { kind: "keys", v: {
           track: trackLabel(s),
           status,
           presets: kits.map((k) => ({ label: k })),
@@ -919,15 +984,15 @@ function screenFor(s: AppState, overlay: Overlay | null): Frame | null {
           title: currentKit(),
           tag: "KIT",
           summary: page.summary(),
-        });
+        } };
       }
       if (s.encPage === DUCK_PAGE) {
         const d = t.duck;
         const target = t.kind === "drum" ? `${t.pads.filter((_, i) => padDucks(t, i)).length} pads` : t.name;
-        return duckScreen({
+        return { kind: "duck", v: {
           ...d, track: trackLabel(s), status, source: inputLabel(d.input), target,
           level: engine.voices.duckLevel(t.id), summary: PAGES[DUCK_PAGE].summary(),
-        });
+        } };
       }
       if (t.kind === "keys") {
         const k = t.keys!;
@@ -943,7 +1008,7 @@ function screenFor(s: AppState, overlay: Overlay | null): Frame | null {
           : [{ name: keysSoundName(s, k), user: false }];
         const index = k.type === "synth" ? presets.findIndex((x) => x.name === k.preset)
           : k.type === "sample" ? lib.findIndex((x) => x.id === k.sample.sampleId) : 0;
-        return keysScreen({
+        return { kind: "keys", v: {
           track: trackLabel(s),
           status,
           presets: presets.length ? presets.map((x) => ({ label: x.name, user: x.user })) : [{ label: "No samples in the library" }],
@@ -952,20 +1017,22 @@ function screenFor(s: AppState, overlay: Overlay | null): Frame | null {
           tag: page.tag,
           summary: page.summary(),
           folder: current ? { name: current.folder, pos: `${index + 1}/${presets.length}` } : undefined,
-        });
+        } };
       }
       const pad = t.pads[s.selectedPad];
-      return padScreen({
+      return { kind: "pad", v: {
         track: trackLabel(s),
         pad: s.selectedPad, name: pad.name, peaks: peaksFor(pad.sampleId), start: pad.start, end: pad.end,
         status,
         pageTag: page.tag, pageInfo: page.summary(),
-      });
+      } };
     }
     case "chop": {
       const v = chopView(W);
-      return v && chopScreen(v);
+      return v && { kind: "chop", v };
     }
+    case "perform":
+      return { kind: "grid", mode: "perform", v: performGrid(s) };
     case "track": {
       // Top row = tracks 1-8 (selected = solid), bottom row = their mute / solo state (solid = audible).
       const cells = Array.from({ length: 16 }, (_, i) => {
@@ -976,7 +1043,7 @@ function screenFor(s: AppState, overlay: Overlay | null): Frame | null {
         if (i >= 8) return { label: `${i - 7}`, fill: t.id === s.selectedTrack, mark: t.kind === "keys" };
         return { label: t.solo ? "S" : t.mute ? "M" : "", fill: trackAudible(p, t.id) };
       });
-      return gridScreen({ title: trackLabel(s), status, cells, tag: "TRACK", info: newTrack ? "Enc1 kind Tap:add" : "Up:pick Dn:mute" });
+      return { kind: "grid", mode: "track", v: { title: trackLabel(s), status, cells, tag: "TRACK", info: newTrack ? "Enc1 kind Tap:add" : "Up:pick Dn:mute" } };
     }
     case "mute": {
       // The pads of the drum track (the last one picked when a keys track is selected).
@@ -986,7 +1053,7 @@ function screenFor(s: AppState, overlay: Overlay | null): Frame | null {
         fill: !t.padMutes[i] && !!pad.sampleId,
         dim: !pad.sampleId,
       }));
-      return gridScreen({ title: `T${p.tracks.indexOf(t) + 1} ${t.name}`, status, cells, tag: "MUTE", info: "1x mute 2x solo" });
+      return { kind: "grid", mode: "mute", v: { title: `T${p.tracks.indexOf(t) + 1} ${t.name}`, status, cells, tag: "MUTE", info: "1x mute 2x solo" } };
     }
     case "pattern": {
       // Current = solid, has notes = bar, queued = dotted.
@@ -996,10 +1063,10 @@ function screenFor(s: AppState, overlay: Overlay | null): Frame | null {
         mark: patternHasNotes(pat),
         dim: i === s.queuedPattern,
       }));
-      return gridScreen({
+      return { kind: "grid", mode: "pattern", v: {
         title: trackLabel(s), status, cells, tag: "PATTERN",
         info: s.queuedPattern !== null ? `Next: P${s.queuedPattern + 1}` : "Hold+tap copy",
-      });
+      } };
     }
     case "step": {
       const t = selectedTrack(s);
@@ -1008,20 +1075,20 @@ function screenFor(s: AppState, overlay: Overlay | null): Frame | null {
       if (held) {
         const { e, span } = held;
         const levels = [e.vel / 127, 0.5 + (e.nudge ?? 0) / (2 * maxNudge(span)), Math.min(1, e.len / (4 * span))];
-        return encoderScreen({
+        return { kind: "encoders", v: {
           title: trackLabel(s), status, tag: "HOLD", info: t.kind === "drum" ? trackItemName(s, t) : noteName(e.note),
           active: overlay?.encoder,
           cells: [...HELD_EDITS.map((name, i) => ({ name, value: heldValue(i, e), level: levels[i] })), null, null, null, null, null],
-        });
+        } };
       }
-      return stepScreen({
+      return { kind: "step", v: {
         track: trackLabel(s),
         status,
         item: t.kind === "drum" ? trackItemName(s, t) : `Note ${noteName(keysStepNote(t))}`,
         bar: stepPageLabel(), bars: trackBars(p.patterns[s.currentPattern], t.id),
         steps: stepsOf(s), perRow: stepGrid(s).perRow, playhead: playheadStep(s),
         pageTag: PAGES[s.encPage].tag, pageInfo: PAGES[s.encPage].summary(),
-      });
+      } };
     }
     default:
       return null;
@@ -1029,15 +1096,20 @@ function screenFor(s: AppState, overlay: Overlay | null): Frame | null {
 }
 
 function renderLoop() {
+  syncPerformGrid();
   const s = get();
   const bootMs = bootElapsed();
   const boot = bootFrame(bootMs);
   const msg = boot ? null : activeOverlay();
   // Shift held: the shift map, until an encoder is turned (fine steps), when the value matters more.
   const shiftMap = s.shift && msg?.encoder === undefined && !boot;
-  const next = boot ?? (shiftMap ? shiftScreen({ rows: shiftRows(s.hwMode, selectedTrack(s).kind, s.sampling !== "idle", browseOnFolder()), enc: shiftEncHint(s.hwMode) }) : screenFor(s, msg));
+  const m: ScreenModel | null = boot ? null : shiftMap
+    ? { kind: "shift", v: { rows: shiftRows(s.hwMode, selectedTrack(s).kind, s.sampling !== "idle", browseOnFolder()), enc: shiftEncHint(s.hwMode) } }
+    : screenModel(s, msg);
+  const next = boot ?? (m && renderModel(m));
   // Nothing to draw yet (Chop waiting for its buffer): keep the last frame rather than flashing device text.
   frame = next ?? frame;
+  model = boot ? null : (m ?? model);
   launchkey.shiftCover = shiftCoverText(s.hwMode, selectedTrack(s).kind, browseOnFolder());
   // On the 8-encoder screen the turned cell is highlighted instead; a popup would cover the bottom row.
   const suppress = msg?.encoder !== undefined && onEncoderScreen(s) && !shiftMap;
@@ -1138,6 +1210,44 @@ export function transportLeds(s: AppState, tick = sequencer.tickAt()?.tick ?? nu
   return { play, record };
 }
 
+/** Pad FX colours by family; the dim shade is two palette steps on (red 5 -> 7). */
+const FAMILY_COLOR: Record<FxDef["family"], number> = { time: COLOR.orange, mod: COLOR.purple, filter: COLOR.cyan, color: COLOR.yellow, space: COLOR.blue };
+
+/** Perform mode's pads: Pad FX in their family's colour, bright while sounding, pulsing when latched, dim when
+ *  bypassed (a fifth one is held); Flex Beat in pink, the one playing white. */
+function performLed(s: AppState, i: number): { color: number; mode: LedMode } {
+  const pf = s.perform;
+  if (pf.bank === "flex") {
+    if (i === pf.flex) return { color: i === 0 ? COLOR.dimWhite : COLOR.white, mode: s.project.perform.flex.oneShot ? "static" : "pulse" };
+    return { color: i === 0 ? COLOR.dimWhite : COLOR.pink + 2, mode: "static" };
+  }
+  const base = FAMILY_COLOR[PAD_FX[i].family];
+  const on = sounding(pf).includes(i);
+  if (on) return { color: base, mode: pf.latched.includes(i) ? "pulse" : "static" };
+  if (pf.engaged.includes(i)) return { color: COLOR.dimWhite, mode: "static" };
+  return { color: base + 2, mode: "static" };
+}
+
+/** Perform mode's screen: the 16 effects of the bank on the pads, the sounding ones solid. */
+function performGrid(s: AppState): GridView {
+  const pf = s.perform;
+  const status = statusText(s);
+  if (pf.bank === "flex") {
+    const f = s.project.perform.flex;
+    return {
+      title: "Flex Beat", status, tag: "FLEX", info: `${FLEX_NAMES[pf.flex]} ${f.oneShot ? "1shot" : "loop"}`,
+      cells: FLEX_SHORT.map((label, i) => ({ label, fill: i === pf.flex && i > 0, dim: i === 0 })),
+    };
+  }
+  const on = sounding(pf);
+  const sel = PAD_FX[pf.selected];
+  return {
+    title: "Pad FX", status, tag: "PADFX",
+    info: pf.engaged.length > MAX_PAD_FX ? `${pf.engaged.length - MAX_PAD_FX} bypassed` : `${sel.short} ${summary(sel, s.project.perform.pad[pf.selected])}`,
+    cells: PAD_FX.map((d, i) => ({ label: d.short, fill: on.includes(i), mark: pf.latched.includes(i), dim: pf.engaged.includes(i) && !on.includes(i) })),
+  };
+}
+
 function padLeds(s: AppState) {
   const p = s.project;
   const steps = s.hwMode === "step" ? stepsOf(s) : [];
@@ -1189,6 +1299,12 @@ function padLeds(s: AppState) {
       case "mute": {
         const t = drumTrack(s);
         color = t.padSolos[i] ? COLOR.yellow : t.padMutes[i] ? COLOR.dimRed : t.pads[i].sampleId ? COLOR.green : COLOR.dimGreen;
+        break;
+      }
+      case "perform": {
+        const led = performLed(s, i);
+        color = led.color;
+        mode = led.mode;
         break;
       }
       case "pattern": {

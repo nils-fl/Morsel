@@ -9,8 +9,8 @@ const tags = (kind: "drum" | "keys") => pagesFor(kind).map((i) => PAGES[i].tag);
 
 describe("encoder pages per track kind", () => {
   it("shows the Pad pages only on drum tracks and the Keys page only on keys tracks", () => {
-    expect(tags("drum")).toEqual(["KIT", "PAD", "PAD2", "FX", "MIX", "GLB", "SIDE", "DUCK"]);
-    expect(tags("keys")).toEqual(["KEYS", "LFO", "FX", "MIX", "GLB", "DUCK"]);
+    expect(tags("drum")).toEqual(["KIT", "PAD", "PAD2", "FX", "MIX", "GLB", "SIDE", "DUCK", "KNOB"]);
+    expect(tags("keys")).toEqual(["KEYS", "LFO", "FX", "MIX", "GLB", "DUCK", "KNOB"]);
   });
 
   it("keeps the keys synth off the Global page", () => {
@@ -86,10 +86,18 @@ describe("Keys page", () => {
   });
 });
 
+describe("Perform page", () => {
+  it("comes first in Perform mode only, Knob FX is on every track", () => {
+    expect(tags("drum")).not.toContain("PERF");
+    expect(pagesFor("drum", false, true).map((i) => PAGES[i].tag)[0]).toBe("PERF");
+    expect(pagesFor("keys", false, true).map((i) => PAGES[i].tag)).toContain("KNOB");
+  });
+});
+
 describe("Step page", () => {
   it("comes first in Step mode only", () => {
     expect(tags("drum")).not.toContain("STEP");
-    expect(pagesFor("keys", true).map((i) => PAGES[i].tag)).toEqual(["STEP", "KEYS", "LFO", "FX", "MIX", "GLB", "DUCK"]);
+    expect(pagesFor("keys", true).map((i) => PAGES[i].tag)).toEqual(["STEP", "KEYS", "LFO", "FX", "MIX", "GLB", "DUCK", "KNOB"]);
   });
 
   it("sets the selected track's length, dropping its notes past the end, and keeps the bar view inside it", () => {
@@ -257,15 +265,15 @@ describe("FX rack pages", () => {
     set({ project: defaultProject(), selectedTrack: "drums", hwMode: "play" });
     const rack = PAGES[FX_PAGE_INDEX];
     expect(rack.params.map((p) => p.name)).toEqual(["Filter", "EQ", "Drive", "Comp", "Chorus", "Delay", "Reverb", "Crush"]);
-    expect(tagsNow()).toEqual(["KIT", "PAD", "PAD2", "FX", "MIX", "GLB", "SIDE", "DUCK"]);
+    expect(tagsNow()).toEqual(["KIT", "PAD", "PAD2", "FX", "MIX", "GLB", "SIDE", "DUCK", "KNOB"]);
     rack.params[6].nudge(1, false); // Reverb on
     rack.params[5].nudge(1, false); // Delay on
     expect(rack.summary()).toBe("Dly>Rev");
-    expect(tagsNow()).toEqual(["KIT", "PAD", "PAD2", "FX", "DLY", "VERB", "MIX", "GLB", "SIDE", "DUCK"]);
+    expect(tagsNow()).toEqual(["KIT", "PAD", "PAD2", "FX", "DLY", "VERB", "MIX", "GLB", "SIDE", "DUCK", "KNOB"]);
     // Reverb before Delay: the encoders and the pages follow.
     moveFx(6, 5);
     expect(rack.params[5].name).toBe("Reverb");
-    expect(tagsNow()).toEqual(["KIT", "PAD", "PAD2", "FX", "VERB", "DLY", "MIX", "GLB", "SIDE", "DUCK"]);
+    expect(tagsNow()).toEqual(["KIT", "PAD", "PAD2", "FX", "VERB", "DLY", "MIX", "GLB", "SIDE", "DUCK", "KNOB"]);
   });
 
   it("edits an effect on its page, and leaves for the FX page when it's switched off", () => {

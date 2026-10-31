@@ -5,11 +5,15 @@ import { reverbSeconds } from "./audio/reverb";
 import { crushHold } from "./audio/worklet/crushCore";
 import type { Visual } from "./modes/notify";
 import { BAR_TICKS, GRID_OPTIONS, MAX_BARS, PPQN, QUANTIZE_OPTIONS, REPEAT_OPTIONS, STEP_TICKS, gridLabel, pageSteps } from "./seq/timing";
-import { clipStep, defaultDuck, doubleClip, drumNoteName, drumPads, get, keysStepNote, quantizeToGrid, setFxOn, setFxParams, setClipGrid, stepPages, inputOf, keysTrack, padDucks, parseInput, setDuckPad, setTrackBars, setTrackDuck, toggleSidechainInput, trackBars, selectedTrack, set, trackById, updateKeys, updatePad, updateProject, updateTrack } from "./state/store";
+import { updatePerform, clipStep, defaultDuck, doubleClip, drumNoteName, drumPads, get, keysStepNote, quantizeToGrid, setFxOn, setFxParams, setClipGrid, stepPages, inputOf, keysTrack, padDucks, parseInput, setDuckPad, setTrackBars, setTrackDuck, toggleSidechainInput, trackBars, selectedTrack, set, trackById, updateKeys, updatePad, updateProject, updateTrack } from "./state/store";
 import { FX_KINDS, MAX_TRACKS, PAD_COUNT, isKeyChop, type FxKind, type KeysLfo, type Pad, type SampleInfo, type SidechainInput, type SynthParams, type TrackDuck, type TrackFx, type TrackKind, type Wave } from "./state/types";
 import { allPresets, applyPreset, currentKit, kitNames, stepKit } from "./actions";
 import { jumpFolder, presetEdited } from "./audio/synthPresets";
 import { noteName } from "./ui/notes";
+import { FLEX_NAMES, KNOB_FX, PAD_FX, formatParam, type FxParam } from "./audio/perform/catalog";
+
+/** The Knob FX picked. */
+const knobName = () => KNOB_FX[get().project.perform.knob.kind]?.name ?? "";
 
 export interface Param {
   name: string;
@@ -132,6 +136,8 @@ export interface Page {
   stepOnly?: boolean;
   /** An effect's settings: only shown while the track has it on, right after the FX page, in chain order. */
   fx?: FxKind;
+  /** Only in Perform mode, where it comes first. */
+  performOnly?: boolean;
 }
 
 const panText = (v: number) => (Math.abs(v) < 0.01 ? "C" : v < 0 ? `L${Math.round(-v * 100)}` : `R${Math.round(v * 100)}`);
@@ -642,6 +648,91 @@ const DUCK_PAD_PARAM: Param = {
   },
 };
 
+/** One setting of a Perform effect, read and written through `get` / `put` (raw values as in catalog.ts). */
+function performParam(p: FxParam, get: () => number, put: (v: number) => void): Param {
+  return {
+    name: p.name,
+    value: get,
+    range: [p.min, p.max],
+    detents: p.options ? STEPPED : undefined,
+    nudge: (d, fine) => {
+      const step = p.options ? Math.sign(d) : d * p.step * (fine ? 0.1 : 1);
+      const v = clamp(get() + step, p.min, p.max);
+      put(p.options ? Math.round(v) : Math.round(v * 10000) / 10000);
+    },
+    format: () => formatParam(p, get()),
+  };
+}
+
+const setRow = (rows: number[][], i: number, j: number, v: number) => rows.map((r, k) => (k === i ? r.map((x, m) => (m === j ? v : x)) : r));
+
+/** Perform mode's page: the settings of the Pad FX touched last, or Flex Beat's (the bank on the pads). */
+const PERFORM_PAGE_DEF: Page = {
+  name: "Perform",
+  tag: "PERF",
+  performOnly: true,
+  summary: () => {
+    const s = get();
+    if (s.perform.bank === "flex") {
+      const f = s.project.perform.flex;
+      return `${FLEX_NAMES[s.perform.flex]} ${f.oneShot ? "1shot" : "loop"}${f.quantize ? " Q" : ""}`;
+    }
+    const fx = s.perform.selected;
+    return `${PAD_FX[fx].name}`;
+  },
+  get params(): Param[] {
+    const s = get();
+    if (s.perform.bank === "flex") {
+      const flex = () => get().project.perform.flex;
+      return [
+        {
+          name: "Mode", value: () => (flex().oneShot ? 0 : 1), range: [0, 1], detents: STEPPED,
+          nudge: (d) => updatePerform((p) => ({ ...p, flex: { ...p.flex, oneShot: d < 0 } })),
+          format: () => (flex().oneShot ? "One Shot" : "Loop"),
+        },
+        {
+          name: "Quantize", value: () => (flex().quantize ? 1 : 0), range: [0, 1], detents: STEPPED,
+          nudge: (d) => updatePerform((p) => ({ ...p, flex: { ...p.flex, quantize: d > 0 } })),
+          format: () => (flex().quantize ? "Bar" : "Off"),
+        },
+        performParam({ name: "Mix", min: 0, max: 1, def: 1, step: 0.02, unit: "%" }, () => flex().mix, (v) => updatePerform((p) => ({ ...p, flex: { ...p.flex, mix: v } }))),
+      ];
+    }
+    const fx = s.perform.selected;
+    return PAD_FX[fx].params.map((prm, j) =>
+      performParam(prm, () => get().project.perform.pad[fx][j], (v) => updatePerform((p) => ({ ...p, pad: setRow(p.pad, fx, j, v) }))));
+  },
+};
+
+/** The Knob FX: one effect on the whole mix, on the encoders while the pads go on playing (any mode). */
+const KNOB_PAGE_DEF: Page = {
+  name: "Knob FX",
+  tag: "KNOB",
+  summary: () => {
+    const k = get().project.perform.knob;
+    return `${knobName()} ${k.on ? "on" : "off"}`;
+  },
+  get params(): Param[] {
+    const knob = () => get().project.perform.knob;
+    const kind = knob().kind;
+    return [
+      {
+        name: "Effect", value: () => knob().kind, range: [0, KNOB_FX.length - 1], detents: STEPPED,
+        nudge: (d) => updatePerform((p) => ({ ...p, knob: { ...p.knob, kind: clamp(p.knob.kind + Math.sign(d), 0, KNOB_FX.length - 1) } })),
+        format: () => knobName(),
+      },
+      {
+        name: "On", value: () => (knob().on ? 1 : 0), range: [0, 1], detents: STEPPED,
+        nudge: (d) => updatePerform((p) => ({ ...p, knob: { ...p.knob, on: d > 0 } })),
+        format: () => (knob().on ? "On" : "Off"),
+      },
+      performParam({ name: "Mix", min: 0, max: 1, def: 1, step: 0.02, unit: "%" }, () => knob().mix, (v) => updatePerform((p) => ({ ...p, knob: { ...p.knob, mix: v } }))),
+      ...KNOB_FX[kind].params.map((prm, j) =>
+        performParam(prm, () => get().project.perform.knob.params[kind][j], (v) => updatePerform((p) => ({ ...p, knob: { ...p.knob, params: setRow(p.knob.params, kind, j, v) } })))),
+    ];
+  },
+};
+
 export const PAGES: Page[] = [
   {
     // Like the Keys page's presets: encoder 1 loads the previous / next kit as you turn.
@@ -811,7 +902,9 @@ export const PAGES: Page[] = [
       return selectedTrack().kind === "drum" ? [...DUCK_PARAMS, DUCK_PAD_PARAM] : DUCK_PARAMS;
     },
   },
+  KNOB_PAGE_DEF,
   STEP_PAGE_DEF,
+  PERFORM_PAGE_DEF,
   // The effects' own pages (pagesFor puts them after FX, in chain order, while they are on).
   ...FX_PAGES,
 ];
@@ -819,6 +912,8 @@ export const PAGES: Page[] = [
 export const DUCK_PAGE = PAGES.findIndex((p) => p.tag === "DUCK");
 export const SIDECHAIN_PAGE = PAGES.findIndex((p) => p.tag === "SIDE");
 export const STEP_PAGE = PAGES.findIndex((p) => p.tag === "STEP");
+export const PERFORM_PAGE = PAGES.findIndex((p) => p.tag === "PERF");
+export const KNOB_PAGE = PAGES.findIndex((p) => p.tag === "KNOB");
 
 /** Indexes of the encoder pages a track of this kind shows, in order; in Step mode the Step page comes first. */
 export const FX_PAGE_INDEX = PAGES.indexOf(FX_PAGE);
@@ -827,11 +922,12 @@ export const FX_PAGE_INDEX = PAGES.indexOf(FX_PAGE);
  * Indexes of the encoder pages a track of this kind shows, in order; in Step mode the Step page comes first. The
  * selected track's effects that are on follow the FX page, in chain order.
  */
-export function pagesFor(kind: TrackKind, step = get().hwMode === "step") {
+export function pagesFor(kind: TrackKind, step = get().hwMode === "step", perform = get().hwMode === "perform") {
   const fits = PAGES.flatMap((p, i) => ((!p.kind || p.kind === kind) && !p.fx ? [i] : []));
   const effects = fxChain(selectedTrack().fx).map((k) => PAGES.findIndex((p) => p.fx === k));
   fits.splice(fits.indexOf(FX_PAGE_INDEX) + 1, 0, ...effects);
-  return [...fits.filter((i) => step && PAGES[i].stepOnly), ...fits.filter((i) => !PAGES[i].stepOnly)];
+  const first = fits.filter((i) => (step && PAGES[i].stepOnly) || (perform && PAGES[i].performOnly));
+  return [...first, ...fits.filter((i) => !PAGES[i].stepOnly && !PAGES[i].performOnly)];
 }
 
 /** The page `dir` steps from `page` among the selected track's pages (clamped), or `page` when there is none. */

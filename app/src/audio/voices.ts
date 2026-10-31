@@ -65,6 +65,7 @@ export class Voices {
     for (const t of p.tracks) this.strip(t).update(t, trackAudible(p, t.id), (i) => padAudible(t, i), p.bpm);
     this.returns.update(p.returns, p.bpm);
     this.masterBus.update(p.masterLevel, p.masterGlue);
+    this.masterBus.perform?.setSettings(p.perform);
   }
 
   private strip(t: Track): TrackStrip {

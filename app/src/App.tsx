@@ -7,6 +7,8 @@ import { ScreenPreview } from "./ui/ScreenPreview";
 import { toggleTheme } from "./ui/theme";
 import { accentFor, paletteCss } from "./ui/palette";
 import { toggleTips } from "./ui/tips";
+import { HelperScreen } from "./ui/HelperScreen";
+import { applyHelperScreen, toggleHelperScreen } from "./ui/helperToggle";
 import { toggleLibrary } from "./ui/drawer";
 import { sequencer } from "./seq/sequencer";
 import { QUANTIZE_OPTIONS } from "./seq/timing";
@@ -21,6 +23,7 @@ import { native } from "./platform/native";
 import { newProject } from "./state/projectFile";
 import { KeysPanel } from "./ui/KeysPanel";
 import { Mixer } from "./ui/Mixer";
+import { PerformPanel } from "./ui/PerformPanel";
 import { LabOverlay } from "./ui/Lab";
 import { Library } from "./ui/Library";
 import { ProjectMenu } from "./ui/ProjectMenu";
@@ -32,7 +35,7 @@ import { TrackStrip } from "./ui/TrackStrip";
 
 // Each page has its own colour, like the page LEDs on an Elektron box.
 const TAB_COLOR: Record<Tab, string> = {
-  Track: "var(--magenta)", Chop: "var(--orange)", Sequencer: "var(--cyan)", Mixer: "var(--blue)", Song: "var(--lime)",
+  Track: "var(--magenta)", Chop: "var(--orange)", Sequencer: "var(--cyan)", Mixer: "var(--blue)", Perform: "var(--amber)", Song: "var(--lime)",
 };
 const KEYS_COLOR = "var(--violet)";
 /** The Chop tab is the sample editor: its Sample page (trim, stem, stretch) and its Chop page. */
@@ -44,6 +47,7 @@ export default function App() {
   const chopOpen = useApp((s) => s.chop !== null);
   const showChop = track.kind === "drum" || chopOpen;
   const chosen = useApp((s) => s.tab);
+  const helperOn = useApp((s) => s.helperScreen);
   const tab = chosen === "Chop" && !showChop ? "Track" : chosen;
   const color = (t: Tab) => (t === "Track" && track.kind === "keys" ? KEYS_COLOR : TAB_COLOR[t]);
   const setTab = (t: Tab) => set({ tab: t });
@@ -93,6 +97,9 @@ export default function App() {
         return;
       }
       if (mod || e.altKey) return;
+      // The helper screen: H shows or hides it, Esc goes back to the app (unless a dialog over it takes the Esc).
+      if (key === "h" && !e.repeat) return toggleHelperScreen();
+      if (e.key === "Escape" && get().helperScreen && !document.querySelector(".g-overlay")) return applyHelperScreen(false);
       if (e.key === "?") setGuide(true);
       else if (e.key === " " && tab !== "Chop") {
         // Don't let Space also click the button that was pressed last.
@@ -129,6 +136,7 @@ export default function App() {
   return (
     <div className="app">
       <AudioBanner />
+      {helperOn && <HelperScreen />}
       <TopBar onGuide={() => setGuide(true)} onPrefs={() => setPrefs(true)} />
       {guide && <GuideOverlay onClose={() => setGuide(false)} />}
       {prefs && <Preferences onClose={closePrefs} onLab={openLab} />}
@@ -148,6 +156,7 @@ export default function App() {
         {tab === "Chop" && <ChopEditor />}
         {tab === "Sequencer" && <SeqGrid />}
         {tab === "Mixer" && <Mixer />}
+        {tab === "Perform" && <PerformPanel />}
         {tab === "Song" && <SongPanel />}
       </main>
     </div>
@@ -218,7 +227,7 @@ function ShareButton() {
 function TopBar({ onGuide, onPrefs }: { onGuide: () => void; onPrefs: () => void }) {
   // Only what the bar shows: the whole store would redraw it on every recorded note and knob move.
   const s = useApp(useShallow((s) => ({
-    connected: s.connected, theme: s.theme, tips: s.tips, library: s.library, playing: s.playing, recording: s.recording, countIn: s.countIn, metronome: s.metronome,
+    connected: s.connected, theme: s.theme, tips: s.tips, helperScreen: s.helperScreen, library: s.library, playing: s.playing, recording: s.recording, countIn: s.countIn, metronome: s.metronome,
     quantize: s.quantize, undoLength: s.undo.length, redoLength: s.redo.length, currentPattern: s.currentPattern, queuedPattern: s.queuedPattern,
     bpm: s.project.bpm, swing: s.project.swing, patterns: s.project.patterns, hwMode: s.hwMode, status: s.status,
   })));
@@ -263,6 +272,7 @@ function TopBar({ onGuide, onPrefs }: { onGuide: () => void; onPrefs: () => void
           <div className="utils">
             <ProjectMenu />
             <button className={s.library ? "on" : ""} onClick={toggleLibrary} title={native ? "Connected folders and the sample library (B, ⌘L)" : "Connected folders and the sample library (B)"}>Library</button>
+            <button className={s.helperScreen ? "on" : ""} onClick={toggleHelperScreen} title="Helper screen (H): play with the Launchkey and this big screen; the app stays behind it for settings">Screen</button>
             <button className={s.tips ? "on" : ""} onClick={toggleTips} title={s.tips ? "Hide the explanations in the panels" : "Show explanations in the panels"}>Tips</button>
             <button onClick={onGuide} title="Controls, modes and shortcuts (?)">Guide</button>
             <button className="icon-btn" onClick={toggleTheme} title={s.theme === "light" ? "Switch to the dark theme" : "Switch to the light theme"} aria-label="Toggle light / dark theme">
@@ -294,7 +304,7 @@ function TopBar({ onGuide, onPrefs }: { onGuide: () => void; onPrefs: () => void
             <div className="bar-row hw">
               <span className="bar-label" title="What the Launchkey's pads and encoders do right now">Launchkey</span>
               <div className="hw-modes">
-                {(["play", "step", "track", "mute", "pattern", "browse"] as HwMode[]).map((m) => (
+                {(["play", "step", "track", "mute", "pattern", "perform", "browse"] as HwMode[]).map((m) => (
                   <button key={m} className={s.hwMode === m ? "on" : ""} title={m === "step" ? "Step: the pads are 16 steps of the selected track (marked on the Sequencer tab, which opens)" : undefined} onClick={() => setHwMode(m)}>{m}</button>
                 ))}
               </div>

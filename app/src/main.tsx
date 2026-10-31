@@ -6,11 +6,13 @@ import { boot } from "./boot";
 import { isNative } from "./platform/native";
 import { applyTheme, savedTheme } from "./ui/theme";
 import { applyTips, savedTips } from "./ui/tips";
+import { applyHelperScreen, savedHelperScreen } from "./ui/helperToggle";
 import { applyDrawerWidth, applyLibrary, savedDrawerWidth, savedLibrary } from "./ui/drawer";
 
 // Before anything renders, so a light page doesn't flash dark.
 applyTheme(savedTheme());
 applyTips(savedTips());
+applyHelperScreen(savedHelperScreen());
 applyLibrary(savedLibrary());
 applyDrawerWidth(savedDrawerWidth(), false);
 

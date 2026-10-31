@@ -1,6 +1,7 @@
 import { createStore } from "zustand/vanilla";
 import { DECAY_MAX } from "../audio/dsp";
 import type { SynthPreset } from "../audio/synthPresets";
+import { defaultPerform, normalizePerform, type PerformSettings } from "../audio/perform/catalog";
 import { useStore } from "zustand";
 import { COLOR } from "../midi/protocol";
 import { BAR_TICKS, GRID_OPTIONS, MAX_BARS, STEP_TICKS, maxNudge, pageSteps, quantizeEvents } from "../seq/timing";
@@ -200,6 +201,7 @@ export const defaultProject = (): Project => ({
   returns: defaultReturns(),
   masterLevel: DEFAULT_MASTER_LEVEL,
   masterGlue: false,
+  perform: defaultPerform(),
 });
 
 /** Bumped when the saved project shape changes (3: keys sample source, LFO, kit names; 4: sidechain inputs, ducks per keys track); files from a newer version are refused, older ones get defaults. */
@@ -479,7 +481,21 @@ export function normalizeProject(input: unknown): Project {
     returns: normalizeReturns(raw.returns),
     masterLevel: num(raw.masterLevel, 0, 1, DEFAULT_MASTER_LEVEL),
     masterGlue: raw.masterGlue === true,
+    perform: normalizePerform(raw.perform),
   };
+}
+
+/** The Perform section's live state: the bank on the pads and what is engaged. */
+export interface PerformLive {
+  /** The pads play the Pad FX or the Flex Beat bank. */
+  bank: "pad" | "flex";
+  /** Pad FX engaged (held or latched), in the order they went down; the newest MAX_PAD_FX sound. */
+  engaged: number[];
+  latched: number[];
+  /** The Pad FX the encoders edit: the last one touched. */
+  selected: number;
+  /** The Flex Beat effect playing (0 = Empty). */
+  flex: number;
 }
 
 /** granted: readable. prompt: needs a click (Reconnect) after a browser restart. missing: moved or deleted. */
@@ -557,6 +573,10 @@ export interface AppState {
   theme: "dark" | "light";
   /** Explanatory tips shown in the panels (ui/tips.ts). */
   tips: boolean;
+  /** The helper screen (the second screen's picture) above the tabs (ui/helperToggle.ts). */
+  helperScreen: boolean;
+  /** What the Perform section is playing right now (not saved): modes/perform.ts. */
+  perform: PerformLive;
   /** Bit depth of bounced WAVs. */
   bounceBits: 16 | 24;
   chop: ChopSession | null;
@@ -595,6 +615,7 @@ export const store = createStore<AppState>(() => ({
   selectedTrack: DRUMS_ID,
   drumTrack: DRUMS_ID,
   keysTrack: KEYS_ID,
+  perform: { bank: "pad", engaged: [], latched: [], selected: 0, flex: 0 },
   hwMode: "play",
   prevHwMode: "play",
   encPage: 0,
@@ -611,6 +632,7 @@ export const store = createStore<AppState>(() => ({
   tab: "Track",
   theme: "light",
   tips: false,
+  helperScreen: false,
   bounceBits: 24,
   chop: null,
   kits: [],
@@ -644,6 +666,11 @@ export function usedSampleIds(p: Project) {
  * they land in whatever step is open, and this keeps undoing one track from taking them back with it.
  */
 const stepResult = new WeakMap<Project, Project | "clips">();
+
+/** Change the Perform settings (not an undo step: they are knob moves). */
+export function updatePerform(fn: (p: PerformSettings) => PerformSettings) {
+  updateProject((p) => ({ ...p, perform: fn(p.perform) }), false);
+}
 
 export function updateProject(fn: (p: Project) => Project, undoable = true) {
   const s = get();

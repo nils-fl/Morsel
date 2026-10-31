@@ -334,7 +334,7 @@ class Engine {
     src.buffer = buf;
     const g = this.ctx.createGain();
     g.gain.value = gain;
-    src.connect(g).connect(this.voices.master);
+    src.connect(g).connect(this.voices.masterBus.previewIn);
     const when = this.ctx.currentTime;
     src.start(when, offset, duration);
     this.previewSrc = src;
@@ -353,7 +353,7 @@ class Engine {
     if (!this.stream) {
       const el = new Audio();
       const g = this.ctx.createGain();
-      this.ctx.createMediaElementSource(el).connect(g).connect(this.voices.master);
+      this.ctx.createMediaElementSource(el).connect(g).connect(this.voices.masterBus.previewIn);
       this.stream = { el, gain: g };
     }
     this.stream.gain.gain.value = gain;
@@ -379,7 +379,7 @@ class Engine {
     src.playbackRate.value = rate;
     const g = this.ctx.createGain();
     g.gain.value = gain;
-    src.connect(g).connect(this.voices.master);
+    src.connect(g).connect(this.voices.masterBus.previewIn);
     if (loop) {
       src.loop = true;
       src.loopStart = offset;

@@ -100,7 +100,8 @@ export async function startRecording(source: RecordSource, opts: { threshold?: n
     if (!tabStream || !tabConnected()) throw new Error("No tab shared");
     src = ctx.createMediaStreamSource(tabStream);
   } else {
-    src = engine.voices.master;
+    // The mix as heard: after the Perform effects, so a take catches what was played live.
+    src = engine.voices.masterBus.post;
   }
 
   const node = new AudioWorkletNode(ctx, "tap", { numberOfInputs: 1, numberOfOutputs: 0, channelCount: 2, channelCountMode: "explicit" });
