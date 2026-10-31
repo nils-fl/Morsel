@@ -290,7 +290,8 @@ Tried in the Lab on 2026-10-31 (see `protocol_notes.md`): 1, 2 (with `06 23`), 3
 used: the device echoes `B6 3F 00` straight back, and letting go of Shift afterwards reports nothing, because the
 Shift state is already off. 6, 7 and 8 are untested. 1–3 are in Morsel and the Live script.
 
-1. `01 63 <note> r g b` for RGB on the drum-layout pads; several entries per message.
+1. `01 63 <note> r g b` for RGB on the drum-layout pads (`01 43` on the DAW layout, also measured); several entries
+   per message.
 2. `06 22/23/25 00 <text>` to put Morsel's own words in the device's Shift overlay, instead of covering it with a
    bitmap on 0x21.
 3. `04 23 01` to stop the device's own "Pad Mode" popup under Live.

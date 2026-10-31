@@ -1150,16 +1150,16 @@ class Controller(object):
                 self.send(P.button_led_message(cc, value))
 
     def set_pad(self, pad, color, mode="static"):
-        """`color`: a palette index, or a Live colour (colors.rgb). A static Live colour on the drum layout goes as
-        RGB (protocol.pad_rgb_sysex); otherwise it goes as its nearest palette colour: flash and pulse take palette
-        colours only, and RGB on the DAW layout is untested."""
+        """`color`: a palette index, or a Live colour (colors.rgb). A static Live colour goes as RGB
+        (protocol.pad_rgb_sysex); a flashing or pulsing one as its nearest palette colour, as flash and pulse take
+        palette colours only."""
         key = (self.layout, pad)
         sig = (color, mode)
         if self.sent_pads.get(key) == sig:
             return
         self.sent_pads[key] = sig
         if is_rgb(color):
-            if mode == "static" and self.layout == "drum":
+            if mode == "static":
                 # An RGB colour isn't animated, so it also stops a pulse.
                 self.send(P.pad_rgb_sysex(self.layout, pad, color[1]))
                 return

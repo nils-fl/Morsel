@@ -545,13 +545,12 @@ def test_clips_mode_scrolls_scenes_and_lights_slots():
     assert c.pad_leds()[9] == (P.COLOR["dimRed"], "static")  # an empty slot on an armed track
 
 
-def test_pads_get_lives_colours_from_the_palette():
+def test_pads_get_lives_colours_in_rgb_on_the_daw_layout_too():
     host, c = setup()
     c.set_mode("track")
     host.t += 1
     c.tick()
-    assert not [m for m in host.sent if m[:8] == P.SYSEX_HEADER + (0x01, 0x43)]  # no RGB SysEx: it doesn't light
-    assert P.pad_led_message("daw", 9, nearest_color(0x3B5BFF)) in host.sent  # track 2 (static)
+    assert P.pad_rgb_sysex("daw", 9, 0x3B5BFF) in host.sent  # track 2 (static)
     assert P.pad_led_message("daw", 8, P.COLOR["blue"], "pulse") in host.sent  # the selected track pulses
 
 
@@ -754,7 +753,9 @@ def test_a_step_lights_as_it_is_pressed():
     to_step(c)
     host.sent.clear()
     pad(c, 8)  # no tick in between
-    assert any(m[0] & 0xF0 == 0x90 and m[1] == P.note_for_pad("daw", 8) and m[2] for m in host.sent)
+    note = P.note_for_pad("daw", 8)
+    rgb = P.SYSEX_HEADER + (0x01, 0x43, note)
+    assert any(m[:9] == rgb or (m[0] & 0xF0 == 0x90 and m[1] == note and m[2]) for m in host.sent)
 
 
 def test_play_in_step_mode_launches_the_clip():
