@@ -152,18 +152,32 @@ export class PerformCore {
     }
   }
 
-  /** Process `frames` frames from `input` (stereo; may be missing when nothing is connected) into `output`.
-   *  `frame0` is the audio clock's frame at the block's start (AudioWorklet currentFrame). */
-  process(input: Float32Array[], output: Float32Array[], frames: number, frame0: number) {
+  /**
+   * Process `frames` frames into `output`: `knobInput` (the tracks the Knob FX plays on) goes through the Knob FX,
+   * then `input` (the rest of the mix) joins it, and Flex Beat and the Pad FX play on the sum. Inputs are stereo and
+   * may be missing (nothing connected). `frame0` is the audio clock's frame at the block's start (currentFrame).
+   */
+  process(input: Float32Array[], output: Float32Array[], frames: number, frame0: number, knobInput: Float32Array[] = []) {
     const inL = input[0], inR = input[1] ?? input[0];
+    const kL = knobInput[0], kR = knobInput[1] ?? knobInput[0];
     const outL = output[0], outR = output[1] ?? output[0];
     const ctx = this.ctx;
     const io = this.io, out = this.out;
     const knobUnit = this.knobs[this.knob];
     for (let i = 0; i < frames; i++) {
-      const l = inL?.[i] ?? 0, r = inR?.[i] ?? 0;
       ctx.beat = (frame0 + i - this.origin) / ctx.beatLen;
       ctx.frame = this.history.written;
+      // The Knob FX first, on its tracks only (an insert on them, as on the MPC Sample), then the rest joins.
+      let kl = kL?.[i] ?? 0, kr = kR?.[i] ?? 0;
+      const w = this.knobWet.next(this.knobOn ? this.knobMix : 0);
+      if (w > 1e-4 && knobUnit) {
+        io[0] = kl;
+        io[1] = kr;
+        knobUnit.tick(io, 1, ctx);
+        kl += (io[0] - kl) * w;
+        kr += (io[1] - kr) * w;
+      }
+      const l = (inL?.[i] ?? 0) + kl, r = (inR?.[i] ?? 0) + kr;
       this.history.write(l, r);
       io[0] = l;
       io[1] = r;
@@ -190,13 +204,6 @@ export class PerformCore {
           if (!p.held) p.unit.reset();
           this.chain.splice(k--, 1);
         }
-      }
-      const w = this.knobWet.next(this.knobOn ? this.knobMix : 0);
-      if (w > 1e-4 && knobUnit) {
-        const dl = io[0], dr = io[1];
-        knobUnit.tick(io, 1, ctx);
-        io[0] = dl + (io[0] - dl) * w;
-        io[1] = dr + (io[1] - dr) * w;
       }
       outL[i] = io[0];
       if (outR !== outL) outR[i] = io[1];

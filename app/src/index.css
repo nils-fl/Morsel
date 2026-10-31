@@ -1026,3 +1026,5 @@ kbd { font-family: var(--mono); font-size: var(--fs-xs); text-transform: upperca
 .seg button:first-child { border-radius: var(--r-ctl) 0 0 var(--r-ctl); }
 .seg button:last-child { border-radius: 0 var(--r-ctl) var(--r-ctl) 0; }
 .seg button.on { background: var(--page); border-color: var(--page); color: var(--on-pad, var(--ink)); }
+.knob-target { align-items: flex-start; }
+.knob-target .perform-pick { margin-bottom: 0; }

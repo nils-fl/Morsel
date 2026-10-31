@@ -1,3 +1,4 @@
+import { applyKnobTargets } from "./modes/perform";
 import { engine } from "./audio/engine";
 import { applyStrips, factoryPads, refreshKits } from "./actions";
 import { USER_FOLDER } from "./audio/synthPresets";
@@ -54,6 +55,10 @@ export async function boot() {
     }
     // The strips follow the keybed to another keys track.
     if (s.keysTrack !== prev.keysTrack) applyStrips();
+    // The Knob FX's tracks: its target, the tracks there are and (target "selected") the selected one.
+    if (s.selectedTrack !== prev.selectedTrack || s.project.tracks !== prev.project.tracks || s.project.perform.knob.target !== prev.project.perform.knob.target) {
+      applyKnobTargets();
+    }
     // Whatever puts a sample on a pad, a zone or the chop editor (undo, kits, imports), its audio gets loaded.
     if (s.chop?.sampleId !== prev.chop?.sampleId && s.chop) void engine.ensure(s.chop.sampleId);
     if (s.project === prev.project) return;

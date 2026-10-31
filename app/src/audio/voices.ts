@@ -49,7 +49,8 @@ export class Voices {
     this.buffer = buffer;
     this.masterBus = new MasterBus(ctx, out, worklet, live);
     this.master = this.masterBus.input;
-    this.returns = new ReturnFx(ctx, this.master, live);
+    this.returns = new ReturnFx(ctx, this.master, this.masterBus.knobIn, live);
+    this.returns.setKnobTarget(true);
     this.updateMix();
   }
 
@@ -68,10 +69,21 @@ export class Voices {
     this.masterBus.perform?.setSettings(p.perform);
   }
 
+  /** What the Knob FX plays on: the whole mix (tracks and returns), or these tracks. */
+  private knobTargets: "all" | Set<string> = "all";
+
+  /** Route the tracks (and the returns, for the whole mix) through the Knob FX or past it. */
+  setKnobTargets(targets: "all" | Set<string>) {
+    this.knobTargets = targets;
+    for (const [id, strip] of this.strips) strip.setKnobTarget(targets === "all" || targets.has(id));
+    this.returns.setKnobTarget(targets === "all");
+  }
+
   private strip(t: Track): TrackStrip {
     let s = this.strips.get(t.id);
     if (!s) {
-      s = new TrackStrip(this.ctx, t.kind, this.master, this.returns.reverbIn, this.returns.delayIn, this.worklet, this.live);
+      s = new TrackStrip(this.ctx, t.kind, this.master, this.masterBus.knobIn, this.returns.reverbIn, this.returns.delayIn, this.worklet, this.live);
+      s.setKnobTarget(this.knobTargets === "all" || this.knobTargets.has(t.id));
       const p = this.getProject();
       s.update(t, trackAudible(p, t.id), (i) => padAudible(t, i), p.bpm);
       this.strips.set(t.id, s);

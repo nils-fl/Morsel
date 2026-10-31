@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FLEX_NAMES, KNOB_FX, PAD_FX, defaultPerform, normalizePerform, type PerformSettings } from "./catalog";
+import { FLEX_NAMES, KNOB_FX, PAD_FX, defaultPerform, knobTracks, normalizePerform, type PerformSettings } from "./catalog";
 import { History } from "./dsp";
 import { FLEX_PROGRAMS } from "./flexBeat";
 import { PerformCore } from "./performCore";
@@ -9,16 +9,21 @@ const BPM = 120;
 /** Frames per beat at 120 BPM. */
 const BEAT = SR / 2;
 
-/** Run `l`/`r` through the engine in 128-frame blocks, like the audio thread; `at(frame)` is called before each block. */
-function run(core: PerformCore, l: Float32Array, r = l, at?: (frame: number) => void, frame0 = 0) {
+/** Run `l`/`r` through the engine in 128-frame blocks, like the audio thread; `at(frame)` is called before each block.
+ *  `knob`: the signal comes in on the Knob FX's input (a targeted track) instead of the plain one. */
+function run(core: PerformCore, l: Float32Array, r = l, at?: (frame: number) => void, frame0 = 0, knob?: Float32Array) {
   const out = [new Float32Array(l.length), new Float32Array(l.length)];
   for (let f = 0; f < l.length; f += 128) {
     at?.(f);
     const end = Math.min(l.length, f + 128);
-    core.process([l.subarray(f, end), r.subarray(f, end)], out.map((c) => c.subarray(f, end)), end - f, frame0 + f);
+    const k = knob ? [knob.subarray(f, end), knob.subarray(f, end)] : [];
+    core.process([l.subarray(f, end), r.subarray(f, end)], out.map((c) => c.subarray(f, end)), end - f, frame0 + f, k);
   }
   return out;
 }
+
+/** Run `x` in on the Knob FX's input only (the whole mix targeted). */
+const runKnob = (core: PerformCore, x: Float32Array) => run(core, new Float32Array(x.length), undefined, undefined, 0, x);
 
 const sine = (amp: number, hz: number, frames: number) => Float32Array.from({ length: frames }, (_, i) => amp * Math.sin((2 * Math.PI * hz * i) / SR));
 /** A signal whose every frame is different (a slow ramp), so a repeat shows up as a repeated value. */
@@ -210,7 +215,7 @@ describe("Knob FX", () => {
   it("passes through while off, and at 0 % mix", () => {
     const x = sine(0.5, 330, 4096);
     for (const settings of [(s: PerformSettings) => (s.knob.on = false), (s: PerformSettings) => ((s.knob.on = true), (s.knob.mix = 0))]) {
-      const [y] = run(core(settings), x);
+      const [y] = runKnob(core(settings), x);
       for (let i = 0; i < x.length; i++) expect(y[i]).toBeCloseTo(x[i], 6);
     }
   });
@@ -222,7 +227,7 @@ describe("Knob FX", () => {
         s.knob.on = true;
         s.knob.kind = k;
       });
-      const [y] = run(c, x);
+      const [y] = runKnob(c, x);
       for (const v of y) expect(Number.isFinite(v), KNOB_FX[k].name).toBe(true);
       expect(Math.max(...y.map(Math.abs)), KNOB_FX[k].name).toBeLessThan(4);
     }
@@ -236,16 +241,30 @@ describe("Knob FX", () => {
       s.knob.params[pumper] = [3, 0.5, 1]; // every beat, full depth
     });
     const x = sine(0.5, 220, SR);
-    const [y] = run(c, x);
+    const [y] = runKnob(c, x);
     const peak = (from: number, to: number) => Math.max(...y.subarray(from, to).map(Math.abs));
     // Just after beat 2 (frame 24000) it is down; late in the beat it is nearly back.
     expect(peak(BEAT + 500, BEAT + 1500)).toBeLessThan(0.05);
     expect(peak(2 * BEAT - 3000, 2 * BEAT - 1000)).toBeGreaterThan(0.4);
   });
 
+  it("plays only on its targeted input; the rest of the mix joins untouched", () => {
+    const pumper = KNOB_FX.findIndex((k) => k.name === "Pumper");
+    const c = core((s) => {
+      s.knob.on = true;
+      s.knob.kind = pumper;
+      s.knob.params[pumper] = [3, 0.5, 1];
+    });
+    const plain = sine(0.3, 220, SR);
+    const targeted = sine(0.3, 330, SR);
+    const [y] = run(c, plain, plain, undefined, 0, targeted);
+    // Just after a beat the targeted track is ducked away and the plain one is all there is.
+    for (let i = BEAT + 500; i < BEAT + 1500; i += 13) expect(y[i]).toBeCloseTo(plain[i], 2);
+  });
+
   it("the DJ filter at noon leaves the mix alone", () => {
     const x = sine(0.5, 5000, 4096);
-    const [y] = run(core((s) => (s.knob.on = true)), x);
+    const [y] = runKnob(core((s) => (s.knob.on = true)), x);
     for (let i = 600; i < x.length; i++) expect(y[i]).toBeCloseTo(x[i], 4);
   });
 });
@@ -259,5 +278,18 @@ describe("Perform settings", () => {
     expect(n.knob.on).toBe(true);
     expect(n.flex.mix).toBe(1);
     expect(normalizePerform(undefined)).toEqual(defaultPerform());
+    expect(normalizePerform({ knob: { target: "selected" } }).knob.target).toBe("selected");
+    expect(normalizePerform({ knob: { target: ["a", "a", "b"] } }).knob.target).toEqual(["a", "b"]);
+    expect(normalizePerform({ knob: { target: [] } }).knob.target).toBe("mix");
+    expect(normalizePerform({ knob: { target: 3 } }).knob.target).toBe("mix");
+  });
+
+  it("the Knob FX's tracks: the mix, the selected one, or those picked that are still there", () => {
+    const ids = ["t1", "t2", "t3"];
+    expect(knobTracks("mix", ids, "t2")).toBe("all");
+    expect(knobTracks("selected", ids, "t2")).toEqual(new Set(["t2"]));
+    expect(knobTracks(["t3", "gone"], ids, "t1")).toEqual(new Set(["t3"]));
+    // Every track picked is gone: back to the whole mix.
+    expect(knobTracks(["gone"], ids, "t1")).toBe("all");
   });
 });

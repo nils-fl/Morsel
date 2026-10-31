@@ -139,7 +139,7 @@ class PerformProcessor extends AudioWorkletProcessor {
 
   process(inputs: Float32Array[][], outputs: Float32Array[][]) {
     const out = outputs[0];
-    this.core.process(inputs[0] ?? [], out, out[0].length, currentFrame);
+    this.core.process(inputs[0] ?? [], out, out[0].length, currentFrame, inputs[1] ?? []);
     return true;
   }
 }

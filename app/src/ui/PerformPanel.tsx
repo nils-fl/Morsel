@@ -1,6 +1,6 @@
 // The Perform tab: the live effects on the whole mix, as on the Launchkey's Perform mode. Hold an effect's pad to play
 // it (Shift-click latches it), pick the Flex Beat effects, and set up the Knob FX the encoders play.
-import { FLEX_NAMES, KNOB_FX, MAX_PAD_FX, PAD_FX, formatParam, type FxDef, type FxParam } from "../audio/perform/catalog";
+import { FLEX_NAMES, KNOB_FX, MAX_PAD_FX, PAD_FX, formatParam, type FxDef, type FxParam, type KnobTarget } from "../audio/perform/catalog";
 import { performAvailable, performBank, performPadDown, performPadUp, performSelect, performToggleLatch, sounding } from "../modes/perform";
 import { updatePerform, useApp } from "../state/store";
 import { Section, SelectRow, Slider, ToggleRow } from "./controls";
@@ -105,8 +105,9 @@ export function PerformPanel() {
       )}
 
       <Section title="Knob FX">
-        <p className="hint tip">One effect on the whole mix, played on the encoders in any mode (the Knob FX encoder page) while the pads go on playing.</p>
+        <p className="hint tip">One effect on the whole mix or on chosen tracks, played on the encoders in any mode (the Knob FX encoder page: 1 effect, 2 on, 3 mix, 4 target) while the pads go on playing. Selected follows the track you pick; the track chips choose several. It plays before Flex Beat and the Pad FX, which are always on the whole mix.</p>
         <ToggleRow label="On" checked={settings.knob.on} onChange={(v) => updatePerform((s) => ({ ...s, knob: { ...s.knob, on: v } }))} />
+        <KnobTargetRow />
         <SelectRow label="Effect" value={settings.knob.kind} options={KNOB_FX.map((_, i) => i)} format={(i) => KNOB_FX[i].name} onPick={(i) => updatePerform((s) => ({ ...s, knob: { ...s.knob, kind: i } }))} />
         {knob.params.map((p, j) => (
           <ParamRow
@@ -118,6 +119,32 @@ export function PerformPanel() {
         ))}
         <Slider label="Mix" value={settings.knob.mix} min={0} max={1} format={(v) => `${Math.round(v * 100)}%`} onChange={(v) => updatePerform((s) => ({ ...s, knob: { ...s.knob, mix: v } }))} />
       </Section>
+    </div>
+  );
+}
+
+/** What the Knob FX plays on: the whole mix, the selected track, or the tracks picked (several at once). */
+function KnobTargetRow() {
+  const target = useApp((s) => s.project.perform.knob.target);
+  const tracks = useApp((s) => s.project.tracks);
+  const set = (t: KnobTarget) => updatePerform((s) => ({ ...s, knob: { ...s.knob, target: t } }));
+  const picked = Array.isArray(target) ? target : [];
+  const toggle = (id: string) => {
+    const next = picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id];
+    set(next.length ? next : "mix");
+  };
+  return (
+    <div className="slider knob-target">
+      <span className="slider-label">Target</span>
+      <div className="perform-pick">
+        <button className={`chip${target === "mix" ? " on" : ""}`} onClick={() => set("mix")}>Mix</button>
+        <button className={`chip${target === "selected" ? " on" : ""}`} onClick={() => set("selected")}>Selected</button>
+        {tracks.map((t, i) => (
+          <button key={t.id} className={`chip${picked.includes(t.id) ? " on" : ""}`} title={t.name} onClick={() => toggle(t.id)}>
+            {i + 1} {t.name}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

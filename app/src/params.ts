@@ -10,7 +10,7 @@ import { FX_KINDS, MAX_TRACKS, PAD_COUNT, isKeyChop, type FxKind, type KeysLfo, 
 import { allPresets, applyPreset, currentKit, kitNames, stepKit } from "./actions";
 import { jumpFolder, presetEdited } from "./audio/synthPresets";
 import { noteName } from "./ui/notes";
-import { FLEX_NAMES, KNOB_FX, PAD_FX, formatParam, type FxParam } from "./audio/perform/catalog";
+import { FLEX_NAMES, KNOB_FX, PAD_FX, formatParam, type FxParam, type KnobTarget } from "./audio/perform/catalog";
 
 /** The Knob FX picked. */
 const knobName = () => KNOB_FX[get().project.perform.knob.kind]?.name ?? "";
@@ -704,13 +704,48 @@ const PERFORM_PAGE_DEF: Page = {
   },
 };
 
-/** The Knob FX: one effect on the whole mix, on the encoders while the pads go on playing (any mode). */
+/** What the Knob FX plays on, short: "Mix", "Selected", a track's name or "3 tracks". */
+export function knobTargetText(target: KnobTarget = get().project.perform.knob.target) {
+  if (target === "mix") return "Mix";
+  if (target === "selected") return "Selected";
+  const tracks = get().project.tracks.filter((t) => target.includes(t.id));
+  if (!tracks.length) return "Mix";
+  return tracks.length === 1 ? tracks[0].name : `${tracks.length} tracks`;
+}
+
+/** The Knob FX target as an encoder: Mix, Selected, then each track on its own (several are set on screen). */
+const KNOB_TARGET_PARAM: Param = {
+  name: "Target",
+  value: () => {
+    const t = get().project.perform.knob.target;
+    if (t === "mix") return 0;
+    if (t === "selected") return 1;
+    const i = get().project.tracks.findIndex((x) => x.id === t[0]);
+    return i < 0 ? 0 : i + 2;
+  },
+  get range(): [number, number] {
+    return [0, get().project.tracks.length + 1];
+  },
+  detents: STEPPED,
+  nudge: (d) => {
+    const tracks = get().project.tracks;
+    const t = get().project.perform.knob.target;
+    const at = t === "mix" ? 0 : t === "selected" ? 1 : Math.max(2, tracks.findIndex((x) => x.id === t[0]) + 2);
+    const next = clamp(at + Math.sign(d), 0, tracks.length + 1);
+    const target: KnobTarget = next === 0 ? "mix" : next === 1 ? "selected" : [tracks[next - 2].id];
+    updatePerform((p) => ({ ...p, knob: { ...p.knob, target } }));
+  },
+  format: () => knobTargetText(),
+};
+
+/** The Knob FX: one effect on the mix or on chosen tracks, on the encoders while the pads go on playing (any mode):
+ *  1 effect, 2 on/off, 3 mix, 4 target, 5-7 its settings. */
 const KNOB_PAGE_DEF: Page = {
   name: "Knob FX",
   tag: "KNOB",
   summary: () => {
     const k = get().project.perform.knob;
-    return `${knobName()} ${k.on ? "on" : "off"}`;
+    return `${knobName()} ${k.on ? "on" : "off"} > ${knobTargetText()}`;
   },
   get params(): Param[] {
     const knob = () => get().project.perform.knob;
@@ -727,6 +762,7 @@ const KNOB_PAGE_DEF: Page = {
         format: () => (knob().on ? "On" : "Off"),
       },
       performParam({ name: "Mix", min: 0, max: 1, def: 1, step: 0.02, unit: "%" }, () => knob().mix, (v) => updatePerform((p) => ({ ...p, knob: { ...p.knob, mix: v } }))),
+      KNOB_TARGET_PARAM,
       ...KNOB_FX[kind].params.map((prm, j) =>
         performParam(prm, () => get().project.perform.knob.params[kind][j], (v) => updatePerform((p) => ({ ...p, knob: { ...p.knob, params: setRow(p.knob.params, kind, j, v) } })))),
     ];

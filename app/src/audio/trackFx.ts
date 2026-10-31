@@ -31,6 +31,10 @@ export class TrackStrip {
   private fader: GainNode;
   private sendA: GainNode;
   private sendB: GainNode;
+  /** The strip's way to the master: straight (`toMix`) or through the Knob FX (`toKnob`), crossfaded when it changes. */
+  private toMix: GainNode;
+  private toKnob: GainNode;
+  private knobTarget = false;
   private nodes: AudioNode[];
   private ctx: BaseAudioContext;
   /** Worklet engine: the voice processor feeding this strip (null on the node engine). */
@@ -46,7 +50,7 @@ export class TrackStrip {
   private vibrato: OscillatorNode | null = null;
   private modDepth: GainNode | null = null;
 
-  constructor(ctx: BaseAudioContext, kind: Track["kind"], master: AudioNode, reverbIn: AudioNode, delayIn: AudioNode, worklet = false, live = false) {
+  constructor(ctx: BaseAudioContext, kind: Track["kind"], master: AudioNode, knobIn: AudioNode, reverbIn: AudioNode, delayIn: AudioNode, worklet = false, live = false) {
     this.ctx = ctx;
     this.live = live;
     const g = () => ctx.createGain();
@@ -62,7 +66,11 @@ export class TrackStrip {
 
     let chain: AudioNode = this.wire;
     for (const n of [this.pan, this.fader, this.duck]) chain = chain.connect(n);
-    this.duck.connect(master);
+    this.toMix = g();
+    this.toKnob = g();
+    this.toKnob.gain.value = 0;
+    this.duck.connect(this.toMix).connect(master);
+    this.duck.connect(this.toKnob).connect(knobIn);
     this.duck.connect(this.sendA).connect(reverbIn);
     this.duck.connect(this.sendB).connect(delayIn);
 
@@ -88,7 +96,7 @@ export class TrackStrip {
       this.vibrato.start();
     }
     if (this.voices && kind === "drum") this.padBus.forEach((bus, i) => this.voices!.node.connect(bus, i));
-    this.nodes = [this.input, this.wire, this.pan, this.fader, this.duck, this.sendA, this.sendB, ...this.padBus, ...this.padDuck];
+    this.nodes = [this.input, this.wire, this.pan, this.fader, this.duck, this.sendA, this.sendB, this.toMix, this.toKnob, ...this.padBus, ...this.padDuck];
     if (this.pitchIn) this.nodes.push(this.pitchIn, this.bend!, this.vibrato!, this.modDepth!);
     this.rewire([]);
   }
@@ -155,6 +163,16 @@ export class TrackStrip {
     this.modDepth?.gain.setTargetAtTime(mod * MOD_VIB_CENTS, when, EXPRESSION_TC);
   }
 
+  /** Send the strip through the Knob FX (true) or straight to the mix; crossfaded over a few ms, no click. */
+  setKnobTarget(on: boolean) {
+    if (on === this.knobTarget) return;
+    this.knobTarget = on;
+    const now = this.ctx.currentTime;
+    const tc = this.live ? 0.004 : 0;
+    this.toMix.gain.setTargetAtTime(on ? 0 : 1, now, tc);
+    this.toKnob.gain.setTargetAtTime(on ? 1 : 0, now, tc);
+  }
+
   dispose() {
     clearTimeout(this.rewireTimer);
     this.units.forEach((u) => u.dispose());
@@ -179,6 +197,8 @@ const GLUE_MAKEUP_DB = 4.2;
 export class MasterBus {
   /** Tracks and returns connect here. */
   readonly input: GainNode;
+  /** Tracks (and returns) the Knob FX plays on connect here instead of `input`. */
+  readonly knobIn: GainNode;
   /** After the level and the Perform effects: what a take from the master records. */
   readonly post: GainNode;
   /** Auditions (browser previews, chop auditions): at the master level, past the Perform effects and the glue. */
@@ -198,13 +218,22 @@ export class MasterBus {
     this.ctx = ctx;
     this.input = ctx.createGain();
     this.input.gain.value = DEFAULT_MASTER_LEVEL;
+    this.knobIn = ctx.createGain();
+    this.knobIn.gain.value = DEFAULT_MASTER_LEVEL;
     this.post = ctx.createGain();
     this.previewIn = ctx.createGain();
     this.previewIn.gain.value = DEFAULT_MASTER_LEVEL;
     // Live moves aren't recorded, so a bounce has no Perform engine: the mix goes straight on.
     this.perform = worklet && live ? new PerformNode(ctx) : null;
-    if (this.perform) this.input.connect(this.perform.node).connect(this.post);
-    else this.input.connect(this.post);
+    if (this.perform) {
+      // Input 0: the mix the Knob FX leaves alone; input 1: what it plays on.
+      this.input.connect(this.perform.node, 0, 0);
+      this.knobIn.connect(this.perform.node, 0, 1);
+      this.perform.node.connect(this.post);
+    } else {
+      this.input.connect(this.post);
+      this.knobIn.connect(this.post);
+    }
     const glue = (this.glue = ctx.createDynamicsCompressor());
     glue.threshold.value = -14;
     glue.knee.value = 6;
@@ -250,6 +279,7 @@ export class MasterBus {
 
   update(level: number, glue = false) {
     this.input.gain.setTargetAtTime(level, this.ctx.currentTime, TC);
+    this.knobIn.gain.setTargetAtTime(level, this.ctx.currentTime, TC);
     this.previewIn.gain.setTargetAtTime(level, this.ctx.currentTime, TC);
     this.setGlue(glue);
   }
@@ -266,19 +296,41 @@ export class ReturnFx {
   private reverbOut: GainNode;
   private echo: Echo;
   private delayOut: GainNode;
+  /** The returns' way to the master: straight, or through the Knob FX when it plays on the whole mix. */
+  private toMix: GainNode;
+  private toKnob: GainNode;
+  private knobTarget = false;
   private ctx: BaseAudioContext;
 
-  constructor(ctx: BaseAudioContext, master: AudioNode, live: boolean) {
+  constructor(ctx: BaseAudioContext, master: AudioNode, knobIn: AudioNode, live: boolean) {
     this.ctx = ctx;
     this.room = new Room(ctx, live);
     this.reverbIn = ctx.createGain();
     this.reverbOut = ctx.createGain();
+    this.toMix = ctx.createGain();
+    this.toKnob = ctx.createGain();
+    this.toKnob.gain.value = 0;
+    this.toMix.connect(master);
+    this.toKnob.connect(knobIn);
     this.reverbIn.connect(this.room.input);
-    this.room.output.connect(this.reverbOut).connect(master);
+    this.room.output.connect(this.reverbOut);
     this.echo = new Echo(ctx);
     this.delayIn = this.echo.input;
     this.delayOut = ctx.createGain();
-    this.echo.output.connect(this.delayOut).connect(master);
+    this.echo.output.connect(this.delayOut);
+    for (const out of [this.reverbOut, this.delayOut]) {
+      out.connect(this.toMix);
+      out.connect(this.toKnob);
+    }
+  }
+
+  /** Through the Knob FX (true) or straight to the mix, crossfaded. */
+  setKnobTarget(on: boolean) {
+    if (on === this.knobTarget) return;
+    this.knobTarget = on;
+    const now = this.ctx.currentTime;
+    this.toMix.gain.setTargetAtTime(on ? 0 : 1, now, 0.004);
+    this.toKnob.gain.setTargetAtTime(on ? 1 : 0, now, 0.004);
   }
 
   update(r: Returns, bpm: number) {

@@ -11,7 +11,8 @@ export class PerformNode {
   /** The context must have the voice worklet module loaded (loadVoiceWorklet registers this processor too). */
   constructor(ctx: BaseAudioContext) {
     this.node = new AudioWorkletNode(ctx, PERFORM_PROCESSOR_NAME, {
-      numberOfInputs: 1,
+      // 0: the mix the Knob FX leaves alone, 1: the tracks it plays on.
+      numberOfInputs: 2,
       numberOfOutputs: 1,
       outputChannelCount: [2],
       channelCount: 2,

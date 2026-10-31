@@ -100,9 +100,13 @@ export interface PerformSettings {
   pad: number[][];
   /** Flex Beat: one-shot (back to Empty when an effect ends) or loop; quantized starts; dry/wet. */
   flex: { oneShot: boolean; quantize: boolean; mix: number };
-  /** The Knob FX picked, its settings by effect, its dry/wet and whether it is on. */
-  knob: { kind: number; params: number[][]; mix: number; on: boolean };
+  /** The Knob FX picked, its settings by effect, its dry/wet, whether it is on and what it plays on. */
+  knob: { kind: number; params: number[][]; mix: number; on: boolean; target: KnobTarget };
 }
+
+/** What the Knob FX plays on: the whole mix (with the send returns), the selected track (it follows the selection), or
+ *  these tracks (by id). */
+export type KnobTarget = "mix" | "selected" | string[];
 
 export const defaultParams = (def: FxDef) => def.params.map((p) => p.def);
 
@@ -110,7 +114,7 @@ export function defaultPerform(): PerformSettings {
   return {
     pad: PAD_FX.map(defaultParams),
     flex: { oneShot: false, quantize: true, mix: 1 },
-    knob: { kind: 0, params: KNOB_FX.map(defaultParams), mix: 1, on: false },
+    knob: { kind: 0, params: KNOB_FX.map(defaultParams), mix: 1, on: false, target: "mix" },
   };
 }
 
@@ -141,6 +145,8 @@ export function normalizePerform(raw: unknown): PerformSettings {
       params: fx(KNOB_FX, k.params),
       mix: typeof k.mix === "number" ? Math.max(0, Math.min(1, k.mix)) : 1,
       on: k.on === true,
+      target: k.target === "selected" ? "selected"
+        : Array.isArray(k.target) && k.target.length && k.target.every((x) => typeof x === "string") ? [...new Set(k.target)] : "mix",
     },
   };
 }
@@ -155,4 +161,13 @@ export function formatParam(p: FxParam, v: number) {
     case "bits": return `${v.toFixed(1)} bit`;
     default: return Math.abs(v - Math.round(v)) < 1e-6 ? `${Math.round(v)}` : v.toFixed(2);
   }
+}
+
+/** The tracks the Knob FX plays on, by id ("all": the whole mix). Tracks that are gone are left out; when none is left
+ *  it plays on the whole mix. */
+export function knobTracks(target: KnobTarget, trackIds: readonly string[], selected: string): "all" | Set<string> {
+  if (target === "mix") return "all";
+  const ids = target === "selected" ? [selected] : target;
+  const there = ids.filter((id) => trackIds.includes(id));
+  return there.length ? new Set(there) : "all";
 }

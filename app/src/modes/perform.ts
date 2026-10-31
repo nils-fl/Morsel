@@ -3,7 +3,7 @@
 // latches the held ones. Bank 2 (Flex Beat): a pad starts a time effect (repeats, tape stops, gates), pad 1 = Empty.
 // Nothing here is recorded: it is heard live and in a take from the master (Shift + Record).
 import { engine } from "../audio/engine";
-import { FLEX_NAMES, MAX_PAD_FX, PAD_FX, formatParam, type FxDef } from "../audio/perform/catalog";
+import { FLEX_NAMES, MAX_PAD_FX, PAD_FX, formatParam, knobTracks, type FxDef } from "../audio/perform/catalog";
 import { BAR_TICKS, secondsPerTick } from "../seq/timing";
 import { sequencer } from "../seq/sequencer";
 import { get, set, updatePerform, type PerformLive } from "../state/store";
@@ -154,6 +154,22 @@ export function summary(def: FxDef, values: readonly number[]) {
   return def.params.map((p, i) => formatParam(p, values[i] ?? p.def)).join(" ");
 }
 
+// ---------- Knob FX target ----------
+
+let lastTargets = "";
+
+/** Route the tracks through the Knob FX or past it, as its target says (the selected track, some tracks, the mix). */
+export function applyKnobTargets(force = false) {
+  // Before the audio starts there is nothing to route; the new engine gets it (syncPerformGrid).
+  if (!(engine.voices as typeof engine.voices | undefined)) return;
+  const s = get();
+  const t = knobTracks(s.project.perform.knob.target, s.project.tracks.map((x) => x.id), s.selectedTrack);
+  const key = t === "all" ? "all" : [...t].sort().join(",");
+  if (key === lastTargets && !force) return;
+  lastTargets = key;
+  engine.voices.setKnobTargets(t);
+}
+
 // ---------- the grid ----------
 
 let lastGrid = { bpm: 0, origin: NaN };
@@ -174,6 +190,7 @@ export function syncPerformGrid() {
     lastGrid = { bpm: 0, origin: NaN };
     node.onFlexEnd = flexEnded;
     node.setSettings(get().project.perform);
+    applyKnobTargets(true);
     sendPads();
   }
   const bpm = get().project.bpm;
